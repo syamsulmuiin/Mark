@@ -167,7 +167,7 @@ Protected architecture invariants include headless server operation, origin-firs
 
 The server currently contains upload/download endpoints and a server upload repository. This is not yet a complete generic cross-device file-transfer protocol. Do not describe MARK-LIV as supporting arbitrary companion-to-companion file sharing until common transfer capabilities are implemented across the companions.
 
-Server file-transfer data is stored under the project-local `storage/` directory. The server creates `storage/uploads/`, `storage/share/`, and `storage/downloads/` automatically. `storage/` is excluded from Git. Upload source selection remains user-directed; companions may choose their own local save destination.
+Server file-transfer data uses a single-copy SHA-256 object store under project-local `storage/objects/` with metadata under `storage/metadata/`. Upload/share/download are transfer states, not duplicate physical directories. Cross-companion transfers stream through one-time authenticated URLs into a durable recipient-scoped attachment inbox. The recipient chooses Open, Save As or Share. Temporary server objects are retained while inbox references exist (30-day expiry); permanent server retention is explicit. `storage/` is excluded from Git. Source selection is user-directed and can use the native source picker; Android reads only paths/content URIs it can access. Attachment delivery does not force a destination directory.
 
 ## Network configuration
 

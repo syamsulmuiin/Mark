@@ -39,6 +39,8 @@ except Exception:
 
 BASE_DIR    = Path(__file__).resolve().parent.parent
 from core.device_mesh import DeviceMesh
+from core.file_store import ObjectStore
+from core.attachment_inbox import AttachmentInbox
 from core.cloudflare_tunnel import NamedTunnel, enabled as cloudflare_enabled, public_url as cloudflare_public_url
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
 STATIC_DIR  = Path(__file__).parent / "static"
@@ -46,25 +48,14 @@ PORT        = DASHBOARD_PORT
 DISCOVERY_MAGIC = "MARKLIV_DISCOVER_V1"
 MAX_UPLOAD_MB = 500
 
-
-def _make_storage_dirs() -> dict[str, Path]:
-    """Create the project-local server file repository."""
-    root = BASE_DIR / "storage"
-    paths = {
-        "root": root,
-        "uploads": root / "uploads",
-        "share": root / "share",
-        "downloads": root / "downloads",
-    }
-    for path in paths.values():
-        path.mkdir(parents=True, exist_ok=True)
-    return paths
+def _safe_filename(raw: str) -> str:
+    name = Path(str(raw or "")).name
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(". ")
+    return name or "file"
 
 
-STORAGE_DIRS = _make_storage_dirs()
-UPLOADS_DIR = STORAGE_DIRS["uploads"]
-SHARE_DIR = STORAGE_DIRS["share"]
-DOWNLOADS_DIR = STORAGE_DIRS["downloads"]
+STORAGE_ROOT = BASE_DIR / "storage"
+STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 
 def _get_gemini_key() -> str | None:
     try:
@@ -486,7 +477,11 @@ class DashboardServer:
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
-        self._uploads_dir                 = UPLOADS_DIR
+        self._file_store                  = ObjectStore(STORAGE_ROOT)
+        self._attachment_inbox = AttachmentInbox(self._file_store.meta)
+        self._file_store.attachment_referenced = self._attachment_inbox.referenced
+        self._release_expired_attachments()
+        self._transfer_tickets: dict[str, dict] = {}
         self.app                          = self._build_app()
 
     # ── one-time key management ───────────────────────────────────────────
@@ -643,6 +638,65 @@ class DashboardServer:
         finally:
             self._device_pending_calls.pop(call_id, None)
 
+    def _new_transfer_ticket(self, mode: str, **data) -> str:
+        token = secrets.token_urlsafe(24)
+        self._transfer_tickets[token] = {"mode": mode, "expires": time.time()+300, **data}
+        return token
+
+    def _take_transfer_ticket(self, token: str, mode: str):
+        rec = self._transfer_tickets.pop(token, None)
+        if not rec or rec.get("mode") != mode or rec.get("expires",0) < time.time():
+            return None
+        return rec
+
+    async def transfer_file(self, source_device: str, destination_device: str, source: str, destination_name: str = "", keep_on_server: bool = False):
+        """Upload once, then place a durable attachment reference in the recipient inbox."""
+        name = _safe_filename(destination_name or Path(source).name or "file")
+        base = self.get_remote_url().rstrip("/")
+        up = self._new_transfer_ticket("upload", name=name, temporary=not keep_on_server)
+        reply = await self.call_device(source_device, "file.upload", {
+            "source": source, "url": f"{base}/api/transfer/upload/{up}", "name": name}, timeout=300)
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
+        info = json.loads(str(reply.get("result") or "{}"))
+        digest, size = str(info.get("sha256") or ""), int(info.get("size") or -1)
+        if not destination_name:
+            name = _safe_filename(info.get("name") or name)
+        obj = self._file_store.by_hash(digest)
+        if not obj or int(obj.get("size", -2)) != size:
+            raise RuntimeError("Server upload verification failed")
+        # Durable inbox record is committed before optional real-time notification.
+        item = self._attachment_inbox.create(source_device=source_device,
+            destination_device=destination_device, name=name, sha256=digest, size=size)
+        ws = self._device_sockets.get(destination_device)
+        if ws:
+            try:
+                await ws.send_json({"type":"attachment.new", "attachment":item})
+                self._attachment_inbox.mark(destination_device, item["id"], "delivered")
+            except Exception:
+                pass  # Offline recipients retrieve the same durable inbox on reconnect.
+        return {"ok":True, "status":"queued" if not ws else "notified",
+                "attachment_id":item["id"], "name":name, "sha256":digest,
+                "size":size, "destination_device":destination_device,
+                "saved_to_destination":False}
+
+    async def _send_attachment_inbox(self, ws, device_id):
+        await ws.send_json({"type":"attachment.inbox", "attachments":
+                            self._attachment_inbox.for_device(device_id)})
+
+    def _release_expired_attachments(self):
+        self._attachment_inbox.expire()
+        for digest, rec in list(self._file_store.index.get("objects", {}).items()):
+            if (rec.get("temporary") and time.time()-float(rec.get("created_at",time.time()))>3600
+                    and not self._attachment_inbox.referenced(digest)):
+                self._file_store.release_temporary(digest)
+
+    async def _attachment_gc_loop(self):
+        # Housekeeping only: never changes the user's requested task schedule.
+        while True:
+            await asyncio.sleep(3600)
+            self._release_expired_attachments()
+
     # ── FastAPI app ───────────────────────────────────────────────────────
 
     def _build_app(self) -> "FastAPI":
@@ -654,7 +708,7 @@ class DashboardServer:
         @app.middleware("http")
         async def native_companions_only(req: Request, call_next):
             path = req.url.path
-            allowed = (path.startswith("/api/pairing/offer/") or path == "/api/pairing/accept" or path in ("/api/local/pairing/new", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/"))
+            allowed = (path.startswith("/api/pairing/offer/") or path == "/api/pairing/accept" or path in ("/api/local/pairing/new", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/") or path.startswith("/api/transfer/"))
             if not allowed:
                 return JSONResponse({"error": "Install a MARK LIV companion client to access this server."}, status_code=404)
             return await call_next(req)
@@ -893,6 +947,7 @@ class DashboardServer:
                 self._device_sockets[device_id] = websocket
                 self._mesh.touch(device_id)
                 await websocket.send_json({"type": "ready", "capabilities": rec.get("capabilities", [])})
+                await self._send_attachment_inbox(websocket, device_id)
                 while True:
                     packet = await websocket.receive()
                     if packet.get("type") == "websocket.disconnect":
@@ -927,6 +982,19 @@ class DashboardServer:
                         # the current answer immediately and reopen listening.
                         if self._interrupt_callback:
                             self._interrupt_callback()
+                    elif msg.get("type") == "attachment.list":
+                        await self._send_attachment_inbox(websocket, device_id)
+                    elif msg.get("type") == "attachment.download":
+                        item = self._attachment_inbox.get(device_id, str(msg.get("id") or ""))
+                        if not item or not self._file_store.by_hash(item["sha256"]):
+                            await websocket.send_json({"type":"attachment.error", "error":"Attachment unavailable or expired"})
+                        else:
+                            token = self._new_transfer_ticket("download", sha256=item["sha256"], name=item["name"])
+                            await websocket.send_json({"type":"attachment.download.ready", "id":item["id"],
+                                "url":self.get_remote_url().rstrip("/")+"/api/transfer/download/"+token,
+                                "name":item["name"], "sha256":item["sha256"], "size":item["size"]})
+                    elif msg.get("type") == "attachment.saved":
+                        self._attachment_inbox.mark(device_id, str(msg.get("id") or ""), "saved")
                     elif msg.get("type") == "capability.result":
                         call_id = str(msg.get("call_id") or "")
                         fut = self._device_pending_calls.pop(call_id, None)
@@ -998,93 +1066,67 @@ class DashboardServer:
                     {"type": "sys", "text": "Phone microphone stopped."}
                 ))
 
-        # ── File sharing ──────────────────────────────────────────────────────
-
-        def _safe_filename(raw: str) -> str:
-            name = Path(raw).name                          # strip path components
-            name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(". ")
-            return name or "upload"
+        # ── Single-copy file storage and transfer ─────────────────────────
 
         if _UPLOAD_OK:
             @app.post("/api/upload")
             async def upload_file(req: Request, file: UploadFile = FastAPIFile(...)):
-                if not _auth(req):
-                    return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-                safe = _safe_filename(file.filename or "upload")
-                dest = self._uploads_dir / safe
-                stem, suffix = Path(safe).stem, Path(safe).suffix
-                counter = 1
-                while dest.exists():
-                    dest = self._uploads_dir / f"{stem}_{counter}{suffix}"
-                    counter += 1
-
-                size = 0
-                max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+                if not _auth(req): return JSONResponse({"error":"Unauthorized"},status_code=401)
+                name=_safe_filename(file.filename or "upload"); tmp=self._file_store.tmp/secrets.token_hex(12); size=0; max_bytes=MAX_UPLOAD_MB*1024*1024
                 try:
-                    with open(dest, "wb") as fout:
+                    with open(tmp,"wb") as out:
                         while True:
-                            chunk = await file.read(65536)
-                            if not chunk:
-                                break
-                            size += len(chunk)
-                            if size > max_bytes:
-                                fout.close()
-                                dest.unlink(missing_ok=True)
-                                return JSONResponse(
-                                    {"error": f"File too large (max {MAX_UPLOAD_MB} MB)"},
-                                    status_code=413,
-                                )
-                            fout.write(chunk)
+                            chunk=await file.read(65536)
+                            if not chunk: break
+                            size+=len(chunk)
+                            if size>max_bytes: raise ValueError(f"File too large (max {MAX_UPLOAD_MB} MB)")
+                            out.write(chunk)
+                    info=self._file_store.ingest(tmp,name,temporary=False)
+                    return JSONResponse({"ok":True,"name":name,"size":info["size"],"sha256":info["sha256"]})
+                except ValueError as exc:
+                    tmp.unlink(missing_ok=True); return JSONResponse({"error":str(exc)},status_code=413)
                 except Exception as exc:
-                    try:
-                        dest.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-                    return JSONResponse({"error": str(exc)}, status_code=500)
-
-                asyncio.create_task(self.broadcast({
-                    "type": "file_received",
-                    "name": dest.name,
-                    "size": size,
-                    "saved_to": str(self._uploads_dir),
-                }))
-                return JSONResponse({"ok": True, "name": dest.name, "size": size})
+                    tmp.unlink(missing_ok=True); return JSONResponse({"error":str(exc)},status_code=500)
         else:
             @app.post("/api/upload")
-            async def upload_unavailable(req: Request):
-                return JSONResponse(
-                    {"error": "File uploads require: pip install python-multipart"},
-                    status_code=503,
-                )
+            async def upload_unavailable(req: Request): return JSONResponse({"error":"File uploads require: pip install python-multipart"},status_code=503)
 
         @app.get("/api/files")
         async def list_files(req: Request):
-            if not _auth(req):
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            files = []
-            try:
-                for f in sorted(
-                    (p for p in self._uploads_dir.iterdir() if p.is_file()),
-                    key=lambda p: p.stat().st_mtime,
-                    reverse=True,
-                ):
-                    files.append({"name": f.name, "size": f.stat().st_size})
-            except Exception:
-                pass
-            return JSONResponse({"files": files})
+            if not _auth(req): return JSONResponse({"error":"Unauthorized"},status_code=401)
+            return JSONResponse({"files":self._file_store.list()})
 
         @app.get("/uploads/{filename}")
         async def download_file(filename: str, token: str = ""):
-            # Auth via query param — browser <a download> can't send custom headers
-            tok = token.strip()
-            if not tok or tok not in self._tokens:
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            safe = re.sub(r'[/\\]', '', filename)
-            path = self._uploads_dir / safe
-            if not path.exists() or not path.is_file():
-                return JSONResponse({"error": "Not found"}, status_code=404)
-            return FileResponse(str(path), filename=safe)
+            if not token.strip() or token.strip() not in self._tokens: return JSONResponse({"error":"Unauthorized"},status_code=401)
+            rec=self._file_store.resolve(_safe_filename(filename))
+            if not rec:return JSONResponse({"error":"Not found"},status_code=404)
+            return FileResponse(str(rec["path"]),filename=rec["name"])
+
+        @app.put("/api/transfer/upload/{ticket}")
+        async def transfer_upload(ticket: str, req: Request):
+            rec=self._take_transfer_ticket(ticket,"upload")
+            if not rec:return JSONResponse({"error":"Invalid or expired transfer ticket"},status_code=403)
+            tmp=self._file_store.tmp/secrets.token_hex(12); size=0; max_bytes=MAX_UPLOAD_MB*1024*1024
+            try:
+                with open(tmp,"wb") as out:
+                    async for chunk in req.stream():
+                        size+=len(chunk)
+                        if size>max_bytes: raise ValueError(f"File too large (max {MAX_UPLOAD_MB} MB)")
+                        out.write(chunk)
+                actual_name=_safe_filename(req.headers.get("X-File-Name") or rec["name"]) if rec["name"]=="file" else rec["name"]
+                info=self._file_store.ingest(tmp,actual_name,temporary=bool(rec.get("temporary")))
+                return JSONResponse({"ok":True,"name":actual_name,"sha256":info["sha256"],"size":info["size"]})
+            except Exception as exc:
+                tmp.unlink(missing_ok=True); return JSONResponse({"error":str(exc)},status_code=413 if isinstance(exc,ValueError) else 500)
+
+        @app.get("/api/transfer/download/{ticket}")
+        async def transfer_download(ticket: str):
+            rec=self._take_transfer_ticket(ticket,"download")
+            if not rec:return JSONResponse({"error":"Invalid or expired transfer ticket"},status_code=403)
+            obj=self._file_store.by_hash(rec["sha256"])
+            if not obj:return JSONResponse({"error":"Transfer object not found"},status_code=404)
+            return FileResponse(str(obj["path"]),filename=rec["name"],headers={"X-Content-SHA256":rec["sha256"]})
 
         @app.websocket("/ws")
         async def ws_ep(websocket: WebSocket, token: str = ""):
@@ -1190,6 +1232,7 @@ class DashboardServer:
         # Start the optional outbound-only Cloudflare tunnel. It exposes the same
         # dashboard/device WebSocket; JARVIS pairing still authenticates devices.
         asyncio.create_task(self._start_remote_tunnel())
+        asyncio.create_task(self._attachment_gc_loop())
 
         # Firewall setup runs in a thread — uvicorn starts immediately,
         # no waiting for UAC dialogs or subprocess timeouts.

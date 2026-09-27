@@ -70,5 +70,5 @@ runtime/background.log
 runtime/error.log
 runtime/error.log.*
 
-# Project-local server file repository (uploads/share/downloads)
+# Project-local server single-copy object store and transfer metadata
 storage/

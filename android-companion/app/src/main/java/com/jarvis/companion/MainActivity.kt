@@ -13,6 +13,7 @@ import android.view.Surface
 import android.net.Uri
 import android.os.*
 import android.provider.Settings
+import android.provider.MediaStore
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -25,7 +26,11 @@ import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.json.JSONObject
+import org.json.JSONArray
+import androidx.core.content.FileProvider
 import java.security.SecureRandom
+import java.security.MessageDigest
+import java.io.File
 import java.security.cert.X509Certificate
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -46,6 +51,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var startConversation: Button
     private lateinit var phoneControl: ImageButton
     private var ws: WebSocket? = null
+    private val attachmentItems = linkedMapOf<String,JSONObject>()
+    private var pendingAttachment: Pair<String,String>? = null
+    private var pendingSaveUri: Uri? = null
+    private var pendingSaveInfo: JSONObject? = null
+    private var attachmentDialog: AlertDialog? = null
+    private var sourcePickerLatch: CountDownLatch? = null
+    private var pickedSourceUri: Uri? = null
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
@@ -65,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         endConversation.setOnClickListener { endVoice() }
         startConversation.setOnClickListener { connect() }
         phoneControl.setOnClickListener { showPhoneControlMenu(it) }
+        findViewById<Button>(R.id.attachments).setOnClickListener { showAttachmentInbox() }
         if (Build.VERSION.SDK_INT>=33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
         intent?.data?.getQueryParameter("code")?.let { pairCode.setText(it.uppercase()); pairWithCode(it) }
         if (intent?.data==null && prefs.getBoolean("paired", false)) { showVoice(); connect() }
@@ -115,7 +128,7 @@ class MainActivity : AppCompatActivity() {
                 val o=try { JSONObject(response.body?.string().orEmpty()) } catch(_:Exception){ pairUi("Invalid response from JARVIS"); return }
                 val nonce=o.optString("nonce"); val serverKey=o.optString("public_key"); val serverId=o.optString("device_id")
                 if(nonce.isBlank()||serverKey.isBlank()||serverId.isBlank()){pairUi("Pairing code invalid or expired");return}
-                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
+                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
                 val body=JSONObject()
                     .put("code",code)
                     .put("peer",peer)
@@ -141,7 +154,11 @@ class MainActivity : AppCompatActivity() {
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
             override fun onMessage(w:WebSocket,text:String){ try {
                 val m=JSONObject(text); when(m.optString("type")){
-                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
+                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
+                    "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog() } }
+                    "attachment.new"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(attachmentItems){ attachmentItems[item.getString("id")]=item }; runOnUiThread { Toast.makeText(this@MainActivity,"Attachment: ${item.optString("name")}",Toast.LENGTH_LONG).show(); refreshAttachmentDialog() } } }
+                    "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
+                    "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "log"->{ appendTranscript(m.optString("speaker"),m.optString("text")); if(m.optString("speaker")=="jarvis") setVoiceState("LISTENING") }
@@ -259,7 +276,27 @@ class MainActivity : AppCompatActivity() {
     private fun setEnded()=runOnUiThread { status.text=getString(R.string.conversation_ended); orb.state="SLEEPING"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
-    private fun executeCapability(w:WebSocket,m:JSONObject){ val cap=m.optString("capability"); val a=m.optJSONObject("args")?:JSONObject(); var ok=true; var result="done"; try { when(cap){
+    private fun executeCapability(w:WebSocket,m:JSONObject){ val cap=m.optString("capability"); val a=m.optJSONObject("args")?:JSONObject()
+        if(cap=="file.upload" && a.optString("source").isBlank()){
+            val latch=CountDownLatch(1); sourcePickerLatch=latch; pickedSourceUri=null
+            runOnUiThread { try {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),92)
+            }catch(e:Exception){sourcePickerLatch=null;latch.countDown()} }
+            Thread {
+                var ok=true; var result="done"
+                try{
+                    if(!latch.await(120,TimeUnit.SECONDS))error("File selection timed out")
+                    val selected=pickedSourceUri?:error("File selection cancelled")
+                    a.put("source",selected.toString())
+                    result=uploadTransferFile(a)
+                }catch(e:Exception){ok=false;result=e.message?:e.toString()}
+                finally{sourcePickerLatch=null;pickedSourceUri=null}
+                w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id"))
+                    .put("ok",ok).put("result",result).toString())
+            }.start()
+            return
+        }
+        var ok=true; var result="done"; try { when(cap){
         "notification"->{ val nm=getSystemService(NotificationManager::class.java); val cid="jarvis"; if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(NotificationChannel(cid,"JARVIS",NotificationManager.IMPORTANCE_DEFAULT)); nm.notify((System.currentTimeMillis()%Int.MAX_VALUE).toInt(),Notification.Builder(this,cid).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("JARVIS").setContentText(a.optString("text")).build()) }
         "vibration"->{ val v=if(Build.VERSION.SDK_INT>=31)getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") getSystemService(VIBRATOR_SERVICE) as Vibrator; v.vibrate(VibrationEffect.createOneShot(a.optLong("ms",300),VibrationEffect.DEFAULT_AMPLITUDE)) }
         "clipboard.write"->{ (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("JARVIS",a.optString("text"))) }
@@ -268,6 +305,8 @@ class MainActivity : AppCompatActivity() {
         "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("home") }
         "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page" }
         "camera.capture"->{ result=captureCameraFrame(a.optString("facing","back")) }
+        "file.upload"->{ result=uploadTransferFile(a) }
+        "file.receive"->{ result=receiveTransferFile(a) }
         "android.ui.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.inspect(a.optInt("max_nodes",120)).toString() }
         "android.ui.click"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.click(a.optString("text"),a.optString("view_id")) }
         "android.ui.text"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.setText(a.getString("text"),a.optString("target_text"),a.optString("view_id")) }
@@ -277,6 +316,136 @@ class MainActivity : AppCompatActivity() {
         "android.screen.wake"->{ val pm=getSystemService(POWER_SERVICE) as PowerManager; if(!pm.isInteractive){ @Suppress("DEPRECATION") val wl=pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,"jarvis:wake"); wl.acquire(3000) }; result="screen awake; device authentication is still required" }
         else->{ok=false;result="Unsupported capability: $cap"}
     }}catch(e:Exception){ok=false;result=e.message?:e.toString()}; w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id")).put("ok",ok).put("result",result).toString()) }
+
+    private fun showAttachmentInbox(){
+        ws?.send(JSONObject().put("type","attachment.list").toString())
+        val list=ListView(this)
+        attachmentDialog=AlertDialog.Builder(this).setTitle("Attachments").setView(list)
+            .setNegativeButton("Close",null).create()
+        list.tag="attachment-list"
+        list.setOnItemClickListener { _,_,position,_ ->
+            val item=synchronized(attachmentItems){ attachmentItems.values.toList().getOrNull(position) }?:return@setOnItemClickListener
+            val actions=arrayOf("Open","Save As","Share")
+            AlertDialog.Builder(this).setTitle(item.optString("name")).setItems(actions){ _,which ->
+                val action=when(which){0->"open";1->"save";else->"share"}
+                if(action=="save"){
+                    val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,item.optString("name"))
+                    pendingAttachment=Pair(item.getString("id"),action)
+                    startActivityForResult(intent,91)
+                }else requestAttachment(item.getString("id"),action)
+            }.show()
+        }
+        attachmentDialog?.show(); refreshAttachmentDialog()
+    }
+
+    private fun refreshAttachmentDialog(){
+        val list=attachmentDialog?.findViewById<ListView>(android.R.id.list)
+            ?: (attachmentDialog?.window?.decorView?.findViewWithTag<View>("attachment-list") as? ListView)
+        val names=synchronized(attachmentItems){ attachmentItems.values.map { "${it.optString("name")} · ${it.optLong("size")} bytes · ${it.optString("status","pending")}" } }
+        list?.adapter=ArrayAdapter(this,android.R.layout.simple_list_item_1,names)
+    }
+
+    private fun requestAttachment(id:String,action:String){
+        pendingAttachment=Pair(id,action)
+        ws?.send(JSONObject().put("type","attachment.download").put("id",id).toString())
+    }
+
+    @Deprecated("Activity result used for native document picker compatibility")
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){
+        super.onActivityResult(requestCode,resultCode,data)
+        if(requestCode==92){
+            if(resultCode==RESULT_OK)pickedSourceUri=data?.data
+            sourcePickerLatch?.countDown()
+        }
+        if(requestCode==91){
+            if(resultCode==RESULT_OK && data?.data!=null){ pendingSaveUri=data.data; pendingAttachment?.let { requestAttachment(it.first,"save") } }
+            else { pendingAttachment=null; pendingSaveUri=null }
+        }
+    }
+
+    private fun handleAttachmentDownload(info:JSONObject,action:String){
+        Thread {
+            val id=info.getString("id"); val name=info.getString("name").replace(Regex("[\\/]+"),"_")
+            val destUri=if(action=="save")pendingSaveUri else null
+            if(action=="save" && destUri==null){ui("No destination selected");return@Thread}
+            val cached=File(File(cacheDir,"attachments").apply{mkdirs()},"$id-$name")
+            val temp=File(cached.absolutePath+".part")
+            val hash=MessageDigest.getInstance("SHA-256"); var total=0L
+            try{
+                val response=client.newCall(Request.Builder().url(info.getString("url")).build()).execute()
+                response.use { r ->
+                    if(!r.isSuccessful)error("Download failed: HTTP ${r.code}")
+                    val input=r.body?.byteStream()?:error("Empty attachment")
+                    temp.outputStream().use { out -> input.use { src ->
+                        val buffer=ByteArray(1024*1024)
+                        while(true){val n=src.read(buffer);if(n<=0)break;out.write(buffer,0,n);hash.update(buffer,0,n);total+=n}
+                    } }
+                }
+                val digest=hash.digest().joinToString(""){"%02x".format(it)}
+                if(digest!=info.getString("sha256")||total!=info.getLong("size"))error("Attachment verification failed")
+                if(!temp.renameTo(cached))error("Cannot prepare attachment")
+                if(action=="save"){
+                    contentResolver.openOutputStream(destUri!!)?.use { out -> cached.inputStream().use { it.copyTo(out) } }?:error("Cannot save attachment")
+                    val savedDigest=MessageDigest.getInstance("SHA-256")
+                    var savedSize=0L
+                    contentResolver.openInputStream(destUri)?.use { stream ->
+                        val buf=ByteArray(1024*1024)
+                        while(true){val n=stream.read(buf);if(n<=0)break;savedDigest.update(buf,0,n);savedSize+=n}
+                    }?:error("Cannot verify saved attachment")
+                    val savedHash=savedDigest.digest().joinToString(""){"%02x".format(it)}
+                    if(savedHash!=digest||savedSize!=total)error("Saved attachment verification failed")
+                    ws?.send(JSONObject().put("type","attachment.saved").put("id",id).toString())
+                    ui("Attachment saved")
+                }else{
+                    val uri=FileProvider.getUriForFile(this,"${packageName}.files",cached)
+                    val mime=java.net.URLConnection.guessContentTypeFromName(name)?:"application/octet-stream"
+                    val intent=if(action=="share") Intent(Intent.ACTION_SEND).setType(mime)
+                        .putExtra(Intent.EXTRA_STREAM,uri)
+                    else Intent(Intent.ACTION_VIEW).setDataAndType(uri,mime)
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    runOnUiThread { try { startActivity(if(action=="share")Intent.createChooser(intent,"Share attachment") else intent) }
+                        catch(e:Exception){ ui("No app can open this attachment: ${e.message}") } }
+                }
+            }catch(e:Exception){temp.delete();ui("Attachment failed: ${e.message}")}
+            finally{ if(action=="save")pendingSaveUri=null }
+        }.start()
+    }
+
+    private fun uploadTransferFile(a:JSONObject):String {
+        val source=a.optString("source").trim(); if(source.isBlank()) error("source is required")
+        val uri=if(source.startsWith("content://")) Uri.parse(source) else Uri.fromFile(File(source))
+        val displayName=if(source.startsWith("content://")){
+            contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor ->
+                if(cursor.moveToFirst())cursor.getString(0) else "file"
+            }?:"file"
+        }else File(source).name
+        val digest=MessageDigest.getInstance("SHA-256"); var total=0L
+        val body=object:RequestBody(){
+            override fun contentType()="application/octet-stream".toMediaType()
+            override fun writeTo(sink:okio.BufferedSink){
+                val input=contentResolver.openInputStream(uri)?:error("Cannot open source file: $source")
+                input.use { stream -> val buf=ByteArray(1024*1024); while(true){ val n=stream.read(buf); if(n<=0) break; digest.update(buf,0,n); total+=n; sink.write(buf,0,n) } }
+            }
+        }
+        val req=Request.Builder().url(a.getString("url")).header("X-File-Name",displayName.replace(Regex("[\\/]+"),"_")).put(body).build()
+        client.newCall(req).execute().use { r -> if(!r.isSuccessful) error("Upload failed: HTTP ${r.code}"); val server=JSONObject(r.body?.string()?:"{}"); val hash=digest.digest().joinToString(""){"%02x".format(it)}; if(server.optString("sha256")!=hash||server.optLong("size",-1)!=total) error("Server upload verification failed"); return JSONObject().put("name",displayName).put("sha256",hash).put("size",total).toString() }
+    }
+
+    private fun receiveTransferFile(a:JSONObject):String {
+        if(Build.VERSION.SDK_INT<29) error("file.receive to shared Downloads is unsupported on Android below 10 without legacy storage permission")
+        val name=a.optString("name","file").replace(Regex("[\\/]+"),"_")
+        val values=ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME,name); put(MediaStore.MediaColumns.MIME_TYPE,"application/octet-stream"); if(Build.VERSION.SDK_INT>=29) put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/MARK-LIV") }
+        val collection=MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val outUri=contentResolver.insert(collection,values)?:error("Cannot create destination file")
+        val digest=MessageDigest.getInstance("SHA-256"); var total=0L
+        try {
+            val req=Request.Builder().url(a.getString("url")).get().build()
+            client.newCall(req).execute().use { r -> if(!r.isSuccessful) error("Download failed: HTTP ${r.code}"); val input=r.body?.byteStream()?:error("Empty download body"); val output=contentResolver.openOutputStream(outUri)?:error("Cannot open destination file"); input.use { src -> output.use { dst -> val buf=ByteArray(1024*1024); while(true){ val n=src.read(buf); if(n<=0) break; dst.write(buf,0,n); digest.update(buf,0,n); total+=n } } } }
+            val hash=digest.digest().joinToString(""){"%02x".format(it)}; if(hash!=a.getString("sha256")||total!=a.getLong("size")) error("Downloaded file failed SHA-256/size verification")
+            return JSONObject().put("saved_to",outUri.toString()).put("sha256",hash).put("size",total).toString()
+        } catch(e:Exception){ contentResolver.delete(outUri,null,null); throw e }
+    }
 
     private fun captureCameraFrame(rawFacing:String):String {
         if(ActivityCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){

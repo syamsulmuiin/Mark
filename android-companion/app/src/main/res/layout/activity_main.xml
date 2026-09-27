@@ -16,6 +16,7 @@
                 <TextView android:text="JARVIS" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.20" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                 <View android:layout_width="5dp" android:layout_height="5dp" android:layout_marginLeft="7dp" android:background="@drawable/bg_cyan_dot"/>
             </LinearLayout>
+            <Button android:id="@+id/attachments" android:layout_width="wrap_content" android:layout_height="48dp" android:layout_gravity="start|center_vertical" android:text="Attachments" android:textColor="#A5E8EB" android:background="@android:color/transparent"/>
             <ImageButton android:id="@+id/phoneControl" android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="end|center_vertical" android:background="@android:color/transparent" android:src="@drawable/ic_more_vertical" android:tint="#8A8F98" android:contentDescription="@string/more_options" android:padding="14dp"/>
         </FrameLayout>
 

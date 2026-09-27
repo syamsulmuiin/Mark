@@ -1,3 +1,24 @@
+## v60.9 - Recipient-controlled attachment inbox
+
+- Changed cross-companion delivery from automatic destination Downloads writes to a durable recipient-scoped attachment inbox. The server queues attachments even when the recipient is offline; reconnect synchronizes its inbox.
+- Added native attachment inbox entry points to Android and Windows/Linux/macOS desktop companions. The recipient chooses Open, Save As, or Share; Android uses the system document picker/share sheet, and desktop Save As uses the native save dialog. Desktop Share explains the native share-sheet limitation rather than silently pretending to share.
+- The source companion opens its native file picker when a transfer has no accessible source path/URI.
+- Preserved streaming HTTP one-time tickets, single-copy SHA-256 deduplication, destination isolation, byte/hash verification, and explicit permanent server storage. Recipient save is not inferred from delivery.
+- Attachment references survive server restart and expire after 30 days; temporary objects are deleted only after the final reference expires. Existing server-retained aliases are not removed by inbox cleanup.
+- Legacy file.receive remains available for compatibility but the transfer_file tool now delivers through attachment.inbox, without forcing a destination folder.
+- No source files removed.
+
+## v60.8 - Single-copy cross-companion file transfer
+
+- Replaced physical `storage/uploads`, `storage/share`, and `storage/downloads` copies with a SHA-256 object store under `storage/objects` plus metadata.
+- Legacy transfer files are ingested into the object store on startup and their redundant legacy copies are removed after hashing.
+- Added generic `file.upload` and `file.receive` capabilities to Android and Windows/Linux/macOS companions. Android 10+ receives into `Downloads/MARK-LIV`; older Android returns explicit unsupported for shared-Downloads receive without legacy storage permission.
+- Added `transfer_file` orchestration with one-time HTTP transfer tickets; large file bytes are streamed instead of base64-encoded through WebSocket.
+- Source upload, server object, and destination are verified by SHA-256 and byte size before success is reported.
+- Transfer-only server objects are deleted after verified destination receipt; `keep_on_server=true` retains one durable server object.
+- Existing `/api/upload`, `/api/files`, and `/uploads/{filename}` remain compatible but now reference the single object store.
+- No source files removed.
+
 ## v60.7 - Live vision validation and device action loop guard
 
 - Bound pending vision frames to the Live session generation that captured them; stale frames are dropped after reconnect instead of being replayed.

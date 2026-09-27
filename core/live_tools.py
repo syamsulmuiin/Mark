@@ -42,6 +42,21 @@ TOOL_DECLARATIONS = [
         "parameters": {"type": "OBJECT", "properties": {}}
     },
     {
+        "name": "transfer_file",
+        "description": "Send a file from an online source companion to the durable attachment inbox of a paired destination companion (online or offline). The server verifies upload SHA-256 and size, then reports queued/notified, not saved. The recipient chooses Open, Save As or Share in its own UI. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. Set keep_on_server only when explicitly requested.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "source_device": {"type":"STRING"},
+                "destination_device": {"type":"STRING"},
+                "source": {"type":"STRING", "description":"Optional accessible path/content URI. Omit to open the source companion native file picker"},
+                "destination_name": {"type":"STRING"},
+                "keep_on_server": {"type":"BOOLEAN"}
+            },
+            "required": ["source_device","destination_device"]
+        }
+    },
+    {
         "name": "call_current_device",
         "description": (
             "Control the companion device that is currently talking to JARVIS. Use this for requests such as "

@@ -38,3 +38,10 @@ Windows, Linux and macOS advertise the same native `camera.capture` capability. 
 
 ### Re-pair identity replacement
 A fresh explicit Pair Code can replace one unambiguous offline stale identity with the same companion-reported name after reinstall. Normal reconnect does not delete trust, and ambiguous same-name devices are never removed automatically.
+
+## File transfer
+The desktop companion advertises generic `file.upload` and `file.receive` capabilities. File bytes stream over one-time server transfer URLs and are verified by SHA-256 and byte size. Received files default to the user's Downloads directory unless a destination is explicitly supplied. Camera/file behavior is platform-neutral at the capability contract level.
+
+
+### Attachment inbox (v60.9)
+Incoming transfers appear in the companion attachment inbox, including attachments queued while this device was offline. No destination directory is selected by the sender. Open downloads a verified temporary local cache copy; Save As lets the recipient choose a local location; Share uses the native Android share sheet (desktop companions explain where the OS share-sheet integration is unavailable). The source companion can open its native file picker when the source path is omitted. Files remain on the server as single-copy objects for up to 30 days while inbox references exist, unless the user explicitly requests permanent server retention. The legacy file.receive capability remains available for compatibility but is not used by the transfer_file tool.

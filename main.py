@@ -1275,6 +1275,25 @@ class JarvisLive:
                     for d in devices: d["online"] = d.get("device_id") in online
                     result = json.dumps(devices, ensure_ascii=False) if devices else "No paired devices."
 
+            elif name == "transfer_file":
+                if not self._dashboard:
+                    result = "Device mesh is unavailable."
+                else:
+                    devices=self._dashboard._mesh.list_devices(); online=set(self._dashboard._device_sockets)
+                    def _resolve(sel):
+                        sel=str(sel or "").strip(); exact=next((d for d in devices if d.get("device_id")==sel),None)
+                        if exact:return exact
+                        matches=[d for d in devices if str(d.get("name","")).casefold()==sel.casefold() and not d.get("revoked")]
+                        return matches[0] if len(matches)==1 else None
+                    src=_resolve(args.get("source_device")); dst=_resolve(args.get("destination_device"))
+                    if not src or not dst: result="Source or destination companion is not uniquely identifiable. Call list_paired_devices first."
+                    elif src.get("device_id") not in online: result="Source companion is offline; it must be online to attach a local file."
+                    elif "file.upload" not in set(src.get("capabilities") or []): result="Source companion does not support file.upload."
+                    elif "attachment.inbox" not in set(dst.get("capabilities") or []): result="Destination companion does not support attachment.inbox."
+                    else:
+                        info=await self._dashboard.transfer_file(str(src["device_id"]),str(dst["device_id"]),str(args.get("source") or ""),str(args.get("destination_name") or ""),bool(args.get("keep_on_server",False)))
+                        result=json.dumps(info,ensure_ascii=False)
+
             elif name == "call_current_device":
                 if not self._dashboard:
                     result = "Device mesh is unavailable."

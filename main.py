@@ -1285,7 +1285,9 @@ class JarvisLive:
                         sel=str(sel or "").strip(); exact=next((d for d in devices if d.get("device_id")==sel),None)
                         if exact:return exact
                         matches=[d for d in devices if str(d.get("name","")).casefold()==sel.casefold() and not d.get("revoked")]
-                        return matches[0] if len(matches)==1 else None
+                        if len(matches)==1:return matches[0]
+                        online_matches=[d for d in matches if d.get("device_id") in online]
+                        return online_matches[0] if len(online_matches)==1 else None
                     src=_resolve(args.get("source_device")); dst=_resolve(args.get("destination_device"))
                     if not src or not dst: result="Source or destination companion is not uniquely identifiable. Call list_paired_devices first."
                     elif src.get("device_id") not in online: result="Source companion is offline; it must be online to attach a local file."

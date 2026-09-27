@@ -32,7 +32,7 @@ def verify(pub,data,sig):
 class App:
     def __init__(self):
         self.st=identity(load()); self.ws=None; self.mic=None; self.out=None; self.running=False; self.speaking=False
-        self.attachments={}; self.pending_attachment=None; self.deferred_attachment_pick=None
+        self.attachments={}; self.pending_attachment=None; self.deferred_attachment_pick=None; self.assistant_turn_complete=False
         self.root=tk.Tk(); self.root.title('MARK LIV Companion'); self.root.geometry('620x520')
         f=ttk.Frame(self.root,padding=14); f.pack(fill='both',expand=True)
         ttk.Label(f,text='Pair Code').grid(row=0,column=0,sticky='w'); self.code=tk.StringVar(); ttk.Entry(f,textvariable=self.code,width=16).grid(row=0,column=1,sticky='w'); ttk.Button(f,text='Pair',command=self.pair).grid(row=0,column=2)
@@ -87,15 +87,20 @@ class App:
             # restarting PortAudio streams each turn caused the desktop companion
             # to become silent after the first response on some devices/backends.
             if state=='SPEAKING':
-                self.speaking=True
-            elif state in ('LISTENING','ACTIVE','THINKING'):
+                self.speaking=True; self.assistant_turn_complete=False
+            elif state=='THINKING':
+                self.speaking=False; self.assistant_turn_complete=False
+            elif state in ('LISTENING','ACTIVE'):
                 self.speaking=False
             label = 'Listening' if state=='ACTIVE' else state.title()
             self.root.after(0, lambda value=label: self.status.set(value))
         elif typ=='log': self.note(f"{m.get('speaker','JARVIS')}: {m.get('text','')}")
         elif typ=='attachment.pick.request':
             self.deferred_attachment_pick=m
+            if self.ws:self.ws.send(json.dumps({'type':'attachment.picker.received','request_id':m.get('request_id','')}))
+            if self.assistant_turn_complete:self.root.after(0,self._launch_deferred_attachment_picker)
         elif typ=='assistant.turn.complete':
+            self.assistant_turn_complete=True
             if self.deferred_attachment_pick:self.root.after(0,self._launch_deferred_attachment_picker)
         elif typ=='attachment.transfer.status': self.note(str(m.get('message') or 'Attachment transfer updated'))
         elif typ=='attachment.inbox':
@@ -207,6 +212,7 @@ class App:
         req=self.deferred_attachment_pick
         if not req:return
         self.deferred_attachment_pick=None
+        if self.ws:self.ws.send(json.dumps({'type':'attachment.picker.opened','request_id':req.get('request_id','')}))
         selected=list(filedialog.askopenfilenames(title='Choose attachments'))
         if self.ws:
             if selected:self.ws.send(json.dumps({'type':'attachment.sources.selected','request_id':req.get('request_id',''),'sources':selected}))

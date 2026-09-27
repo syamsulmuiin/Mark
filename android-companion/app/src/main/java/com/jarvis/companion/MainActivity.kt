@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private var sourcePickerLatch: CountDownLatch? = null
     private var pickedSourceUri: Uri? = null
     private var pendingPickerRequestId: String? = null
+    @Volatile private var assistantTurnComplete = false
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
@@ -222,13 +223,17 @@ class MainActivity : AppCompatActivity() {
                     "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
                     "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
                     "attachment.new"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(attachmentItems){ attachmentItems[item.getString("id")]=item }; runOnUiThread { Toast.makeText(this@MainActivity,"New attachment · ${item.optString("name")}",Toast.LENGTH_LONG).show(); refreshAttachmentDialog(); refreshAttachmentBadge() } } }
-                    "attachment.pick.request"->{ deferredPickerRequest=m }
+                    "attachment.pick.request"->{
+                        deferredPickerRequest=m
+                        w.send(JSONObject().put("type","attachment.picker.received").put("request_id",m.optString("request_id")).toString())
+                        if(assistantTurnComplete) runOnUiThread { launchDeferredAttachmentPicker() }
+                    }
                     "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
-                    "status"->{ val st=m.optString("state").uppercase(); setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
-                    "assistant.turn.complete"->{ if(deferredPickerRequest!=null) launchDeferredAttachmentPicker() }
+                    "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
+                    "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
                     "log"->{ appendTranscript(m.optString("speaker"),m.optString("text")); if(m.optString("speaker")=="jarvis") setVoiceState("LISTENING") }
                     "capability.call"->executeCapability(w,m)
                 }
@@ -397,10 +402,14 @@ class MainActivity : AppCompatActivity() {
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true)
         intent.putExtra("markliv_attachment_request",req.optString("request_id"))
-        try { startActivityForResult(intent,93) } catch(e:Exception) {
+        pendingPickerRequestId=req.optString("request_id")
+        try {
+            ws?.send(JSONObject().put("type","attachment.picker.opened").put("request_id",req.optString("request_id")).toString())
+            startActivityForResult(intent,93)
+        } catch(e:Exception) {
+            pendingPickerRequestId=null
             ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",req.optString("request_id")).put("error",e.message).toString())
         }
-        pendingPickerRequestId=req.optString("request_id")
     }
 
     private fun showAttachmentInbox(){

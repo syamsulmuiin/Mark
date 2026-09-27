@@ -1,3 +1,11 @@
+## v60.14
+- Fixed an attachment picker event-order race that could leave a queued request waiting forever.
+- Added persisted picker `received` and `opened` diagnostics on Android and Desktop.
+- Kept one-request/one-picker and multi-file batch semantics from v60.13.
+- Fixed runtime routing when historical non-revoked records share a device name: one uniquely-online match is selected; multiple online matches remain ambiguous.
+- Historical trust records are not silently deleted solely by matching model/name.
+- No source file was deleted or deprecated.
+
 ## v60.13
 - Added native multi-file selection for attachment requests on Android and Desktop companions.
 - One user request still creates exactly one attachment transaction and one picker.

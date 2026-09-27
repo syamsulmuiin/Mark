@@ -1003,6 +1003,14 @@ class DashboardServer:
                         # the current answer immediately and reopen listening.
                         if self._interrupt_callback:
                             self._interrupt_callback()
+                    elif msg.get("type") == "attachment.picker.received":
+                        request_id=str(msg.get("request_id") or "")
+                        if request_id in self._pending_attachment_picks:
+                            print(f"[WARN Attachment] picker request received request={request_id} device={device_id}")
+                    elif msg.get("type") == "attachment.picker.opened":
+                        request_id=str(msg.get("request_id") or "")
+                        if request_id in self._pending_attachment_picks:
+                            print(f"[WARN Attachment] picker opened request={request_id} device={device_id}")
                     elif msg.get("type") in ("attachment.source.selected", "attachment.sources.selected"):
                         request_id = str(msg.get("request_id") or "")
                         rec = self._pending_attachment_picks.pop(request_id, None)

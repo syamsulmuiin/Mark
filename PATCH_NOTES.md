@@ -1,3 +1,22 @@
+## v60 - Generic camera capture across all companions
+
+- Extended the generic `camera.capture` contract from Android to the shared Windows/Linux/macOS desktop companion.
+- Desktop pairing and WebSocket proof now advertise `camera.capture`, and capability calls return real JPEG bytes using the existing local OpenCV capture path.
+- Desktop webcams report their actual generic selection as `default` instead of pretending a requested front/back identity; Android keeps real front/back selection through Camera2.
+- Fixed desktop camera backend selection when no OS config exists: Windows, Linux and macOS are now detected from the host instead of silently defaulting to Windows.
+- Preserved v59 real-image validation, project-local server storage, Git exclusion, generic routing, and v58 persistent task continuity.
+
+## v59 - Real companion camera vision and project-local storage
+
+- Replaced the invalid Android vision fallback that treated `android.ui.inspect` accessibility text as if it were image capture.
+- Added Android `camera.capture` with real JPEG bytes and explicit front/back selection using Camera2; the Camera application does not need to be opened.
+- Server vision now validates and injects real image bytes before answering camera questions; companion capture is intentionally one-shot and does not launch the Camera app.
+- Moved server transfer storage to project-local `storage/uploads`, `storage/share`, and `storage/downloads`; directories are created automatically and `storage/` is ignored by Git.
+- Kept upload source selection user-directed and companion save destinations local/user-selected.
+- Restored native-companion access to authenticated upload/list/download routes that were accidentally blocked by the native-only HTTP middleware.
+- Removed the stale internal installer path that still downloaded Playwright Chromium.
+- Reviewed the supplied runtime log: resumption-handle rejection recovered normally; two generic `scroll` calls were rejected. `call_current_device` now normalizes generic inspect/click/text/scroll/global aliases to the matching advertised Android UI capability when available. There was no camera traceback because prior Android builds had no camera capability.
+
 ## v58 - Generic persistent task continuity
 
 - Added application-agnostic persistent unfinished-task state.

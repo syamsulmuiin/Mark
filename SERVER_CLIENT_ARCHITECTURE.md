@@ -167,3 +167,9 @@ This policy is independent of origin routing: companion-origin browser/UI operat
 ## Generic task continuity
 
 Task continuity is application-agnostic and separate from conversational session resumption. `runtime/active_task.json` is written atomically and contains only the active task state/checkpoints needed for recovery. Multi-step work begins through the `task_continuity` Live tool; operational tool start/results are recorded automatically. On a new Live connection, unfinished state is injected into context and a continuation turn is scheduled. External state must be inspected/reconciled before stale checkpoints are trusted. Tasks pause at credential/user-only authentication boundaries and complete only after end-state verification.
+## Vision and file-storage boundary
+
+Visual analysis requires real image bytes. All camera-capable companions use the same `camera.capture` contract. Android provides one-shot front/back JPEG capture through Camera2. The shared Windows/Linux/macOS desktop companion provides one-shot JPEG capture from its configured/default host webcam through OpenCV and reports `default` when the host camera has no reliable front/back semantic. `android.ui.inspect` remains structured accessibility data and is never a vision substitute. Camera applications do not need to be launched for capture.
+
+Server transfer storage is project-local under `storage/` with `uploads/`, `share/`, and `downloads/` subdirectories created automatically. The entire `storage/` tree is runtime data and is excluded from Git. Companion save destinations remain companion/user-selected.
+

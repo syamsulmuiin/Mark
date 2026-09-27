@@ -69,3 +69,6 @@ runtime/background.log
 
 runtime/error.log
 runtime/error.log.*
+
+# Project-local server file repository (uploads/share/downloads)
+storage/

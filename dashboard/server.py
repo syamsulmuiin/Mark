@@ -47,22 +47,24 @@ DISCOVERY_MAGIC = "MARKLIV_DISCOVER_V1"
 MAX_UPLOAD_MB = 500
 
 
-def _make_uploads_dir() -> Path:
-    """Return (and create) the cross-platform uploads folder."""
-    for candidate in [
-        Path.home() / "Downloads" / "JARVIS Uploads",
-        Path.home() / "Documents" / "JARVIS Uploads",
-        BASE_DIR / "uploads",
-    ]:
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            return candidate
-        except Exception:
-            pass
-    return BASE_DIR / "uploads"
+def _make_storage_dirs() -> dict[str, Path]:
+    """Create the project-local server file repository."""
+    root = BASE_DIR / "storage"
+    paths = {
+        "root": root,
+        "uploads": root / "uploads",
+        "share": root / "share",
+        "downloads": root / "downloads",
+    }
+    for path in paths.values():
+        path.mkdir(parents=True, exist_ok=True)
+    return paths
 
 
-UPLOADS_DIR = _make_uploads_dir()
+STORAGE_DIRS = _make_storage_dirs()
+UPLOADS_DIR = STORAGE_DIRS["uploads"]
+SHARE_DIR = STORAGE_DIRS["share"]
+DOWNLOADS_DIR = STORAGE_DIRS["downloads"]
 
 def _get_gemini_key() -> str | None:
     try:
@@ -652,7 +654,7 @@ class DashboardServer:
         @app.middleware("http")
         async def native_companions_only(req: Request, call_next):
             path = req.url.path
-            allowed = (path.startswith("/api/pairing/offer/") or path == "/api/pairing/accept" or path in ("/api/local/pairing/new", "/api/local/health"))
+            allowed = (path.startswith("/api/pairing/offer/") or path == "/api/pairing/accept" or path in ("/api/local/pairing/new", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/"))
             if not allowed:
                 return JSONResponse({"error": "Install a MARK LIV companion client to access this server."}, status_code=404)
             return await call_next(req)

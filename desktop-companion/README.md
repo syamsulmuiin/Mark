@@ -29,3 +29,8 @@ The desktop companion is a device endpoint for the headless MARK-LIV server. Dev
 
 Credential entry remains protected. Ending a conversation does not stop the server. The existing local file controller manages the desktop filesystem; it is not a generic companion-to-companion file-transfer protocol.
 
+
+
+## Camera vision
+
+Windows, Linux and macOS advertise the same native `camera.capture` capability. The shared runtime captures a one-shot frame from the configured/default host webcam with the platform-appropriate OpenCV backend and returns real JPEG bytes to the server. Desktop webcams are reported as `default` unless an explicit mapping exists; the companion never guesses a front/back identity. A camera application does not need to be opened.

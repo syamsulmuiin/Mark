@@ -152,12 +152,13 @@ TOOL_DECLARATIONS = [
             "look at camera, analyze my screen, etc. "
             "You have NO visual ability without this tool. "
             "After the image is captured it is sent directly to you — describe what you see and answer the user's question. "
-            "When using camera: the live view stays open until user says close it or calls close_camera."
+            "For companion camera capture, a real one-shot frame is captured directly and the Camera app does not need to open. A server-local camera preview, when explicitly targeting the server, stays open until the user closes it."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "angle": {"type": "STRING", "description": "'screen' to capture display, 'camera' for webcam. Default: 'screen'"},
+                "angle": {"type": "STRING", "description": "'screen' to capture display, 'camera' for a real camera frame. Default: 'screen'"},
+                "facing": {"type": "STRING", "description": "For camera capture on a companion: 'front' or 'back'. Default: 'back'"},
                 "text":  {"type": "STRING", "description": "The question or instruction about the captured image"}
             },
             "required": ["text"]

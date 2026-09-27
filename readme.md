@@ -167,7 +167,7 @@ Protected architecture invariants include headless server operation, origin-firs
 
 The server currently contains upload/download endpoints and a server upload repository. This is not yet a complete generic cross-device file-transfer protocol. Do not describe MARK-LIV as supporting arbitrary companion-to-companion file sharing until common transfer capabilities are implemented across the companions.
 
-Server uploads use the first writable location available from the server upload configuration, including the JARVIS uploads folder under the user Downloads/Documents area or the project upload fallback.
+Server file-transfer data is stored under the project-local `storage/` directory. The server creates `storage/uploads/`, `storage/share/`, and `storage/downloads/` automatically. `storage/` is excluded from Git. Upload source selection remains user-directed; companions may choose their own local save destination.
 
 ## Network configuration
 
@@ -241,3 +241,7 @@ On Linux, browser metadata uses the detected machine architecture rather than as
 ### Generic persistent task continuity
 
 MARK LIV persists unfinished multi-step work independently from the Gemini Live resumption handle. Tasks store their goal, constraints, completion criteria, verified checkpoints, last tool/action result, blocker state, and origin device. Reconnects, Live rollovers, interrupted responses, and server restarts restore the unfinished task and inject an automatic continuation instruction. Completion requires a verified requested end state; credential/user-authentication boundaries pause rather than discard the task.
+### Companion camera vision
+
+Companion camera vision uses the generic `camera.capture` capability and always returns real one-shot image bytes. Android selects the requested front or back camera through Camera2. The shared Windows/Linux/macOS desktop companion captures the configured/default host webcam through OpenCV and reports its actual selection as `default` rather than inventing a front/back identity. Camera applications do not need to be opened. Accessibility/UI inspection is never treated as image data and cannot satisfy a camera or visual-screen request.
+

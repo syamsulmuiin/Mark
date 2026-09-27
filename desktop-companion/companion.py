@@ -13,6 +13,7 @@ from runtime.core.network_config import PUBLIC_BASE_URL, DISCOVERY_PORT
 
 APP_DIR=Path.home()/".mark-liv-companion"; APP_DIR.mkdir(exist_ok=True)
 STATE=APP_DIR/"state.json"
+NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','camera.capture','legacy.action']
 def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
 def unb64(s): return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
 def load():
@@ -59,7 +60,7 @@ class App:
         try:
             code=self.code.get().strip().upper(); base=PUBLIC_BASE_URL; o=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=False).json(); nonce=o['nonce']
             peer={'device_id':self.st['device_id'],'name':self.st['name'],'public_key':self.st['public_key']}; sig=b64(priv(self.st).sign(f'{nonce}:{code}'.encode()))
-            caps=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','legacy.action']
+            caps=list(NATIVE_CAPABILITIES)
             r=requests.post(f'{base}/api/pairing/accept',json={'code':code,'peer':peer,'signature':sig,'capabilities':caps},timeout=8,verify=False); r.raise_for_status()
             self.st.update(server=base,server_key=o['public_key'],server_id=o['device_id'],paired=True); save(self.st); self.status.set('Paired'); self.connect()
         except Exception as e: messagebox.showerror('Pair failed',str(e))
@@ -75,7 +76,7 @@ class App:
         if typ=='challenge':
             ch=m['challenge']; expected=self.st.get('server_key','')
             if not verify(expected,f"{self.st['device_id']}:{ch}".encode(),m.get('server_signature','')): self.note('Server identity verification failed'); self.disconnect(); return
-            self.ws.send(json.dumps({'type':'proof','signature':b64(priv(self.st).sign(ch.encode())),'capabilities':['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','legacy.action']}))
+            self.ws.send(json.dumps({'type':'proof','signature':b64(priv(self.st).sign(ch.encode())),'capabilities':list(NATIVE_CAPABILITIES)}))
         elif typ=='ready': self.root.after(0,lambda:self.status.set('Connected · voice on client')); self.start_audio()
         elif typ=='status':
             state=str(m.get('state','')).upper()
@@ -163,11 +164,28 @@ class App:
             else: subprocess.Popen(['loginctl','lock-session'])
             return 'desktop locked'
         raise ValueError('unsupported desktop.command action: '+action)
+    def _capture_camera(self, args):
+        # Windows, Linux and macOS share this runtime. OpenCV selects the host
+        # backend; camera identity is never guessed from an OS or application name.
+        from runtime.actions.screen_processor import _capture_camera
+        requested=str((args or {}).get('facing') or 'default').strip().lower()
+        image_bytes, mime_type = _capture_camera()
+        if not image_bytes or not str(mime_type).startswith('image/'):
+            raise RuntimeError('Camera returned invalid image data.')
+        return json.dumps({
+            'mime_type': str(mime_type),
+            'data': base64.b64encode(image_bytes).decode('ascii'),
+            # Generic desktop webcams do not expose a reliable front/back semantic.
+            # Report the real selection rather than pretending the requested facing.
+            'facing': 'default',
+            'requested_facing': requested,
+        })
     def capability(self,m):
         import webbrowser
         cap=m.get('capability'); a=m.get('args') or {}; ok=True; result='done'
         try:
             if cap=='open_url': webbrowser.open(str(a['url'])); result='opened URL'
+            elif cap=='camera.capture': result=self._capture_camera(a)
             elif cap=='app.launch': result=self._launch_app(a.get('app') or a.get('name'))
             elif cap=='app.close': result=self._close_app(a.get('app') or a.get('name'))
             elif cap=='desktop.command': result=self._desktop_command(a)

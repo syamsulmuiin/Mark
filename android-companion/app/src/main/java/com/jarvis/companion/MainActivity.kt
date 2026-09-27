@@ -6,6 +6,10 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
 import android.media.*
+import android.hardware.camera2.*
+import android.media.ImageReader
+import android.util.Base64
+import android.view.Surface
 import android.net.Uri
 import android.os.*
 import android.provider.Settings
@@ -25,6 +29,7 @@ import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.*
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 import kotlin.math.sqrt
 import javax.net.ssl.*
 
@@ -107,7 +112,7 @@ class MainActivity : AppCompatActivity() {
                 val o=try { JSONObject(response.body?.string().orEmpty()) } catch(_:Exception){ pairUi("Invalid response from JARVIS"); return }
                 val nonce=o.optString("nonce"); val serverKey=o.optString("public_key"); val serverId=o.optString("device_id")
                 if(nonce.isBlank()||serverKey.isBlank()||serverId.isBlank()){pairUi("Pairing code invalid or expired");return}
-                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
+                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
                 val body=JSONObject().put("code",code).put("peer",peer).put("signature",sign("$nonce:$code".toByteArray())).put("capabilities",caps)
                 val req=Request.Builder().url("$base/api/pairing/accept").post(body.toString().toRequestBody("application/json".toMediaType())).build()
                 client.newCall(req).enqueue(object:Callback{
@@ -129,7 +134,7 @@ class MainActivity : AppCompatActivity() {
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
             override fun onMessage(w:WebSocket,text:String){ try {
                 val m=JSONObject(text); when(m.optString("type")){
-                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
+                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "log"->{ appendTranscript(m.optString("speaker"),m.optString("text")); if(m.optString("speaker")=="jarvis") setVoiceState("LISTENING") }
@@ -255,6 +260,7 @@ class MainActivity : AppCompatActivity() {
         "app.launch"->{ val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }; val pkg=resolveAppPackage(query)?:error("App not found: $query"); val i=packageManager.getLaunchIntentForPackage(pkg)?:error("App has no launch activity: $pkg"); startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); result="opened $pkg" }
         "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("home") }
         "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page" }
+        "camera.capture"->{ result=captureCameraFrame(a.optString("facing","back")) }
         "android.ui.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.inspect(a.optInt("max_nodes",120)).toString() }
         "android.ui.click"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.click(a.optString("text"),a.optString("view_id")) }
         "android.ui.text"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.setText(a.getString("text"),a.optString("target_text"),a.optString("view_id")) }
@@ -264,6 +270,62 @@ class MainActivity : AppCompatActivity() {
         "android.screen.wake"->{ val pm=getSystemService(POWER_SERVICE) as PowerManager; if(!pm.isInteractive){ @Suppress("DEPRECATION") val wl=pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,"jarvis:wake"); wl.acquire(3000) }; result="screen awake; device authentication is still required" }
         else->{ok=false;result="Unsupported capability: $cap"}
     }}catch(e:Exception){ok=false;result=e.message?:e.toString()}; w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id")).put("ok",ok).put("result",result).toString()) }
+
+    private fun captureCameraFrame(rawFacing:String):String {
+        if(ActivityCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){
+            runOnUiThread { ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.CAMERA),43) }
+            error("Camera permission is required. Grant it on the companion, then retry the camera request.")
+        }
+        val facing=if(rawFacing.lowercase(Locale.ROOT).contains("front")) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
+        val manager=getSystemService(CAMERA_SERVICE) as CameraManager
+        val cameraId=manager.cameraIdList.firstOrNull { id -> manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING)==facing }
+            ?: error("Requested ${if(facing==CameraCharacteristics.LENS_FACING_FRONT) "front" else "back"} camera is unavailable")
+        val thread=HandlerThread("JarvisCameraCapture").apply { start() }
+        val handler=Handler(thread.looper)
+        val reader=ImageReader.newInstance(1280,720,android.graphics.ImageFormat.JPEG,2)
+        val latch=CountDownLatch(1)
+        var payload:ByteArray?=null
+        var failure:String?=null
+        var device:CameraDevice?=null
+        var session:CameraCaptureSession?=null
+        reader.setOnImageAvailableListener({ r ->
+            try { r.acquireLatestImage()?.use { image -> val buf=image.planes[0].buffer; payload=ByteArray(buf.remaining()); buf.get(payload) } }
+            catch(e:Exception){ failure=e.message?:e.toString() }
+            finally { latch.countDown() }
+        },handler)
+        try {
+            manager.openCamera(cameraId,object:CameraDevice.StateCallback(){
+                override fun onOpened(cam:CameraDevice){
+                    device=cam
+                    cam.createCaptureSession(listOf(reader.surface),object:CameraCaptureSession.StateCallback(){
+                        override fun onConfigured(cs:CameraCaptureSession){
+                            session=cs
+                            try {
+                                val req=cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                    addTarget(reader.surface)
+                                    set(CaptureRequest.CONTROL_AF_MODE,CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                                }.build()
+                                cs.capture(req,null,handler)
+                            } catch(e:Exception){ failure=e.message?:e.toString(); latch.countDown() }
+                        }
+                        override fun onConfigureFailed(cs:CameraCaptureSession){ failure="Camera capture session configuration failed"; latch.countDown() }
+                    },handler)
+                }
+                override fun onDisconnected(cam:CameraDevice){ failure="Camera disconnected"; cam.close(); latch.countDown() }
+                override fun onError(cam:CameraDevice,error:Int){ failure="Camera error: $error"; cam.close(); latch.countDown() }
+            },handler)
+            if(!latch.await(8,TimeUnit.SECONDS)) error("Camera capture timed out")
+            failure?.let { error(it) }
+            val bytes=payload?:error("Camera returned no image frame")
+            return JSONObject().put("mime_type","image/jpeg").put("data",Base64.encodeToString(bytes,Base64.NO_WRAP))
+                .put("source","camera").put("facing",if(facing==CameraCharacteristics.LENS_FACING_FRONT) "front" else "back").toString()
+        } finally {
+            try { session?.close() } catch(_:Exception){}
+            try { device?.close() } catch(_:Exception){}
+            try { reader.close() } catch(_:Exception){}
+            thread.quitSafely()
+        }
+    }
 
     private fun normalizeName(s:String)=s.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]"), "")
     private fun resolveAppPackage(query:String):String? {

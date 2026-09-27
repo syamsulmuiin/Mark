@@ -122,17 +122,7 @@ def install_for_config(config: dict, log: Callable | None = None) -> None:
     for _mod, pkg in missing:
         _pip(pkg, log)
 
-    # Playwright: install the package + download Chromium browser
-    if not _available("playwright"):
-        _pip("playwright", log)
-        if log:
-            log("SYS: Downloading Playwright browser (Chromium, ~150 MB — one-time)…")
-        subprocess.run(
-            [sys.executable, "-m", "playwright", "install", "chromium"],
-            capture_output=True,
-        )
-        if log:
-            log("SYS: Playwright browser ready.")
+    # Playwright uses compatible browsers already installed on the host.
 
     if log:
         log("SYS: All dependencies ready ✓")

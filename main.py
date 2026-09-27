@@ -1145,13 +1145,35 @@ class JarvisLive:
                 if _origin and not _explicit_server:
                     _rec = self._dashboard._mesh.get(_origin) or {}
                     _caps = set(_rec.get("capabilities") or [])
-                    _preferred = ("android.ui.inspect", "screen.capture", "screen.inspect", "ui.inspect")
-                    _cap = next((c for c in _preferred if c in _caps), None)
-                    if _cap:
-                        _reply = await self._dashboard.call_device(_origin, _cap, {})
-                        result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                    angle = str(args.get("angle", "screen")).strip().lower()
+                    user_text = args.get("text", "What do you see?")
+                    if angle == "camera" and "camera.capture" in _caps:
+                        _facing = str(args.get("facing", "back")).strip().lower()
+                        _reply = await self._dashboard.call_device(_origin, "camera.capture", {"facing": _facing})
+                        if not isinstance(_reply, dict) or not _reply.get("ok", False):
+                            result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                        else:
+                            try:
+                                _payload = json.loads(str(_reply.get("result", "")))
+                                import base64 as _vision_b64
+                                img_b = _vision_b64.b64decode(_payload["data"], validate=True)
+                                mime_t = str(_payload.get("mime_type") or "image/jpeg")
+                                if not img_b or not mime_t.startswith("image/"):
+                                    raise ValueError("Companion returned invalid camera image data")
+                                self._pending_vision = (img_b, mime_t, user_text, "camera")
+                                result = (
+                                    f"[VISION_ACTIVE] {_payload.get('facing', _facing).capitalize()} camera frame captured "
+                                    "and attached to this same exchange. Do not answer from UI text or memory; "
+                                    "reply once from the attached image only."
+                                )
+                            except Exception as _vision_exc:
+                                result = f"Camera capture failed validation: {_vision_exc}"
+                    elif angle == "screen" and "screen.capture" in _caps:
+                        result = "Origin companion advertises screen.capture, but binary screen-frame transport is not implemented by this companion build."
+                    elif angle == "camera":
+                        result = "This companion does not advertise camera.capture. A real image frame is required; UI inspection cannot substitute for camera vision."
                     else:
-                        result = f"Origin companion {_origin} has no advertised generic inspect/capture capability. Do not capture server hardware."
+                        result = "This companion does not advertise a real screen-capture capability. UI inspection cannot substitute for visual screen analysis."
                 else:
                     import time as _t_mod
                     _now = _t_mod.monotonic()
@@ -1213,7 +1235,20 @@ class JarvisLive:
                     if not device_id:
                         result = "No active companion device is associated with this request."
                     else:
-                        reply = await self._dashboard.call_device(device_id, str(args.get("capability", "")), args.get("args") or {})
+                        _requested_cap = str(args.get("capability", "")).strip()
+                        _rec = self._dashboard._mesh.get(device_id) or {}
+                        _caps = set(_rec.get("capabilities") or [])
+                        _generic_aliases = {
+                            "inspect": "android.ui.inspect",
+                            "click": "android.ui.click",
+                            "text": "android.ui.text",
+                            "scroll": "android.ui.scroll",
+                            "global": "android.ui.global",
+                        }
+                        _mapped_cap = _generic_aliases.get(_requested_cap.lower(), _requested_cap)
+                        if _mapped_cap != _requested_cap and _mapped_cap not in _caps:
+                            _mapped_cap = _requested_cap
+                        reply = await self._dashboard.call_device(device_id, _mapped_cap, args.get("args") or {})
                         result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
 
             elif name == "call_paired_device":

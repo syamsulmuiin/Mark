@@ -483,6 +483,7 @@ class DashboardServer:
         self._release_expired_attachments()
         self._transfer_tickets: dict[str, dict] = {}
         self._pending_attachment_picks: dict[str, dict] = {}
+        self._attachment_pick_results: dict[str, dict] = {}
         self.app                          = self._build_app()
 
     # ── one-time key management ───────────────────────────────────────────
@@ -650,6 +651,9 @@ class DashboardServer:
             return None
         return rec
 
+    def attachment_request_status(self, request_id: str):
+        return self._attachment_pick_results.get(str(request_id or ""))
+
     async def transfer_file(self, source_device: str, destination_device: str, source: str, destination_name: str = "", keep_on_server: bool = False):
         """Upload once, then place a durable attachment reference in the recipient inbox."""
         if not str(source or "").strip():
@@ -657,6 +661,7 @@ class DashboardServer:
             if ws is None:
                 raise ConnectionError("source companion is offline")
             request_id = secrets.token_urlsafe(12)
+            self._attachment_pick_results[request_id] = {"ok":True,"status":"awaiting_selection","request_id":request_id}
             self._pending_attachment_picks[request_id] = {
                 "source_device": source_device, "destination_device": destination_device,
                 "destination_name": destination_name, "keep_on_server": bool(keep_on_server),
@@ -998,33 +1003,47 @@ class DashboardServer:
                         # the current answer immediately and reopen listening.
                         if self._interrupt_callback:
                             self._interrupt_callback()
-                    elif msg.get("type") == "attachment.source.selected":
+                    elif msg.get("type") in ("attachment.source.selected", "attachment.sources.selected"):
                         request_id = str(msg.get("request_id") or "")
                         rec = self._pending_attachment_picks.pop(request_id, None)
-                        source = str(msg.get("source") or "")
+                        raw_sources = msg.get("sources") if msg.get("type") == "attachment.sources.selected" else [msg.get("source")]
+                        sources = [str(x or "").strip() for x in (raw_sources or []) if str(x or "").strip()]
                         if not rec or rec.get("expires",0) < time.time() or rec.get("source_device") != device_id:
                             await websocket.send_json({"type":"attachment.transfer.status","message":"Attachment selection expired or is no longer valid."})
-                        elif not source:
+                        elif not sources:
+                            self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id,"total":0}
                             await websocket.send_json({"type":"attachment.transfer.status","message":"No attachment was selected."})
                         else:
-                            print(f"[WARN Attachment] source selected request={request_id} device={device_id}")
-                            async def _continue_attachment(selected_source=source, pending=rec, pending_request_id=request_id):
-                                try:
-                                    info = await self.transfer_file(pending["source_device"], pending["destination_device"], selected_source,
-                                        str(pending.get("destination_name") or ""), bool(pending.get("keep_on_server",False)))
-                                    source_ws = self._device_sockets.get(pending["source_device"])
-                                    if source_ws:
-                                        await source_ws.send_json({"type":"attachment.transfer.status","message":f"Attachment sent: {info.get('name','file')}"})
-                                    print(f"[WARN Attachment] transfer complete request={pending_request_id} sha256={info.get('sha256','')}")
-                                except Exception as exc:
-                                    print(f"[ERROR Attachment] transfer failed request={pending_request_id}: {exc}")
-                                    source_ws = self._device_sockets.get(pending["source_device"])
-                                    if source_ws:
-                                        await source_ws.send_json({"type":"attachment.transfer.status","message":f"Attachment failed: {exc}"})
-                            asyncio.create_task(_continue_attachment())
+                            print(f"[WARN Attachment] sources selected request={request_id} device={device_id} count={len(sources)}")
+                            async def _continue_attachment_batch(selected_sources=sources, pending=rec, pending_request_id=request_id):
+                                results=[]
+                                for selected_source in selected_sources:
+                                    try:
+                                        # A batch keeps each file as its own attachment. Destination naming
+                                        # is only meaningful for a single explicitly named source.
+                                        requested_name = str(pending.get("destination_name") or "") if len(selected_sources)==1 else ""
+                                        info = await self.transfer_file(pending["source_device"], pending["destination_device"], selected_source,
+                                            requested_name, bool(pending.get("keep_on_server",False)))
+                                        results.append({"ok":True,"status":"completed","id":info.get("id"),"name":info.get("name"),"size":info.get("size")})
+                                    except Exception as exc:
+                                        results.append({"ok":False,"status":"failed","error":str(exc)})
+                                        print(f"[ERROR Attachment] batch item failed request={pending_request_id}: {exc}")
+                                completed=sum(1 for item in results if item.get("ok"))
+                                failed=len(results)-completed
+                                batch_status="completed" if failed==0 else ("failed" if completed==0 else "partial")
+                                summary={"ok":failed==0,"status":batch_status,"request_id":pending_request_id,
+                                         "total":len(results),"completed":completed,"failed":failed,"items":results}
+                                self._attachment_pick_results[pending_request_id]=summary
+                                source_ws=self._device_sockets.get(pending["source_device"])
+                                if source_ws:
+                                    await source_ws.send_json({"type":"attachment.transfer.status",
+                                        "message":f"Attachment batch finished: {completed} sent, {failed} failed."})
+                                print(f"[WARN Attachment] batch complete request={pending_request_id} completed={completed} failed={failed}")
+                            asyncio.create_task(_continue_attachment_batch())
                     elif msg.get("type") == "attachment.source.cancelled":
                         request_id = str(msg.get("request_id") or "")
                         self._pending_attachment_picks.pop(request_id, None)
+                        self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id}
                         print(f"[WARN Attachment] picker cancelled request={request_id} device={device_id}")
                     elif msg.get("type") == "attachment.list":
                         await self._send_attachment_inbox(websocket, device_id)

@@ -1,3 +1,21 @@
+## v60.13
+- Added native multi-file selection for attachment requests on Android and Desktop companions.
+- One user request still creates exactly one attachment transaction and one picker.
+- Each selected file remains an individual inbox attachment; files are not automatically ZIP-combined.
+- Added batch completion summaries with total/completed/failed counts and per-file results.
+- Partial batch failures do not reopen the picker or retry successful files.
+- Preserved the v60.12 duplicate/retry guard and single-copy SHA-256 object store.
+- No source file was deleted or deprecated.
+
+## v60.12
+- Fixed repeated attachment picker/upload attempts from a single Live request by binding one attachment transaction to the current user turn.
+- Model retries can no longer replace a pending native selection with an invented `content://` URI; they receive the existing transaction status.
+- The async picker continuation now records completed, failed, or cancelled status so a same-turn retry reports the real outcome without starting a new transfer.
+- Preserved original attachment filenames/extensions; Android inbox uses middle ellipsis so long names keep their suffix visible.
+- Restyled Android companion submenu and attachment actions to match the main dark/cyan UI, with circular icons and clearer status/action rows.
+- Removed SHA-256 values from successful attachment diagnostic lines; file contents, local source paths, hashes, and one-time transfer tokens are not logged.
+- No source file was deleted or deprecated.
+
 ## v60.11 release lint correction
 - Removed the obsolete second `phoneControl` ImageButton left behind when Android Attachments and Device Control were moved into the single overflow menu.
 - No lint suppression or baseline was added; the layout now has one overflow control and no duplicate resource IDs.

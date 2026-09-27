@@ -207,9 +207,9 @@ class App:
         req=self.deferred_attachment_pick
         if not req:return
         self.deferred_attachment_pick=None
-        selected=filedialog.askopenfilename(title='Choose attachment')
+        selected=list(filedialog.askopenfilenames(title='Choose attachments'))
         if self.ws:
-            if selected:self.ws.send(json.dumps({'type':'attachment.source.selected','request_id':req.get('request_id',''),'source':selected}))
+            if selected:self.ws.send(json.dumps({'type':'attachment.sources.selected','request_id':req.get('request_id',''),'sources':selected}))
             else:self.ws.send(json.dumps({'type':'attachment.source.cancelled','request_id':req.get('request_id','')}))
 
     def show_attachments(self):

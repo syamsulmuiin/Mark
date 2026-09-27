@@ -15,6 +15,7 @@ import android.os.*
 import android.provider.Settings
 import android.provider.MediaStore
 import android.view.View
+import android.text.TextUtils
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -88,18 +89,50 @@ class MainActivity : AppCompatActivity() {
     private fun showVoice(){ runOnUiThread { pairPanel.visibility=View.GONE; voicePanel.visibility=View.VISIBLE; status.text=getString(R.string.connecting); orb.state="CONNECTING"; endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE } }
 
     private fun showPhoneControlMenu(anchor: View) {
-        val popup=PopupMenu(this,anchor)
-        popup.menu.add("Attachments").setIcon(R.drawable.ic_attachment)
-        popup.menu.add("Device Control").setIcon(R.drawable.ic_accessibility_control)
-        popup.setOnMenuItemClickListener { item ->
-            when(item.title.toString()){
-                "Attachments" -> showAttachmentInbox()
-                "Device Control" -> showDeviceControlDialog()
-            }
-            true
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(20),dp(10),dp(20),dp(12))
+            addView(menuActionRow(R.drawable.ic_attachment,"Attachments","Received files and sharing actions") { dialog ->
+                dialog.dismiss(); showAttachmentInbox()
+            })
+            addView(menuActionRow(R.drawable.ic_accessibility_control,"Device Control",
+                if(JarvisAccessibilityService.instance!=null) "Enabled · Accessibility control available" else "Disabled · Permission required") { dialog ->
+                dialog.dismiss(); showDeviceControlDialog()
+            })
         }
-        if(Build.VERSION.SDK_INT>=29) popup.setForceShowIcon(true)
-        popup.show()
+        val dialog=AlertDialog.Builder(this).setTitle("Companion").setView(panel).setNegativeButton("Close",null).create()
+        dialog.setOnShowListener {
+            panel.tag=dialog
+            dialog.window?.setDimAmount(0.62f)
+        }
+        dialog.show()
+    }
+
+    private fun menuActionRow(icon:Int,title:String,subtitle:String,onClick:(AlertDialog)->Unit):View {
+        val row=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL; gravity=android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(8),dp(12),dp(8),dp(12)); isClickable=true; isFocusable=true
+        }
+        val image=ImageView(this).apply {
+            setImageResource(icon); setColorFilter(android.graphics.Color.rgb(165,232,235)); setPadding(dp(11),dp(11),dp(11),dp(11)); setBackgroundResource(R.drawable.bg_icon_action)
+        }
+        row.addView(image,LinearLayout.LayoutParams(dp(46),dp(46)))
+        val copy=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(14),0,0,0) }
+        copy.addView(TextView(this).apply { text=title; textSize=15f; setTextColor(android.graphics.Color.rgb(247,248,248)); setTypeface(typeface,android.graphics.Typeface.BOLD) })
+        copy.addView(TextView(this).apply { text=subtitle; textSize=12f; setTextColor(android.graphics.Color.rgb(145,153,173)); setPadding(0,dp(3),0,0) })
+        row.addView(copy,LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f))
+        row.setOnClickListener { (panelDialog(row) ?: return@setOnClickListener).let(onClick) }
+        return row
+    }
+
+    private fun panelDialog(view:View):AlertDialog? {
+        var current:View?=view
+        while(current!=null){
+            val tag=current.tag
+            if(tag is AlertDialog)return tag
+            current=current.parent as? View
+        }
+        return null
     }
 
     private fun showDeviceControlDialog() {
@@ -362,6 +395,7 @@ class MainActivity : AppCompatActivity() {
         val req=deferredPickerRequest ?: return
         deferredPickerRequest=null
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true)
         intent.putExtra("markliv_attachment_request",req.optString("request_id"))
         try { startActivityForResult(intent,93) } catch(e:Exception) {
             ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",req.optString("request_id")).put("error",e.message).toString())
@@ -396,30 +430,45 @@ class MainActivity : AppCompatActivity() {
     private fun showAttachmentActions(item:JSONObject){
         val size=formatBytes(item.optLong("size"))
         val status=item.optString("status","pending").replaceFirstChar { it.uppercase() }
-        val info=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL
-            setPadding(52,12,52,8)
-            addView(TextView(this@MainActivity).apply { text="$size  ·  $status"; textSize=13f; setTextColor(android.graphics.Color.rgb(145,153,173)) })
-        }
-        val actions=arrayOf("Open","Save As","Share")
-        AlertDialog.Builder(this).setIcon(R.drawable.ic_attachment).setTitle(item.optString("name")).setView(info).setItems(actions){ _,which ->
-            val action=when(which){0->"open";1->"save";else->"share"}
-            if(action=="save"){
-                val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(4),dp(20),dp(10))
+            addView(TextView(this@MainActivity).apply { text="$size  ·  $status"; textSize=12f; setTextColor(android.graphics.Color.rgb(145,153,173)); setPadding(dp(8),0,dp(8),dp(8)) })
+            addView(menuActionRow(R.drawable.ic_open_file,"Open","Preview using an available app") { dialog -> dialog.dismiss(); requestAttachment(item.getString("id"),"open") })
+            addView(menuActionRow(R.drawable.ic_save_file,"Save As","Choose where this companion stores the file") { dialog ->
+                dialog.dismiss(); val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,item.optString("name"))
-                pendingAttachment=Pair(item.getString("id"),action)
-                startActivityForResult(intent,91)
-            }else requestAttachment(item.getString("id"),action)
-        }.show()
+                pendingAttachment=Pair(item.getString("id"),"save"); startActivityForResult(intent,91)
+            })
+            addView(menuActionRow(R.drawable.ic_share_file,"Share","Send with another app on this device") { dialog -> dialog.dismiss(); requestAttachment(item.getString("id"),"share") })
+        }
+        val dialog=AlertDialog.Builder(this).setTitle(item.optString("name")).setView(panel).setNegativeButton("Close",null).create()
+        dialog.setOnShowListener { panel.tag=dialog; dialog.window?.setDimAmount(0.62f) }
+        dialog.show()
     }
 
     private fun refreshAttachmentDialog(){
         val list=attachmentDialog?.findViewById<ListView>(android.R.id.list)
             ?: (attachmentDialog?.window?.decorView?.findViewWithTag<View>("attachment-list") as? ListView)
-        val names=synchronized(attachmentItems){ attachmentItems.values.map {
-            "📎  ${it.optString("name")}\n      ${formatBytes(it.optLong("size"))}  ·  ${it.optString("status","pending").replaceFirstChar { c -> c.uppercase() }}"
-        } }
-        list?.adapter=ArrayAdapter(this,android.R.layout.simple_list_item_1,names)
+        val items=synchronized(attachmentItems){ attachmentItems.values.toList() }
+        list?.adapter=object:BaseAdapter(){
+            override fun getCount()=items.size
+            override fun getItem(position:Int)=items[position]
+            override fun getItemId(position:Int)=position.toLong()
+            override fun getView(position:Int,convertView:View?,parent:android.view.ViewGroup):View {
+                val item=items[position]
+                val row=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.HORIZONTAL; gravity=android.view.Gravity.CENTER_VERTICAL; setPadding(dp(8),dp(10),dp(8),dp(10)) }
+                val icon=ImageView(this@MainActivity).apply { setImageResource(R.drawable.ic_attachment); setColorFilter(android.graphics.Color.rgb(165,232,235)); setPadding(dp(10),dp(10),dp(10),dp(10)); setBackgroundResource(R.drawable.bg_icon_action) }
+                row.addView(icon,LinearLayout.LayoutParams(dp(44),dp(44)))
+                val text=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(13),0,0,0) }
+                text.addView(TextView(this@MainActivity).apply {
+                    this.text=item.optString("name","file"); textSize=13f; setTextColor(android.graphics.Color.rgb(247,248,248)); maxLines=1; ellipsize=TextUtils.TruncateAt.MIDDLE
+                })
+                text.addView(TextView(this@MainActivity).apply {
+                    this.text="${formatBytes(item.optLong("size"))}  ·  ${item.optString("status","pending").replaceFirstChar { c -> c.uppercase() }}"; textSize=11f; setTextColor(android.graphics.Color.rgb(145,153,173)); setPadding(0,dp(4),0,0)
+                })
+                row.addView(text,LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f)); return row
+            }
+        }
     }
 
     private fun dp(value:Int):Int=(value*resources.displayMetrics.density).toInt()
@@ -444,8 +493,15 @@ class MainActivity : AppCompatActivity() {
         if(requestCode==93){
             val requestId=pendingPickerRequestId; pendingPickerRequestId=null
             if(requestId!=null){
-                if(resultCode==RESULT_OK && data?.data!=null) ws?.send(JSONObject().put("type","attachment.source.selected").put("request_id",requestId).put("source",data.data.toString()).toString())
-                else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
+                if(resultCode==RESULT_OK && data!=null){
+                    val sources=JSONArray()
+                    val clips=data.clipData
+                    if(clips!=null){
+                        for(i in 0 until clips.itemCount) sources.put(clips.getItemAt(i).uri.toString())
+                    }else data.data?.let { sources.put(it.toString()) }
+                    if(sources.length()>0) ws?.send(JSONObject().put("type","attachment.sources.selected").put("request_id",requestId).put("sources",sources).toString())
+                    else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
+                } else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
             }
         }
         if(requestCode==91){

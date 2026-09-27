@@ -413,6 +413,7 @@ class JarvisLive:
         self._pending_vision       = None    # (session_generation, img_bytes, mime_type, question, angle)
         self._session_generation    = 0       # increments for every Live connection; stale vision is never replayed
         self._blocked_device_action = None    # exact rejected device action; requires re-inspect/replan before retry
+        self._attachment_turn = None          # one logical attachment transaction per user turn
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
@@ -1291,8 +1292,22 @@ class JarvisLive:
                     elif "file.upload" not in set(src.get("capabilities") or []): result="Source companion does not support file.upload."
                     elif "attachment.inbox" not in set(dst.get("capabilities") or []): result="Destination companion does not support attachment.inbox."
                     else:
-                        info=await self._dashboard.transfer_file(str(src["device_id"]),str(dst["device_id"]),str(args.get("source") or ""),str(args.get("destination_name") or ""),bool(args.get("keep_on_server",False)))
-                        result=json.dumps(info,ensure_ascii=False)
+                        src_id=str(src["device_id"]); dst_id=str(dst["device_id"])
+                        active=self._attachment_turn
+                        if active and active.get("source_device")==src_id and active.get("destination_device")==dst_id:
+                            # A native picker owns this logical transfer. Ignore model retries,
+                            # including invented content:// URIs, until the next real user turn.
+                            known=self._dashboard.attachment_request_status(str(active.get("request_id") or ""))
+                            if known and known.get("status") in ("completed","partial","failed","cancelled"):
+                                result=json.dumps(known,ensure_ascii=False)
+                            else:
+                                result=json.dumps({"ok":True,"status":"already_in_progress","request_id":active.get("request_id"),
+                                    "message":"The attachment request is already in progress. Do not call transfer_file again in this user turn."},ensure_ascii=False)
+                        else:
+                            info=await self._dashboard.transfer_file(src_id,dst_id,str(args.get("source") or ""),str(args.get("destination_name") or ""),bool(args.get("keep_on_server",False)))
+                            if info.get("status")=="awaiting_selection":
+                                self._attachment_turn={"source_device":src_id,"destination_device":dst_id,"request_id":info.get("request_id")}
+                            result=json.dumps(info,ensure_ascii=False)
 
             elif name == "call_current_device":
                 if not self._dashboard:
@@ -1706,6 +1721,7 @@ class JarvisLive:
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
                                 self._blocked_device_action = None  # a new user turn starts a fresh device-action plan
+                                self._attachment_turn = None          # a new user request may start one new attachment transaction
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 if self._dashboard:

@@ -410,7 +410,9 @@ class JarvisLive:
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
-        self._pending_vision       = None    # (img_bytes, mime_type, question, angle) to inject after tool response
+        self._pending_vision       = None    # (session_generation, img_bytes, mime_type, question, angle)
+        self._session_generation    = 0       # increments for every Live connection; stale vision is never replayed
+        self._blocked_device_action = None    # exact rejected device action; requires re-inspect/replan before retry
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
@@ -1035,6 +1037,43 @@ class JarvisLive:
 
         return out
 
+    @staticmethod
+    def _device_action_signature(device_id, capability, action_args):
+        """Stable signature used to stop an unchanged rejected device action loop."""
+        try:
+            payload = json.dumps(action_args or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        except Exception:
+            payload = repr(action_args or {})
+        return (str(device_id or ""), str(capability or "").strip().casefold(), payload)
+
+    @staticmethod
+    def _device_action_rejected(result):
+        text = str(result or "").casefold()
+        return any(marker in text for marker in (
+            " rejected ", "rejected", "permission denied", "not permitted",
+            "unsupported", "not supported", "device is offline", "failed:"
+        ))
+
+    def _guard_device_action(self, device_id, capability, action_args):
+        sig = self._device_action_signature(device_id, capability, action_args)
+        if self._blocked_device_action == sig:
+            return sig, (
+                "Blocked unchanged retry after the previous device action was rejected. "
+                "Re-inspect the current device state and replan, or change the action/arguments before retrying."
+            )
+        return sig, None
+
+    def _finish_device_action(self, sig, capability, result):
+        cap = str(capability or "").strip().casefold()
+        if self._device_action_rejected(result):
+            self._blocked_device_action = sig
+        elif cap in {"inspect", "android.ui.inspect", "ui.inspect", "screen.inspect"}:
+            self._blocked_device_action = None
+        elif self._blocked_device_action is not None and sig != self._blocked_device_action:
+            # A different successful action changes the state/replan path, so the
+            # previous rejection no longer needs to poison future legitimate work.
+            self._blocked_device_action = None
+
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
@@ -1164,7 +1203,7 @@ class JarvisLive:
                                 mime_t = str(_payload.get("mime_type") or "image/jpeg")
                                 if not img_b or not mime_t.startswith("image/"):
                                     raise ValueError("Companion returned invalid camera image data")
-                                self._pending_vision = (img_b, mime_t, user_text, "camera")
+                                self._pending_vision = (self._session_generation, img_b, mime_t, user_text, "camera")
                                 result = (
                                     f"[VISION_ACTIVE] {_payload.get('facing', _facing).capitalize()} camera frame captured "
                                     "and attached to this same exchange. Do not answer from UI text or memory; "
@@ -1201,7 +1240,7 @@ class JarvisLive:
                             img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
                             print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
                             _stall = "screen"
-                        self._pending_vision = (img_b, mime_t, user_text, angle)
+                        self._pending_vision = (self._session_generation, img_b, mime_t, user_text, angle)
                         # The image is attached to this same exchange, so there is
                         # nothing to stall for and nothing to announce. Asking for an
                         # acknowledgement here is what produced two spoken answers —
@@ -1257,8 +1296,14 @@ class JarvisLive:
                         _mapped_cap = _generic_aliases.get(_requested_cap.lower(), _requested_cap)
                         if _mapped_cap != _requested_cap and _mapped_cap not in _caps:
                             _mapped_cap = _requested_cap
-                        reply = await self._dashboard.call_device(device_id, _mapped_cap, args.get("args") or {})
-                        result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                        _device_args = args.get("args") or {}
+                        _sig, _blocked = self._guard_device_action(device_id, _mapped_cap, _device_args)
+                        if _blocked:
+                            result = _blocked
+                        else:
+                            reply = await self._dashboard.call_device(device_id, _mapped_cap, _device_args)
+                            result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                            self._finish_device_action(_sig, _mapped_cap, result)
 
             elif name == "call_paired_device":
                 if not self._dashboard:
@@ -1287,8 +1332,16 @@ class JarvisLive:
                     if target is None:
                         result = f"Paired device {selector!r} was not found. Call list_paired_devices and use its exact device_id or name."
                     else:
-                        reply = await self._dashboard.call_device(str(target.get("device_id")), str(args.get("capability", "")), args.get("args") or {})
-                        result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                        _target_id = str(target.get("device_id"))
+                        _capability = str(args.get("capability", ""))
+                        _device_args = args.get("args") or {}
+                        _sig, _blocked = self._guard_device_action(_target_id, _capability, _device_args)
+                        if _blocked:
+                            result = _blocked
+                        else:
+                            reply = await self._dashboard.call_device(_target_id, _capability, _device_args)
+                            result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                            self._finish_device_action(_sig, _capability, result)
 
             elif name == "manage_monitor":
                 action = args.get("action", "").lower().strip()
@@ -1498,10 +1551,30 @@ class JarvisLive:
             return False
 
         import base64 as _b64
-        img_b, mime_t, question, angle = self._pending_vision
+        generation, img_b, mime_t, question, angle = self._pending_vision
         self._pending_vision = None
-        b64 = _b64.b64encode(img_b).decode("ascii")
-        print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}) → main session")
+
+        # A frame belongs to exactly one Live connection.  Never replay bytes
+        # captured for a session that has already rolled over/reconnected.
+        if generation != self._session_generation:
+            self._vision_busy = False
+            print("[Vision] Dropped stale frame from a previous Live session")
+            return False
+        if not isinstance(img_b, (bytes, bytearray)) or not img_b:
+            self._vision_busy = False
+            print("[Vision] Dropped empty/invalid image payload")
+            return False
+        mime_t = str(mime_t or "").strip().lower()
+        if mime_t not in {"image/jpeg", "image/png", "image/webp"}:
+            self._vision_busy = False
+            print(f"[Vision] Dropped unsupported image MIME: {mime_t!r}")
+            return False
+        if len(img_b) > 20 * 1024 * 1024:
+            self._vision_busy = False
+            print(f"[Vision] Dropped oversized image payload: {len(img_b):,} bytes")
+            return False
+        b64 = _b64.b64encode(bytes(img_b)).decode("ascii")
+        print(f"[Vision] 📤 {len(img_b):,} bytes (angle={angle}, session={generation}) → main session")
 
         # Label the source. Without it the image arrives carrying nothing but
         # the user's own sentence, and a screenshot of this app — which has a
@@ -1613,6 +1686,7 @@ class JarvisLive:
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
+                                self._blocked_device_action = None  # a new user turn starts a fresh device-action plan
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 if self._dashboard:
@@ -2001,6 +2075,7 @@ class JarvisLive:
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session          = session
+                    self._session_generation += 1
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()

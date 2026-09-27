@@ -1,3 +1,12 @@
+## v60.7 - Live vision validation and device action loop guard
+
+- Bound pending vision frames to the Live session generation that captured them; stale frames are dropped after reconnect instead of being replayed.
+- Added image payload validation immediately before Live vision injection (non-empty bytes, supported image MIME, bounded size).
+- Added a generic device-action circuit breaker for current-device and paired-device calls: an unchanged rejected action is not executed again until the state is re-inspected, a different successful action changes the plan, the arguments change, or the user starts a new turn.
+- Kept the guard platform-neutral and capability-neutral; Android and Desktop companion calls use the same failure semantics.
+- Camera defaults, pairing replacement behavior, UI, and voice routing are unchanged.
+- No source files removed.
+
 ## v60.6 - Explicit re-pair stale-device replacement
 
 - Explicit Pair Code pairing now replaces one unambiguous offline stale record with the same companion-reported name when a reinstall creates a new device identity.

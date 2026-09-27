@@ -252,3 +252,7 @@ Release packages contain source/runtime assets only. Generated Python caches and
 
 ### Re-pair after reinstall
 If reinstalling a companion creates a new cryptographic device identity, pairing it again with a fresh Pair Code can replace one unambiguous offline stale record for that same companion name. Normal reconnects keep the existing trust record. If several trusted devices share the same name, MARK-LIV preserves them rather than guessing which one to replace.
+
+
+### Runtime recovery guards
+Vision frames are validated and bound to the active Live session so reconnects do not replay stale image payloads. Rejected companion actions are protected by a generic unchanged-action guard: MARK-LIV must re-inspect/replan or change the action before executing the same rejected device operation again.

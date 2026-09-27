@@ -32,7 +32,7 @@ def verify(pub,data,sig):
 class App:
     def __init__(self):
         self.st=identity(load()); self.ws=None; self.mic=None; self.out=None; self.running=False; self.speaking=False
-        self.attachments={}; self.pending_attachment=None
+        self.attachments={}; self.pending_attachment=None; self.deferred_attachment_pick=None; self.jarvis_spoke_since_pick=False
         self.root=tk.Tk(); self.root.title('MARK LIV Companion'); self.root.geometry('620x520')
         f=ttk.Frame(self.root,padding=14); f.pack(fill='both',expand=True)
         ttk.Label(f,text='Pair Code').grid(row=0,column=0,sticky='w'); self.code=tk.StringVar(); ttk.Entry(f,textvariable=self.code,width=16).grid(row=0,column=1,sticky='w'); ttk.Button(f,text='Pair',command=self.pair).grid(row=0,column=2)
@@ -40,7 +40,7 @@ class App:
         self.log=tk.Text(f,height=18,state='disabled'); self.log.grid(row=3,column=0,columnspan=3,sticky='nsew')
         self.cmd=tk.StringVar(); e=ttk.Entry(f,textvariable=self.cmd); e.grid(row=4,column=0,columnspan=2,sticky='ew',pady=8); e.bind('<Return>',lambda _e:self.send()); ttk.Button(f,text='Send',command=self.send).grid(row=4,column=2)
         ttk.Button(f,text='Connect voice',command=self.connect).grid(row=5,column=0,sticky='w'); ttk.Button(f,text='Disconnect',command=self.disconnect).grid(row=5,column=1,sticky='w')
-        ttk.Button(f,text='Attachments',command=self.show_attachments).grid(row=5,column=2,sticky='e')
+        ttk.Button(f,text='📎  Attachments',command=self.show_attachments).grid(row=5,column=2,sticky='e')
         f.columnconfigure(1,weight=1); f.rowconfigure(3,weight=1)
         if self.st.get('paired'): self.root.after(300,self.connect)
         self.root.protocol('WM_DELETE_WINDOW',self.close)
@@ -86,11 +86,19 @@ class App:
             # Only gate network transmission while JARVIS is speaking; stopping and
             # restarting PortAudio streams each turn caused the desktop companion
             # to become silent after the first response on some devices/backends.
-            if state=='SPEAKING': self.speaking=True
-            elif state in ('LISTENING','ACTIVE','THINKING'): self.speaking=False
+            if state=='SPEAKING':
+                self.speaking=True
+                if self.deferred_attachment_pick:self.jarvis_spoke_since_pick=True
+            elif state in ('LISTENING','ACTIVE','THINKING'):
+                self.speaking=False
+                if state in ('LISTENING','ACTIVE') and self.deferred_attachment_pick and self.jarvis_spoke_since_pick:
+                    self.root.after(0,self._launch_deferred_attachment_picker)
             label = 'Listening' if state=='ACTIVE' else state.title()
             self.root.after(0, lambda value=label: self.status.set(value))
         elif typ=='log': self.note(f"{m.get('speaker','JARVIS')}: {m.get('text','')}")
+        elif typ=='attachment.pick.request':
+            self.deferred_attachment_pick=m; self.jarvis_spoke_since_pick=False
+        elif typ=='attachment.transfer.status': self.note(str(m.get('message') or 'Attachment transfer updated'))
         elif typ=='attachment.inbox':
             self.attachments={x['id']:x for x in m.get('attachments',[])}
             self.root.after(0,self.refresh_attachment_list)
@@ -196,12 +204,21 @@ class App:
             'facing': 'default',
             'requested_facing': requested,
         })
+    def _launch_deferred_attachment_picker(self):
+        req=self.deferred_attachment_pick
+        if not req:return
+        self.deferred_attachment_pick=None; self.jarvis_spoke_since_pick=False
+        selected=filedialog.askopenfilename(title='Choose attachment')
+        if self.ws:
+            if selected:self.ws.send(json.dumps({'type':'attachment.source.selected','request_id':req.get('request_id',''),'source':selected}))
+            else:self.ws.send(json.dumps({'type':'attachment.source.cancelled','request_id':req.get('request_id','')}))
+
     def show_attachments(self):
         if getattr(self,'attachment_window',None) and self.attachment_window.winfo_exists():
             self.attachment_window.lift(); return
-        w=tk.Toplevel(self.root); w.title('Attachments'); w.geometry('520x340')
+        w=tk.Toplevel(self.root); w.title('Attachments · MARK LIV'); w.geometry('560x380'); w.minsize(500,320)
         self.attachment_window=w
-        self.attachment_list=tk.Listbox(w,selectmode='browse')
+        header=ttk.Frame(w,padding=(12,12,12,0)); header.pack(fill='x'); ttk.Label(header,text='📎  Attachments',font=('TkDefaultFont',13,'bold')).pack(anchor='w'); ttk.Label(header,text='Received files stay here until you choose Open, Save As, or Share.').pack(anchor='w',pady=(3,0)); self.attachment_list=tk.Listbox(w,selectmode='browse',activestyle='dotbox')
         self.attachment_list.pack(fill='both',expand=True,padx=12,pady=12)
         buttons=ttk.Frame(w); buttons.pack(fill='x',padx=12,pady=8)
         ttk.Button(buttons,text='Open',command=lambda:self.request_attachment('open')).pack(side='left')

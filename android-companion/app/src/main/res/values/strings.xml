@@ -12,4 +12,8 @@
     <string name="start_conversation">START CONVERSATION</string>
     <string name="end_conversation">End conversation</string>
     <string name="conversation_ended">Conversation ended</string>
+    <string name="attachments">Attachments</string>
+    <string name="device_control">Device Control</string>
+    <string name="device_control_description">Allow JARVIS to inspect and operate ordinary Android UI after you explicitly enable its Accessibility service.</string>
+    <string name="open_accessibility_settings">Open Accessibility Settings</string>
 </resources>

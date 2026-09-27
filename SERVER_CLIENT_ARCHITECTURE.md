@@ -189,3 +189,7 @@ A normal disconnect never deletes trust. An explicit Pair Code may replace a sta
 
 ### Live vision session binding and action rejection guard
 Captured vision bytes are scoped to the Live connection generation that produced the tool result. A reconnect invalidates pending bytes from the previous generation; the task may continue, but rejected/stale media payloads are not replayed blindly. Device automation also records an exact rejected `(device, capability, arguments)` signature. The same rejected action cannot execute unchanged again until the device is re-inspected, the plan changes through a different successful action/arguments, or a new user turn begins. This rule is shared across Android and Desktop companion routing.
+
+
+### Deferred attachment selection and companion controls (v60.10)
+Interactive voice file selection is asynchronous: JARVIS completes its spoken instruction before the source companion opens its native file picker. The selected file then continues through the existing single-copy SHA-256 attachment pipeline. Android exposes dedicated Attachments and Device Control actions; Device Control always delegates enablement to Android Accessibility Settings and never enables the service silently. Attachment transfer failures are logged as diagnostics without file contents or one-time transfer tokens.

@@ -50,6 +50,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var endConversation: ImageButton
     private lateinit var startConversation: Button
     private lateinit var phoneControl: ImageButton
+    private lateinit var attachmentBadge: TextView
+    private var deferredPickerRequest: JSONObject? = null
+    private var jarvisSpokeSincePickerRequest = false
     private var ws: WebSocket? = null
     private val attachmentItems = linkedMapOf<String,JSONObject>()
     private var pendingAttachment: Pair<String,String>? = null
@@ -58,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var attachmentDialog: AlertDialog? = null
     private var sourcePickerLatch: CountDownLatch? = null
     private var pickedSourceUri: Uri? = null
+    private var pendingPickerRequestId: String? = null
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
@@ -72,12 +76,12 @@ class MainActivity : AppCompatActivity() {
         status=findViewById(R.id.status); pairStatus=findViewById(R.id.pairStatus); pairCode=findViewById(R.id.pairCode)
         pairPanel=findViewById(R.id.pairPanel); voicePanel=findViewById(R.id.voicePanel)
         orb=findViewById(R.id.orb); transcript=findViewById(R.id.transcript); transcriptScroll=findViewById(R.id.transcriptScroll); endConversation=findViewById(R.id.endConversation)
-        startConversation=findViewById(R.id.startConversation); phoneControl=findViewById(R.id.phoneControl)
+        startConversation=findViewById(R.id.startConversation); phoneControl=findViewById(R.id.phoneControl); attachmentBadge=findViewById(R.id.attachmentBadge)
         findViewById<Button>(R.id.pair).setOnClickListener { pairWithCode(pairCode.text.toString()) }
         endConversation.setOnClickListener { endVoice() }
         startConversation.setOnClickListener { connect() }
         phoneControl.setOnClickListener { showPhoneControlMenu(it) }
-        findViewById<Button>(R.id.attachments).setOnClickListener { showAttachmentInbox() }
+        findViewById<ImageButton>(R.id.attachments).setOnClickListener { showAttachmentInbox() }
         if (Build.VERSION.SDK_INT>=33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
         intent?.data?.getQueryParameter("code")?.let { pairCode.setText(it.uppercase()); pairWithCode(it) }
         if (intent?.data==null && prefs.getBoolean("paired", false)) { showVoice(); connect() }
@@ -86,17 +90,17 @@ class MainActivity : AppCompatActivity() {
     private fun showVoice(){ runOnUiThread { pairPanel.visibility=View.GONE; voicePanel.visibility=View.VISIBLE; status.text=getString(R.string.connecting); orb.state="CONNECTING"; endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE } }
 
     private fun showPhoneControlMenu(anchor: View) {
-        PopupMenu(this, anchor).apply {
-            if (Build.VERSION.SDK_INT >= 29) setForceShowIcon(true)
-            menu.add(0, 1, 0, getString(R.string.enable_phone_control)).setIcon(R.drawable.ic_phone_control)
-            setOnMenuItemClickListener { item ->
-                if (item.itemId == 1) {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    true
-                } else false
+        val enabled = JarvisAccessibilityService.instance != null
+        val state = if (enabled) "Enabled" else "Disabled"
+        AlertDialog.Builder(this)
+            .setIcon(R.drawable.ic_accessibility_control)
+            .setTitle("Device Control · $state")
+            .setMessage(getString(R.string.device_control_description))
+            .setPositiveButton(getString(R.string.open_accessibility_settings)) { _, _ ->
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
-            show()
-        }
+            .setNegativeButton("Close", null)
+            .show()
     }
     private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message } }
 
@@ -128,7 +132,7 @@ class MainActivity : AppCompatActivity() {
                 val o=try { JSONObject(response.body?.string().orEmpty()) } catch(_:Exception){ pairUi("Invalid response from JARVIS"); return }
                 val nonce=o.optString("nonce"); val serverKey=o.optString("public_key"); val serverId=o.optString("device_id")
                 if(nonce.isBlank()||serverKey.isBlank()||serverId.isBlank()){pairUi("Pairing code invalid or expired");return}
-                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
+                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
                 val body=JSONObject()
                     .put("code",code)
                     .put("peer",peer)
@@ -154,13 +158,15 @@ class MainActivity : AppCompatActivity() {
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
             override fun onMessage(w:WebSocket,text:String){ try {
                 val m=JSONObject(text); when(m.optString("type")){
-                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
-                    "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog() } }
-                    "attachment.new"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(attachmentItems){ attachmentItems[item.getString("id")]=item }; runOnUiThread { Toast.makeText(this@MainActivity,"Attachment: ${item.optString("name")}",Toast.LENGTH_LONG).show(); refreshAttachmentDialog() } } }
+                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
+                    "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
+                    "attachment.new"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(attachmentItems){ attachmentItems[item.getString("id")]=item }; runOnUiThread { Toast.makeText(this@MainActivity,"New attachment · ${item.optString("name")}",Toast.LENGTH_LONG).show(); refreshAttachmentDialog(); refreshAttachmentBadge() } } }
+                    "attachment.pick.request"->{ deferredPickerRequest=m; jarvisSpokeSincePickerRequest=false }
+                    "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
-                    "status"->{ val st=m.optString("state").uppercase(); setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
+                    "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING" && deferredPickerRequest!=null) jarvisSpokeSincePickerRequest=true; setVoiceState(if(st=="ACTIVE") "LISTENING" else st); if((st=="LISTENING"||st=="ACTIVE") && jarvisSpokeSincePickerRequest) launchDeferredAttachmentPicker() }
                     "log"->{ appendTranscript(m.optString("speaker"),m.optString("text")); if(m.optString("speaker")=="jarvis") setVoiceState("LISTENING") }
                     "capability.call"->executeCapability(w,m)
                 }
@@ -288,7 +294,7 @@ class MainActivity : AppCompatActivity() {
                     if(!latch.await(120,TimeUnit.SECONDS))error("File selection timed out")
                     val selected=pickedSourceUri?:error("File selection cancelled")
                     a.put("source",selected.toString())
-                    result=uploadTransferFile(a)
+                    result=AttachmentTransfer.upload(this,client,a)
                 }catch(e:Exception){ok=false;result=e.message?:e.toString()}
                 finally{sourcePickerLatch=null;pickedSourceUri=null}
                 w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id"))
@@ -305,8 +311,8 @@ class MainActivity : AppCompatActivity() {
         "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("home") }
         "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page" }
         "camera.capture"->{ result=captureCameraFrame(a.optString("facing","back")) }
-        "file.upload"->{ result=uploadTransferFile(a) }
-        "file.receive"->{ result=receiveTransferFile(a) }
+        "file.upload"->{ result=AttachmentTransfer.upload(this,client,a) }
+        "file.receive"->{ result=AttachmentTransfer.receive(this,client,a) }
         "android.ui.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.inspect(a.optInt("max_nodes",120)).toString() }
         "android.ui.click"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.click(a.optString("text"),a.optString("view_id")) }
         "android.ui.text"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.setText(a.getString("text"),a.optString("target_text"),a.optString("view_id")) }
@@ -317,10 +323,27 @@ class MainActivity : AppCompatActivity() {
         else->{ok=false;result="Unsupported capability: $cap"}
     }}catch(e:Exception){ok=false;result=e.message?:e.toString()}; w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id")).put("ok",ok).put("result",result).toString()) }
 
+    private fun refreshAttachmentBadge(){
+        val count=synchronized(attachmentItems){ attachmentItems.values.count { it.optString("status","pending") != "saved" } }
+        attachmentBadge.visibility=if(count>0) View.VISIBLE else View.GONE
+        attachmentBadge.text=if(count>99) "99+" else count.toString()
+    }
+
+    private fun launchDeferredAttachmentPicker(){
+        val req=deferredPickerRequest ?: return
+        deferredPickerRequest=null; jarvisSpokeSincePickerRequest=false
+        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        intent.putExtra("markliv_attachment_request",req.optString("request_id"))
+        try { startActivityForResult(intent,93) } catch(e:Exception) {
+            ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",req.optString("request_id")).put("error",e.message).toString())
+        }
+        pendingPickerRequestId=req.optString("request_id")
+    }
+
     private fun showAttachmentInbox(){
         ws?.send(JSONObject().put("type","attachment.list").toString())
         val list=ListView(this)
-        attachmentDialog=AlertDialog.Builder(this).setTitle("Attachments").setView(list)
+        attachmentDialog=AlertDialog.Builder(this).setIcon(R.drawable.ic_attachment).setTitle("Attachments · ${synchronized(attachmentItems){attachmentItems.size}}").setView(list)
             .setNegativeButton("Close",null).create()
         list.tag="attachment-list"
         list.setOnItemClickListener { _,_,position,_ ->
@@ -357,6 +380,13 @@ class MainActivity : AppCompatActivity() {
         if(requestCode==92){
             if(resultCode==RESULT_OK)pickedSourceUri=data?.data
             sourcePickerLatch?.countDown()
+        }
+        if(requestCode==93){
+            val requestId=pendingPickerRequestId; pendingPickerRequestId=null
+            if(requestId!=null){
+                if(resultCode==RESULT_OK && data?.data!=null) ws?.send(JSONObject().put("type","attachment.source.selected").put("request_id",requestId).put("source",data.data.toString()).toString())
+                else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
+            }
         }
         if(requestCode==91){
             if(resultCode==RESULT_OK && data?.data!=null){ pendingSaveUri=data.data; pendingAttachment?.let { requestAttachment(it.first,"save") } }
@@ -410,41 +440,6 @@ class MainActivity : AppCompatActivity() {
             }catch(e:Exception){temp.delete();ui("Attachment failed: ${e.message}")}
             finally{ if(action=="save")pendingSaveUri=null }
         }.start()
-    }
-
-    private fun uploadTransferFile(a:JSONObject):String {
-        val source=a.optString("source").trim(); if(source.isBlank()) error("source is required")
-        val uri=if(source.startsWith("content://")) Uri.parse(source) else Uri.fromFile(File(source))
-        val displayName=if(source.startsWith("content://")){
-            contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor ->
-                if(cursor.moveToFirst())cursor.getString(0) else "file"
-            }?:"file"
-        }else File(source).name
-        val digest=MessageDigest.getInstance("SHA-256"); var total=0L
-        val body=object:RequestBody(){
-            override fun contentType()="application/octet-stream".toMediaType()
-            override fun writeTo(sink:okio.BufferedSink){
-                val input=contentResolver.openInputStream(uri)?:error("Cannot open source file: $source")
-                input.use { stream -> val buf=ByteArray(1024*1024); while(true){ val n=stream.read(buf); if(n<=0) break; digest.update(buf,0,n); total+=n; sink.write(buf,0,n) } }
-            }
-        }
-        val req=Request.Builder().url(a.getString("url")).header("X-File-Name",displayName.replace(Regex("[\\/]+"),"_")).put(body).build()
-        client.newCall(req).execute().use { r -> if(!r.isSuccessful) error("Upload failed: HTTP ${r.code}"); val server=JSONObject(r.body?.string()?:"{}"); val hash=digest.digest().joinToString(""){"%02x".format(it)}; if(server.optString("sha256")!=hash||server.optLong("size",-1)!=total) error("Server upload verification failed"); return JSONObject().put("name",displayName).put("sha256",hash).put("size",total).toString() }
-    }
-
-    private fun receiveTransferFile(a:JSONObject):String {
-        if(Build.VERSION.SDK_INT<29) error("file.receive to shared Downloads is unsupported on Android below 10 without legacy storage permission")
-        val name=a.optString("name","file").replace(Regex("[\\/]+"),"_")
-        val values=ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME,name); put(MediaStore.MediaColumns.MIME_TYPE,"application/octet-stream"); if(Build.VERSION.SDK_INT>=29) put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/MARK-LIV") }
-        val collection=MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        val outUri=contentResolver.insert(collection,values)?:error("Cannot create destination file")
-        val digest=MessageDigest.getInstance("SHA-256"); var total=0L
-        try {
-            val req=Request.Builder().url(a.getString("url")).get().build()
-            client.newCall(req).execute().use { r -> if(!r.isSuccessful) error("Download failed: HTTP ${r.code}"); val input=r.body?.byteStream()?:error("Empty download body"); val output=contentResolver.openOutputStream(outUri)?:error("Cannot open destination file"); input.use { src -> output.use { dst -> val buf=ByteArray(1024*1024); while(true){ val n=src.read(buf); if(n<=0) break; dst.write(buf,0,n); digest.update(buf,0,n); total+=n } } } }
-            val hash=digest.digest().joinToString(""){"%02x".format(it)}; if(hash!=a.getString("sha256")||total!=a.getLong("size")) error("Downloaded file failed SHA-256/size verification")
-            return JSONObject().put("saved_to",outUri.toString()).put("sha256",hash).put("size",total).toString()
-        } catch(e:Exception){ contentResolver.delete(outUri,null,null); throw e }
     }
 
     private fun captureCameraFrame(rawFacing:String):String {

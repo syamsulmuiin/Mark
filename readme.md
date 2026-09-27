@@ -256,3 +256,7 @@ If reinstalling a companion creates a new cryptographic device identity, pairing
 
 ### Runtime recovery guards
 Vision frames are validated and bound to the active Live session so reconnects do not replay stale image payloads. Rejected companion actions are protected by a generic unchanged-action guard: MARK-LIV must re-inspect/replan or change the action before executing the same rejected device operation again.
+
+
+### Deferred attachment selection and companion controls (v60.10)
+Interactive voice file selection is asynchronous: JARVIS completes its spoken instruction before the source companion opens its native file picker. The selected file then continues through the existing single-copy SHA-256 attachment pipeline. Android exposes dedicated Attachments and Device Control actions; Device Control always delegates enablement to Android Accessibility Settings and never enables the service silently. Attachment transfer failures are logged as diagnostics without file contents or one-time transfer tokens.

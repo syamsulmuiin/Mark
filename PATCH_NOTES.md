@@ -1,3 +1,14 @@
+## v60.10 - Deferred attachment picker and companion UI polish
+
+- Fixed Android attachment delivery capability parity: Android now advertises `attachment.inbox` during pairing and WebSocket proof.
+- File selection requested by interactive voice is deferred until JARVIS finishes the spoken prompt; selection then resumes transfer asynchronously.
+- Added attachment transfer diagnostics for picker queued/cancelled, transfer completion, and transfer failure without logging file contents or transfer tokens.
+- Replaced the Android text attachment button with a paperclip action icon and unread badge.
+- Replaced the Android overflow-style accessibility entry with a dedicated Device Control icon and status dialog that opens the official Accessibility Settings screen.
+- Polished the Desktop attachment window while preserving platform-native file selection and destination control.
+- Moved Android streaming upload/download mechanics into `AttachmentTransfer.kt`; existing object store and inbox remain modular in `core/file_store.py` and `core/attachment_inbox.py`.
+- No source files removed.
+
 ## v60.9 - Recipient-controlled attachment inbox
 
 - Changed cross-companion delivery from automatic destination Downloads writes to a durable recipient-scoped attachment inbox. The server queues attachments even when the recipient is offline; reconnect synchronizes its inbox.

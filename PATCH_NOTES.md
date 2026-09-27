@@ -1,3 +1,8 @@
+## v60.11 release lint correction
+- Removed the obsolete second `phoneControl` ImageButton left behind when Android Attachments and Device Control were moved into the single overflow menu.
+- No lint suppression or baseline was added; the layout now has one overflow control and no duplicate resource IDs.
+- Runtime behavior is otherwise unchanged from v60.11.
+
 ## v60.11
 - Moved Android Attachments and Device Control back under the top-right overflow menu to keep the voice surface uncluttered.
 - Improved attachment and Device Control dialogs with icons, state/size information, and clearer actions.

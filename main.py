@@ -1705,6 +1705,10 @@ class JarvisLive:
                         if sc.input_transcription and sc.input_transcription.text:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
+                                if not in_buf:
+                                    # New voice input arrives before its tool calls.
+                                    self._attachment_turn = None
+                                    self._blocked_device_action = None
                                 in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
 
@@ -1724,8 +1728,6 @@ class JarvisLive:
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
-                                self._blocked_device_action = None  # a new user turn starts a fresh device-action plan
-                                self._attachment_turn = None          # a new user request may start one new attachment transaction
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 if self._dashboard:

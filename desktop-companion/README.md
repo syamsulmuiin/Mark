@@ -59,6 +59,10 @@ A Live user turn owns at most one attachment transaction for a source/destinatio
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
+### Voice attachment picker (v60.17)
+
+Voice requests can queue the Desktop native multi-select picker after the assistant finishes speaking.
+
 ### Attachment transaction status (v60.15)
 
 The server records selected batches as transferring and returns the actual attachment ID for each completed file.

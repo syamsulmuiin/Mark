@@ -1,3 +1,9 @@
+## v60.17
+- Reset the attachment guard when voice input transcription begins, before the model invokes transfer_file; the prior reset at turn_complete occurred too late.
+- Direct voice file transfers through paired-device discovery and transfer_file with an omitted source to queue the native multi-select picker.
+- Keep one-picker-per-voice-turn behavior and deferred picker opening.
+- No source files were removed or deprecated.
+
 ## v60.15
 - Preserve Android document filenames and extensions from the source companion instead of opaque content URI segments.
 - Keep one picker transaction per user turn, including retries with changed selectors; record transferring status before batch processing.

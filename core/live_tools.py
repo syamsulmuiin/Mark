@@ -43,7 +43,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "transfer_file",
-        "description": "Send one or more files from an online source companion to the durable attachment inbox of a paired destination companion (online or offline). When source is omitted, the companion opens one native picker that supports multi-selection and continues the selected files as one batch transaction. The server verifies upload SHA-256 and size, then reports queued/notified, not saved. The recipient chooses Open, Save As or Share in its own UI. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. Set keep_on_server only when explicitly requested.",
+        "description": "Send one or more files from an online source companion to the durable attachment inbox of a paired destination companion (online or offline). For a voice request to send local files, call this tool with source omitted when the path is unknown. The source companion opens one native multi-select picker and continues the selected files as a batch. Do not request a chat upload or invent a content URI. The server verifies upload SHA-256 and size, then reports queued/notified, not saved. The recipient chooses Open, Save As or Share in its own UI. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. Set keep_on_server only when explicitly requested.",
         "parameters": {
             "type": "OBJECT",
             "properties": {

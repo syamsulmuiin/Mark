@@ -207,6 +207,10 @@ A Live user turn owns at most one attachment transaction for a source/destinatio
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
+### Voice attachment turn boundary (v60.17)
+
+Input transcription resets the per-turn attachment guard before the model invokes tools. Paired-device discovery and transfer_file with an omitted source queue the native picker after the assistant turn.
+
 ### Attachment transfer and Live session recovery (v60.15)
 
 The source companion supplies the displayed filename for opaque Android document URIs. Picker events are accepted only from the source device; selected batches enter a transferring state. Gemini Live 1011 triggers transient reconnect.

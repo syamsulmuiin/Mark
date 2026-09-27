@@ -1,3 +1,9 @@
+## v60.20
+- Rebuilt the Android companion overflow menu as one dark panel with a compact top-right close icon and consistent header/back navigation.
+- Attachments, Device Control, and received-file actions now render within the same panel rather than stacking separate dialogs or using prominent bottom Close buttons.
+- Preserved the existing received/sent attachment roles, file actions, voice transfer and server storage behavior. Added small vector back/close icons matching the companion palette.
+- No source files were removed or deprecated; two icon drawable files were added.
+
 ## v60.19
 - Interpret an explicit voice request to send files to the server as destination_device=server with source_device=current, using the origin companion’s native picker.
 - Keep server-target uploads permanently in the server object store and its existing file listing; send them to read-only Sent history, not the phone’s inbox or an automatic assistant edit task. Resolve duplicate server filenames by appending a number before the extension.

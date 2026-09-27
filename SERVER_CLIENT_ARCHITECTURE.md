@@ -207,6 +207,10 @@ A Live user turn owns at most one attachment transaction for a source/destinatio
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
+### Android companion panel (v60.20)
+
+The Android companion renders overflow navigation and attachment actions within one dialog view. This is a client presentation change; attachment routing and server storage contracts are unchanged.
+
 ### Explicit server storage destination (v60.19)
 
 The transfer_file tool accepts source_device=current and destination_device=server. The server forces permanent object storage and creates a durable file alias for each upload, adding a numeric suffix on filename collisions. It records read-only sender history without creating a recipient inbox entry or starting an assistant edit task. On startup, previous self-routed uploads with available objects are promoted to permanent server aliases and reclassified as server storage. Companion destinations continue to use recipient inbox references and recipient-controlled saving.

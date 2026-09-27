@@ -1,3 +1,15 @@
+## v58 - Generic persistent task continuity
+
+- Added application-agnostic persistent unfinished-task state.
+- Multi-step tasks can persist goal, constraints, completion criteria, verified checkpoints, blockers, origin device, and last operational action/result.
+- Operational tool calls are journaled automatically while a persistent task is active.
+- Live reconnect, rollover, rejected resumption handles, interrupted sessions, and server restart can restore and automatically continue unfinished work.
+- Recovery requires inspection/reconciliation of external state and does not treat stale UI state as proof.
+- Credential/user-authentication boundaries pause the task instead of completing or discarding it; reconnect does not auto-run a WAITING task.
+- Task completion requires verified requested end state.
+- Continuity is generic and does not branch on application or task type.
+- Preserved v57 browser/runtime, origin-routing, error-log, and intentional voice-end fixes.
+
 ## v57 - Host-browser runtime correction
 
 - Built from v56.

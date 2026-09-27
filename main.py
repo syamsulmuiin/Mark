@@ -46,6 +46,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.language_compat import has_explicit_diagnostic_intent, is_generic_error_report
+from core import task_continuity as task_state
 
 import numpy as np
 from google import genai
@@ -936,6 +937,9 @@ class JarvisLive:
                 "SESSION ROLLOVER CONTEXT (continue this same conversation; do not announce or summarize this block):\n"
                 + recent
             )
+        _task_recovery = task_state.recovery_instruction()
+        if _task_recovery:
+            parts.append(_task_recovery)
         parts.append(sys_prompt)
 
         cfg = dict(
@@ -1056,6 +1060,9 @@ class JarvisLive:
         loop   = asyncio.get_event_loop()
         result = "Done."
 
+        if name != "task_continuity":
+            task_state.action_started(name, args)
+
         try:
             if name == "self_repair_diagnostic":
                 # Safety/UX gate: model routing alone must never turn a vague error
@@ -1083,6 +1090,26 @@ class JarvisLive:
                             "response": None, "session_memory": None}
                     r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
                     result = r or "Done."
+
+            elif name == "task_continuity":
+                action = str(args.get("action", "")).strip().lower()
+                if action == "begin":
+                    goal = str(args.get("goal", "")).strip()
+                    if not goal:
+                        result = "A persistent task requires a non-empty goal."
+                    else:
+                        origin = self._dashboard.origin_device_id if self._dashboard else ""
+                        task_state.begin(goal, str(args.get("constraints", "")),
+                                         str(args.get("completion_criteria", "")), origin or "")
+                        result = "Persistent task started."
+                elif action == "checkpoint":
+                    result = "Checkpoint saved." if task_state.checkpoint(str(args.get("summary", "")), str(args.get("evidence", ""))) else "No active persistent task."
+                elif action == "block":
+                    result = "Task paused with blocker preserved." if task_state.block(str(args.get("reason", ""))) else "No active persistent task."
+                elif action == "complete":
+                    result = "Persistent task completed." if task_state.complete(str(args.get("evidence", ""))) else "No active persistent task."
+                else:
+                    result = "Unknown task continuity action."
 
             elif name == "current_datetime":
                 now = datetime.now().astimezone()
@@ -1378,6 +1405,8 @@ class JarvisLive:
         _sched = (self._action_registry.scheduling(name)
                   or self._plugin_registry.scheduling(name))
         _extra = {"scheduling": _sched} if _sched else {}
+        if name != "task_continuity":
+            task_state.action_finished(name, result)
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result},
@@ -1949,6 +1978,20 @@ class JarvisLive:
                         # and "it reconnected and still knows what we were doing"
                         # is the whole point, and it is invisible otherwise.
                         self.ui.write_log("SYS: Reconnected — conversation restored.")
+
+                    _unfinished = task_state.active()
+                    if _unfinished and _unfinished.get("status") != "WAITING":
+                        task_state.resume()
+                        async def _resume_unfinished_task():
+                            await asyncio.sleep(0.35)
+                            try:
+                                await self.session.send_client_content(
+                                    turns={"role": "user", "parts": [{"text": task_state.recovery_instruction()}]},
+                                    turn_complete=True,
+                                )
+                            except Exception as _task_exc:
+                                print(f"[TaskContinuity] Resume injection deferred: {_task_exc}")
+                        asyncio.create_task(_resume_unfinished_task())
 
                     # Wake word: if enabled, come up ASLEEP (mic gated, silent)
                     # until the user says "Hey Jarvis" or taps wake in the UI.

@@ -237,3 +237,7 @@ The server installs the Playwright Python package because `browser_control` is a
 The Playwright Python API is a server dependency because `browser_control` is discoverable at runtime. MARK LIV does not download a separate Playwright-managed Chromium browser. Native navigation and interactive automation use compatible browsers installed on the host. If the requested browser cannot be located, interactive automation reports it as unavailable instead of silently substituting another browser.
 
 On Linux, browser metadata uses the detected machine architecture rather than assuming x86_64.
+
+### Generic persistent task continuity
+
+MARK LIV persists unfinished multi-step work independently from the Gemini Live resumption handle. Tasks store their goal, constraints, completion criteria, verified checkpoints, last tool/action result, blocker state, and origin device. Reconnects, Live rollovers, interrupted responses, and server restarts restore the unfinished task and inject an automatic continuation instruction. Completion requires a verified requested end state; credential/user-authentication boundaries pause rather than discard the task.

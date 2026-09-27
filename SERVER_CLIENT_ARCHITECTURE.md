@@ -163,3 +163,7 @@ Voice recovery distinguishes intentional session end from unexpected transport f
 Server-side `browser_control` depends on the Playwright Python API but not on Playwright-managed browser binaries. Browser executables are host capabilities. Interactive automation may start only when the requested browser resolves to a host executable or an explicit supported installed-browser channel. Missing browsers are reported as unavailable; MARK LIV does not silently substitute bundled Chromium.
 
 This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host.
+
+## Generic task continuity
+
+Task continuity is application-agnostic and separate from conversational session resumption. `runtime/active_task.json` is written atomically and contains only the active task state/checkpoints needed for recovery. Multi-step work begins through the `task_continuity` Live tool; operational tool start/results are recorded automatically. On a new Live connection, unfinished state is injected into context and a continuation turn is scheduled. External state must be inspected/reconciled before stale checkpoints are trusted. Tasks pause at credential/user-only authentication boundaries and complete only after end-state verification.

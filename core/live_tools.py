@@ -7,6 +7,27 @@ warehouse without changing tool names or behaviour.
 
 TOOL_DECLARATIONS = [
     {
+        "name": "task_continuity",
+        "description": (
+            "Maintain persistent continuity for any substantive multi-step task. Before the first action of such a task call action=begin. "
+            "After a milestone is actually verified call checkpoint. If credentials/user-only authorization or a genuine unavailable capability blocks progress call block. "
+            "Call complete only after the user's requested end state is verified. This is generic and must not depend on application names or task type."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "enum": ["begin", "checkpoint", "block", "complete"]},
+                "goal": {"type": "STRING"},
+                "constraints": {"type": "STRING"},
+                "completion_criteria": {"type": "STRING"},
+                "summary": {"type": "STRING"},
+                "evidence": {"type": "STRING"},
+                "reason": {"type": "STRING"}
+            },
+            "required": ["action"]
+        }
+    },
+    {
         "name": "current_datetime",
         "description": (
             "Read the server's current local date and time on demand. Call this only when the user asks "

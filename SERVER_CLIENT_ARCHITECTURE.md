@@ -181,3 +181,7 @@ Companion-origin vision remains bound to the originating paired device across tr
 
 ### Android camera capture readiness
 Android `camera.capture` performs a bounded Camera2 3A warm-up before still capture so exposure, white balance, and focus can settle. This is internal to the Android companion and does not change the generic `camera.capture` capability contract shared with desktop companions.
+
+
+### Explicit re-pair replacement
+A normal disconnect never deletes trust. An explicit Pair Code may replace a stale identity created by reinstalling a companion. Replacement is automatic only when exactly one non-revoked, offline trusted record has the same companion-reported name; ambiguous same-name records are preserved. The new identity, capabilities, origin affinity, and voice affinity then become authoritative. This rule is platform-neutral for Android, Windows, Linux, and macOS companions.

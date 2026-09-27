@@ -1,3 +1,13 @@
+## v60.6 - Explicit re-pair stale-device replacement
+
+- Explicit Pair Code pairing now replaces one unambiguous offline stale record with the same companion-reported name when a reinstall creates a new device identity.
+- Pairing with the same device identity continues to update the existing record in place.
+- Automatic replacement is skipped when multiple same-name stale devices exist, preventing the server from guessing which trusted device to remove.
+- Normal disconnect/reconnect never removes pairing trust.
+- Runtime origin and voice affinity are reconciled from the replaced stale identity to the newly paired identity.
+- The replacement rule is shared by Android and Desktop companions and does not branch on OS, application name, or package name.
+- No source files removed.
+
 ## v60.5 - Companion camera default parity
 
 - Audited Windows, Linux, and macOS camera capture for parity with the Android default-camera policy.

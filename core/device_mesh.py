@@ -82,7 +82,7 @@ class DeviceMesh:
                 return None
             return dict(pending.get("offer") or {})
 
-    def accept_pairing(self, code, peer, signature, capabilities=None):
+    def accept_pairing(self, code, peer, signature, capabilities=None, replace_device_ids=None):
         with self._lock: pending = self._pending.pop(str(code).upper(), None)
         if not pending or pending["expires_at"] < time.time(): raise ValueError("pairing code invalid or expired")
         required = (pending["nonce"] + ":" + str(code).upper()).encode()
@@ -92,8 +92,17 @@ class DeviceMesh:
         caps = sorted(set(capabilities or DEFAULT_CAPABILITIES))
         rec = {"device_id": did, "name": str(peer.get("name") or did), "public_key": peer["public_key"],
                "capabilities": caps, "paired_at": int(time.time()), "last_seen": int(time.time()), "revoked": False}
-        with self._lock: self._trusted[did] = rec; self._atomic(self.trust_path, self._trusted)
-        return rec
+        replaced = []
+        with self._lock:
+            for old_id in sorted(set(map(str, replace_device_ids or []))):
+                if old_id != did and old_id in self._trusted:
+                    self._trusted.pop(old_id, None)
+                    replaced.append(old_id)
+            self._trusted[did] = rec
+            self._atomic(self.trust_path, self._trusted)
+        result = dict(rec)
+        result["replaced_device_ids"] = replaced
+        return result
 
     def list_devices(self):
         with self._lock: return [{k:v for k,v in r.items() if k != "public_key"} for r in self._trusted.values()]

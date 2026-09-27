@@ -248,3 +248,7 @@ Companion camera vision uses the generic `camera.capture` capability and always 
 
 ### Distribution hygiene
 Release packages contain source/runtime assets only. Generated Python caches and bytecode, virtual environments, IDE/test caches, logs, build outputs, and the runtime `storage/` repository are excluded. The server creates required runtime storage directories automatically.
+
+
+### Re-pair after reinstall
+If reinstalling a companion creates a new cryptographic device identity, pairing it again with a fresh Pair Code can replace one unambiguous offline stale record for that same companion name. Normal reconnects keep the existing trust record. If several trusted devices share the same name, MARK-LIV preserves them rather than guessing which one to replace.

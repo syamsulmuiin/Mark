@@ -50,3 +50,7 @@ Ending a conversation does not stop the MARK-LIV server. Cross-device generic fi
 ## Voice end and reconnect lifecycle
 
 An intentional end-call action sets explicit local ended state before the voice WebSocket closes. Close/failure callbacks cannot auto-reconnect while that state is active. Unexpected transport loss remains recoverable. Starting a new explicit voice connection clears the state.
+
+
+### Re-pair identity replacement
+A fresh explicit Pair Code can replace one unambiguous offline stale identity with the same companion-reported name after reinstall. Normal reconnect does not delete trust, and ambiguous same-name devices are never removed automatically.

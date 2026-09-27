@@ -833,8 +833,29 @@ class DashboardServer:
         async def pairing_accept(req: Request):
             try:
                 body = await req.json()
-                rec = self._mesh.accept_pairing(body.get("code", ""), body.get("peer") or {},
-                                                body.get("signature", ""), body.get("capabilities"))
+                peer = body.get("peer") or {}
+                new_id = str(peer.get("device_id") or "").strip()
+                peer_name = str(peer.get("name") or new_id).strip()
+                # An explicit Pair Code authorizes replacement, but only when the
+                # stale target is unambiguous: exactly one non-revoked, offline peer
+                # has the same companion-reported name. Never guess between duplicates.
+                replacement_candidates = [
+                    d.get("device_id") for d in self._mesh.list_devices()
+                    if d.get("device_id") != new_id
+                    and not d.get("revoked")
+                    and str(d.get("name") or "").strip() == peer_name
+                    and d.get("device_id") not in self._device_sockets
+                ]
+                replace_ids = replacement_candidates if len(replacement_candidates) == 1 else []
+                rec = self._mesh.accept_pairing(
+                    body.get("code", ""), peer, body.get("signature", ""),
+                    body.get("capabilities"), replace_device_ids=replace_ids,
+                )
+                replaced = list(rec.get("replaced_device_ids") or [])
+                if replaced and self._origin_device_id in replaced:
+                    self._origin_device_id = new_id
+                if replaced and self._active_voice_device in replaced:
+                    self._active_voice_device = new_id
                 return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k:v for k,v in rec.items() if k != "public_key"}})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)

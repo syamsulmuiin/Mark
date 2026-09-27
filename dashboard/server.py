@@ -672,7 +672,7 @@ class DashboardServer:
             print(f"[WARN Attachment] picker queued request={request_id} source={source_device} destination={destination_device}")
             return {"ok":True, "status":"awaiting_selection", "request_id":request_id,
                     "message":"File picker is queued on the source companion. Ask the user to choose a file; transfer will continue automatically."}
-        name = _safe_filename(destination_name or Path(source).name or "file")
+        name = _safe_filename(destination_name) if destination_name else "file"
         base = self.get_remote_url().rstrip("/")
         up = self._new_transfer_ticket("upload", name=name, temporary=not keep_on_server)
         reply = await self.call_device(source_device, "file.upload", {
@@ -1005,37 +1005,40 @@ class DashboardServer:
                             self._interrupt_callback()
                     elif msg.get("type") == "attachment.picker.received":
                         request_id=str(msg.get("request_id") or "")
-                        if request_id in self._pending_attachment_picks:
+                        if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
                             print(f"[WARN Attachment] picker request received request={request_id} device={device_id}")
                     elif msg.get("type") == "attachment.picker.opened":
                         request_id=str(msg.get("request_id") or "")
-                        if request_id in self._pending_attachment_picks:
+                        if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
                             print(f"[WARN Attachment] picker opened request={request_id} device={device_id}")
                     elif msg.get("type") in ("attachment.source.selected", "attachment.sources.selected"):
                         request_id = str(msg.get("request_id") or "")
-                        rec = self._pending_attachment_picks.pop(request_id, None)
+                        rec = self._pending_attachment_picks.get(request_id)
                         raw_sources = msg.get("sources") if msg.get("type") == "attachment.sources.selected" else [msg.get("source")]
                         sources = [str(x or "").strip() for x in (raw_sources or []) if str(x or "").strip()]
                         if not rec or rec.get("expires",0) < time.time() or rec.get("source_device") != device_id:
                             await websocket.send_json({"type":"attachment.transfer.status","message":"Attachment selection expired or is no longer valid."})
                         elif not sources:
+                            self._pending_attachment_picks.pop(request_id, None)
                             self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id,"total":0}
                             await websocket.send_json({"type":"attachment.transfer.status","message":"No attachment was selected."})
                         else:
+                            self._pending_attachment_picks.pop(request_id, None)
+                            self._attachment_pick_results[request_id] = {"ok":True,"status":"transferring","request_id":request_id,"total":len(sources)}
                             print(f"[WARN Attachment] sources selected request={request_id} device={device_id} count={len(sources)}")
                             async def _continue_attachment_batch(selected_sources=sources, pending=rec, pending_request_id=request_id):
                                 results=[]
-                                for selected_source in selected_sources:
+                                for index, selected_source in enumerate(selected_sources, 1):
                                     try:
                                         # A batch keeps each file as its own attachment. Destination naming
                                         # is only meaningful for a single explicitly named source.
                                         requested_name = str(pending.get("destination_name") or "") if len(selected_sources)==1 else ""
                                         info = await self.transfer_file(pending["source_device"], pending["destination_device"], selected_source,
                                             requested_name, bool(pending.get("keep_on_server",False)))
-                                        results.append({"ok":True,"status":"completed","id":info.get("id"),"name":info.get("name"),"size":info.get("size")})
+                                        results.append({"ok":True,"status":"completed","id":info.get("attachment_id"),"name":info.get("name"),"size":info.get("size")})
                                     except Exception as exc:
-                                        results.append({"ok":False,"status":"failed","error":str(exc)})
-                                        print(f"[ERROR Attachment] batch item failed request={pending_request_id}: {exc}")
+                                        results.append({"ok":False,"status":"failed","index":index,"error":str(exc)})
+                                        print(f"[ERROR Attachment] batch item failed request={pending_request_id} item={index}/{len(selected_sources)} source_device={pending['source_device']} destination_device={pending['destination_device']} stage=upload_or_commit error={type(exc).__name__}")
                                 completed=sum(1 for item in results if item.get("ok"))
                                 failed=len(results)-completed
                                 batch_status="completed" if failed==0 else ("failed" if completed==0 else "partial")
@@ -1050,9 +1053,10 @@ class DashboardServer:
                             asyncio.create_task(_continue_attachment_batch())
                     elif msg.get("type") == "attachment.source.cancelled":
                         request_id = str(msg.get("request_id") or "")
-                        self._pending_attachment_picks.pop(request_id, None)
-                        self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id}
-                        print(f"[WARN Attachment] picker cancelled request={request_id} device={device_id}")
+                        if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
+                            self._pending_attachment_picks.pop(request_id, None)
+                            self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id}
+                            print(f"[WARN Attachment] picker cancelled request={request_id} device={device_id}")
                     elif msg.get("type") == "attachment.list":
                         await self._send_attachment_inbox(websocket, device_id)
                     elif msg.get("type") == "attachment.download":

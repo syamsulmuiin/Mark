@@ -1,3 +1,10 @@
+## v60.15
+- Preserve Android document filenames and extensions from the source companion instead of opaque content URI segments.
+- Keep one picker transaction per user turn, including retries with changed selectors; record transferring status before batch processing.
+- Validate picker events against the source device, return actual attachment IDs, and log request/device IDs and failed item index.
+- Treat Gemini Live error 1011 as a transient disconnection; reconnect without duplicate tracebacks or false resumption-handle rejection.
+- No source files were removed or deprecated.
+
 ## v60.14
 - Fixed an attachment picker event-order race that could leave a queued request waiting forever.
 - Added persisted picker `received` and `opened` diagnostics on Android and Desktop.

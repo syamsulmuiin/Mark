@@ -373,7 +373,7 @@ def _is_transient_transport_error(exc: BaseException) -> bool:
     """
     text = _exception_text(exc).lower()
     markers = (
-        "1006", "abnormal closure", "no close frame received or sent",
+        "1006", "1011", "abnormal closure", "no close frame received or sent",
         "timeouterror", "timed out", "getaddrinfo", "cancellederror",
         "connectionrefusederror", "connectionabortederror",
         "connectionreseterror", "connectionerror", "oserror",
@@ -1289,7 +1289,9 @@ class JarvisLive:
                         online_matches=[d for d in matches if d.get("device_id") in online]
                         return online_matches[0] if len(online_matches)==1 else None
                     src=_resolve(args.get("source_device")); dst=_resolve(args.get("destination_device"))
-                    if not src or not dst: result="Source or destination companion is not uniquely identifiable. Call list_paired_devices first."
+                    if self._attachment_turn and self._dashboard.attachment_request_status(str(self._attachment_turn.get("request_id") or "")):
+                        result=json.dumps(self._dashboard.attachment_request_status(str(self._attachment_turn["request_id"])),ensure_ascii=False)
+                    elif not src or not dst: result="Source or destination companion is not uniquely identifiable. Call list_paired_devices first."
                     elif src.get("device_id") not in online: result="Source companion is offline; it must be online to attach a local file."
                     elif "file.upload" not in set(src.get("capabilities") or []): result="Source companion does not support file.upload."
                     elif "attachment.inbox" not in set(dst.get("capabilities") or []): result="Destination companion does not support attachment.inbox."
@@ -2213,7 +2215,7 @@ class JarvisLive:
                 # once and let the next attempt start clean.
                 _flat_err = _exception_text(e)
                 _flat_lower = _flat_err.lower()
-                if _resumed_with and (
+                if _resumed_with and not _is_transient_transport_error(e) and (
                     "resum" in _flat_lower
                     or "handle" in _flat_lower
                     or "invalid_argument" in _flat_lower

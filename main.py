@@ -1111,40 +1111,55 @@ class JarvisLive:
                     result = await loop.run_in_executor(None, undo_stack.undo_last)
 
             elif name == "screen_process":
-                import time as _t_mod
-                _now = _t_mod.monotonic()
-                _cooldown = 4.0  # seconds — covers echo window after speaking ends
-                if self._vision_busy or (_now - self._vision_last_time) < _cooldown:
-                    _wait = max(0, _cooldown - (_now - self._vision_last_time))
-                    print(f"[Vision] ⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
-                    result = "Vision is still processing the previous request. I will not call this again."
-                else:
-                    self._vision_busy      = True
-                    self._vision_last_time = _now
-                    angle     = args.get("angle", "screen").lower()
-                    user_text = args.get("text", "What do you see?")
-                    if angle == "camera":
-                        img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
-                        self.ui.start_camera_stream()
-                        self._vision_cam_active = True
-                        print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
-                        _stall = "camera"
+                # Companion-origin vision stays on the origin device.
+                _origin = self._dashboard.origin_device_id if self._dashboard else None
+                _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
+                _explicit_server = bool(re.search(r"\b(server|host)\b", _last_user, re.IGNORECASE))
+                if _origin and not _explicit_server:
+                    _rec = self._dashboard._mesh.get(_origin) or {}
+                    _caps = set(_rec.get("capabilities") or [])
+                    _preferred = ("android.ui.inspect", "screen.capture", "screen.inspect", "ui.inspect")
+                    _cap = next((c for c in _preferred if c in _caps), None)
+                    if _cap:
+                        _reply = await self._dashboard.call_device(_origin, _cap, {})
+                        result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
                     else:
-                        img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
-                        print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
-                        _stall = "screen"
-                    self._pending_vision = (img_b, mime_t, user_text, angle)
-                    # The image is attached to this same exchange, so there is
-                    # nothing to stall for and nothing to announce. Asking for an
-                    # acknowledgement here is what produced two spoken answers —
-                    # the model filled that turn by answering the question from
-                    # imagination, then answered it again once it could see.
-                    result = (
-                        f"[VISION_ACTIVE] {_stall.capitalize()} captured and attached to this "
-                        f"same exchange. Do not acknowledge and do not answer yet — the image "
-                        f"is arriving with this result. Reply once, from what you actually see "
-                        f"in it."
-                    )
+                        result = f"Origin companion {_origin} has no advertised generic inspect/capture capability. Do not capture server hardware."
+                else:
+                    import time as _t_mod
+                    _now = _t_mod.monotonic()
+                    _cooldown = 4.0  # seconds — covers echo window after speaking ends
+                    if self._vision_busy or (_now - self._vision_last_time) < _cooldown:
+                        _wait = max(0, _cooldown - (_now - self._vision_last_time))
+                        print(f"[Vision] ⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
+                        result = "Vision is still processing the previous request. I will not call this again."
+                    else:
+                        self._vision_busy      = True
+                        self._vision_last_time = _now
+                        angle     = args.get("angle", "screen").lower()
+                        user_text = args.get("text", "What do you see?")
+                        if angle == "camera":
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
+                            self.ui.start_camera_stream()
+                            self._vision_cam_active = True
+                            print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
+                            _stall = "camera"
+                        else:
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
+                            print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
+                            _stall = "screen"
+                        self._pending_vision = (img_b, mime_t, user_text, angle)
+                        # The image is attached to this same exchange, so there is
+                        # nothing to stall for and nothing to announce. Asking for an
+                        # acknowledgement here is what produced two spoken answers —
+                        # the model filled that turn by answering the question from
+                        # imagination, then answered it again once it could see.
+                        result = (
+                            f"[VISION_ACTIVE] {_stall.capitalize()} captured and attached to this "
+                            f"same exchange. Do not acknowledge and do not answer yet — the image "
+                            f"is arriving with this result. Reply once, from what you actually see "
+                            f"in it."
+                        )
 
             elif name == "close_camera":
                 self.ui.stop_camera_stream()
@@ -1312,7 +1327,7 @@ class JarvisLive:
                             result = (
                                 f"Origin companion {_origin} does not expose a direct mapping for server-local tool {name}. "
                                 "Do not run it on the server. Continue on the current companion with call_current_device "
-                                "and its advertised capabilities; for Android messaging open the app and use android.ui.inspect/text/click."
+                                "and its advertised generic inspect/act capabilities. Re-inspect after each action and verify the requested end state."
                             )
                     except Exception as _route_error:
                         result = f"Origin-device routing failed: {_route_error}"

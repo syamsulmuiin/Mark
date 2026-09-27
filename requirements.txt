@@ -34,3 +34,6 @@ google-auth-oauthlib
 
 # Smart-home integration
 tinytuya
+
+# Server browser-control Python runtime; browser binaries are platform-gated by setup.py
+playwright>=1.40,<2

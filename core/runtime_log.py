@@ -97,8 +97,16 @@ class SeverityFilteredStream(io.TextIOBase):
 
     @staticmethod
     def _should_persist(line: str) -> bool:
-        lowered = line.casefold()
-        return any(marker in lowered for marker in _WARNING_MARKERS)
+        stripped = line.strip()
+        lowered = stripped.casefold()
+        if not stripped or stripped.startswith(("You:", "JARVIS:", "SYS:")):
+            return False
+        explicit = ("[error", "[warn", "warning:", "error:", "exception:", "traceback",
+                    "critical:", "fatal:", "permissionerror:", "runtimeerror:",
+                    "modulenotfounderror:", "importerror:")
+        if any(token in lowered for token in explicit):
+            return True
+        return stripped.startswith("[") and any(token in lowered for token in ("❌", "⚠", " failed", " rejected", " unavailable"))
 
     def write(self, text):
         if not text:

@@ -1,3 +1,5 @@
-# Optional server-side browser automation.
-# Install only when this machine is intentionally used for browser automation.
+# Compatibility extra for the MARK LIV server browser-control Python API.
+# Playwright is already installed by requirements.txt.
+# MARK LIV does not install Playwright-managed browser binaries; interactive
+# automation requires a compatible browser installed on the host.
 playwright>=1.40,<2

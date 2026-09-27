@@ -227,3 +227,13 @@ Documentation describes the current implementation. Version-by-version history b
 ### Intentional voice end
 
 Ending a voice conversation is terminal for that voice session. The companion records the intentional end before closing transport, so WebSocket close/failure callbacks do not trigger automatic reconnect. Unexpected transport loss still uses self-recovery. A new user-initiated voice connection clears the ended state and starts a new session.
+
+### Server browser runtime
+
+The server installs the Playwright Python package because `browser_control` is a discoverable server action. Setup installs Chromium on x86_64 Windows/Linux/macOS hosts. ARM and other architectures keep the Python runtime but do not receive a forced browser binary install. Companion-origin UI and vision work remains on the companion.
+
+### Host browser policy
+
+The Playwright Python API is a server dependency because `browser_control` is discoverable at runtime. MARK LIV does not download a separate Playwright-managed Chromium browser. Native navigation and interactive automation use compatible browsers installed on the host. If the requested browser cannot be located, interactive automation reports it as unavailable instead of silently substituting another browser.
+
+On Linux, browser metadata uses the detected machine architecture rather than assuming x86_64.

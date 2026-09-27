@@ -1,3 +1,25 @@
+## v57 - Host-browser runtime correction
+
+- Built from v56.
+- Removed automatic `playwright install chromium` from server setup.
+- Kept the Playwright Python package as a normal server dependency because `browser_control` is discovered and imported at runtime.
+- Interactive browser automation now requires the requested host browser to resolve to an installed executable or supported installed-browser channel.
+- Prevented silent fallback to a Playwright-managed bundled browser when a requested host browser is missing.
+- Linux browser user-agent metadata now uses the detected machine architecture instead of hard-coded x86_64.
+- Preserved v56 origin-device routing, runtime-log filtering, English-only browser error text, and the v54 intentional voice-end lifecycle fix.
+- Synchronized README and server/client architecture documentation.
+
+## v56 - Playwright dependency and origin-routing alignment
+
+- Built from v54 and preserved the intentional voice-end lifecycle fix.
+- Playwright Python runtime is now installed with normal server requirements because browser_control imports it during discovery.
+- Setup installs Chromium automatically on x86_64 Windows/Linux/macOS and does not force browser binaries onto ARM/headless hosts.
+- Preserved generic companion-origin vision routing and prevented silent server hardware substitution.
+- Removed application-specific fallback guidance.
+- Replaced the non-English browser platform error with English in server and desktop runtime copies.
+- Tightened error-log transcript exclusion.
+- Synchronized README, architecture, and patch notes.
+
 ## v54 - Intentional voice end lifecycle fix
 
 - Fixed ended voice conversations immediately reconnecting after end-call succeeded.

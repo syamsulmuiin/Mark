@@ -51,8 +51,9 @@ def _user_agent() -> str:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0.0.0 Safari/537.36"
         )
+    machine = platform.machine().lower() or "unknown"
     return (
-        "Mozilla/5.0 (X11; Linux x86_64) "
+        f"Mozilla/5.0 (X11; Linux {machine}) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     )
@@ -523,12 +524,20 @@ class _BrowserSession:
 
         if self._spec is None:
             raise RuntimeError(
-                f"'{self.browser_name}' bu platformda ({_OS}) desteklenmiyor."
+                f"'{self.browser_name}' is not supported on this platform ({_OS})."
             )
 
         engine_name = self._spec["engine"]
         exe         = self._spec["exe"]
         channel     = self._spec["channel"]
+
+        # Interactive automation must control the browser the host actually has.
+        # Never fall back silently to a Playwright-managed bundled browser.
+        if not exe and not channel:
+            raise RuntimeError(
+                f"Browser '{self.browser_name}' is not installed or could not be located on this host."
+            )
+
         engine_obj  = getattr(self._pw, engine_name)
 
         if engine_name == "firefox":

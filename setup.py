@@ -96,10 +96,10 @@ def main() -> None:
     _run("Upgrading packaging tools", [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
     _run("Installing headless server dependencies", [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
-    # Browser automation is optional on the headless server. In particular,
-    # Playwright browser binaries are not forced onto ARM/Armbian systems.
-    # Install the optional extra explicitly only when server-side browser
-    # automation is required and supported by the target platform.
+    # browser_control is discoverable on the server, so its Python dependency
+    # is installed by requirements.txt. MARK LIV controls browsers installed on
+    # the host and does not download a separate Playwright-managed browser.
+    print("[Setup] Playwright Python runtime installed; browser automation uses host-installed browsers.")
 
     from core.setup_config import configured, interactive_setup
     if not configured():
@@ -113,7 +113,7 @@ def main() -> None:
     print(f'  Start server:     "{python_cmd}" main.py --start')
     print(f'  Enable autostart: "{python_cmd}" main.py --enable')
     print("  Install a companion separately on the device that provides UI/audio/control.")
-    print("  Optional server browser automation: pip install -r requirements-browser.txt")
+    print("  Server browser UI automation requires a compatible browser installed on the host.")
 
 
 if __name__ == "__main__":

@@ -153,3 +153,13 @@ MARK-LIV does not create a second persistent full-runtime transcript as part of 
 ## Intentional voice termination state
 
 Voice recovery distinguishes intentional session end from unexpected transport failure. End-call first sets explicit intentional-end state, then stops audio and closes the WebSocket. Close/failure callbacks cannot reconnect while that state is active. Unexpected failures still permit automatic reconnect. A new explicit voice connection clears the state.
+
+## Server browser capability and origin routing
+
+`browser_control` is a server action, so Playwright is installed with server requirements. Browser binaries are platform runtime dependencies: setup installs Chromium on x86_64 desktop-class hosts and does not force browser binaries onto ARM/headless hosts. Companion-origin UI/vision remains capability-driven and on the origin companion unless server/host is explicitly targeted.
+
+## Host browser runtime policy
+
+Server-side `browser_control` depends on the Playwright Python API but not on Playwright-managed browser binaries. Browser executables are host capabilities. Interactive automation may start only when the requested browser resolves to a host executable or an explicit supported installed-browser channel. Missing browsers are reported as unavailable; MARK LIV does not silently substitute bundled Chromium.
+
+This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host.

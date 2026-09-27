@@ -1,3 +1,11 @@
+## v60.2 - Android build fix
+
+- Fixed Android companion Kotlin compilation after camera capture support.
+- Kept URL-safe Base64 for device identity/signatures separate from Android JPEG Base64.
+- Made persisted device identity values explicitly non-null after initialization.
+- Kept `camera.capture` behavior and all v60/v60.1 functionality unchanged.
+- No source files removed.
+
 ## v60 - Generic camera capture across all companions
 
 - Extended the generic `camera.capture` contract from Android to the shared Windows/Linux/macOS desktop companion.
@@ -307,3 +315,8 @@ Network endpoints and ports now use `core/network_config.py` as the server sourc
 - Password generation through computer control is blocked on both server and desktop runtime copies.
 - When authentication is encountered, automation preserves the current session/state and waits for user instruction instead of navigating away or handing ordinary UI work back to the user.
 - No credential is typed, pasted, generated, inferred, or submitted by MARK-LIV.
+
+## v60 packaging hygiene correction
+- Removed accidental empty root `__pycache__/` directory from the distribution package.
+- Packaging validation now treats Python caches, bytecode, virtual environments, IDE/test caches, runtime logs/state, build outputs, and project-local `storage/` contents as forbidden distribution artifacts.
+- No runtime behavior changed from v60.

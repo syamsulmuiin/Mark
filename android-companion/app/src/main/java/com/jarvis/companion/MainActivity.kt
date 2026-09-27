@@ -8,7 +8,7 @@ import android.content.pm.ApplicationInfo
 import android.media.*
 import android.hardware.camera2.*
 import android.media.ImageReader
-import android.util.Base64
+import android.util.Base64 as AndroidBase64
 import android.view.Surface
 import android.net.Uri
 import android.os.*
@@ -90,7 +90,10 @@ class MainActivity : AppCompatActivity() {
     private fun identity(): Triple<String,ByteArray,ByteArray> {
         var id=prefs.getString("device_id",null); var priv=prefs.getString("private",null)
         if(id==null||priv==null){ val k=Ed25519PrivateKeyParameters(SecureRandom()); id=UUID.randomUUID().toString(); priv=b64(k.encoded); prefs.edit().putString("device_id",id).putString("private",priv).apply() }
-        val p=Ed25519PrivateKeyParameters(unb64(priv),0); return Triple(id,p.encoded,p.generatePublicKey().encoded)
+        val stableId=id ?: error("Device identity is unavailable")
+        val stablePriv=priv ?: error("Device private key is unavailable")
+        val p=Ed25519PrivateKeyParameters(unb64(stablePriv),0)
+        return Triple(stableId,p.encoded,p.generatePublicKey().encoded)
     }
     private fun sign(data:ByteArray):String { val p=Ed25519PrivateKeyParameters(identity().second,0); val s=Ed25519Signer(); s.init(true,p); s.update(data,0,data.size); return b64(s.generateSignature()) }
     private fun verify(pub:String,data:ByteArray,sig:String):Boolean = try { val v=Ed25519Signer(); v.init(false,Ed25519PublicKeyParameters(unb64(pub),0)); v.update(data,0,data.size); v.verifySignature(unb64(sig)) } catch(_:Exception){false}
@@ -113,7 +116,11 @@ class MainActivity : AppCompatActivity() {
                 val nonce=o.optString("nonce"); val serverKey=o.optString("public_key"); val serverId=o.optString("device_id")
                 if(nonce.isBlank()||serverKey.isBlank()||serverId.isBlank()){pairUi("Pairing code invalid or expired");return}
                 val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
-                val body=JSONObject().put("code",code).put("peer",peer).put("signature",sign("$nonce:$code".toByteArray())).put("capabilities",caps)
+                val body=JSONObject()
+                    .put("code",code)
+                    .put("peer",peer)
+                    .put("signature",sign("$nonce:$code".toByteArray()))
+                    .put("capabilities",caps)
                 val req=Request.Builder().url("$base/api/pairing/accept").post(body.toString().toRequestBody("application/json".toMediaType())).build()
                 client.newCall(req).enqueue(object:Callback{
                     override fun onFailure(c:Call,e:java.io.IOException)=pairUi("Pair failed: ${e.message}")
@@ -317,7 +324,7 @@ class MainActivity : AppCompatActivity() {
             if(!latch.await(8,TimeUnit.SECONDS)) error("Camera capture timed out")
             failure?.let { error(it) }
             val bytes=payload?:error("Camera returned no image frame")
-            return JSONObject().put("mime_type","image/jpeg").put("data",Base64.encodeToString(bytes,Base64.NO_WRAP))
+            return JSONObject().put("mime_type","image/jpeg").put("data",AndroidBase64.encodeToString(bytes,AndroidBase64.NO_WRAP))
                 .put("source","camera").put("facing",if(facing==CameraCharacteristics.LENS_FACING_FRONT) "front" else "back").toString()
         } finally {
             try { session?.close() } catch(_:Exception){}
@@ -362,7 +369,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy(){ stopMic(); try{player?.stop()}catch(_:Exception){}; player?.release(); player=null; ws?.close(1000,"activity closed"); super.onDestroy() }
     private fun ui(s:String)=runOnUiThread{status.text=s}
     private fun pairUi(s:String)=runOnUiThread{pairStatus.text=s}
-    private fun b64(b:ByteArray)=Base64.getUrlEncoder().withoutPadding().encodeToString(b)
-    private fun unb64(s:String)=Base64.getUrlDecoder().decode(s)
+    private fun b64(b:ByteArray)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b)
+    private fun unb64(s:String)=java.util.Base64.getUrlDecoder().decode(s)
     private fun lanClient():OkHttpClient { val tm=object:X509TrustManager{override fun getAcceptedIssuers()=arrayOf<X509Certificate>();override fun checkClientTrusted(c:Array<X509Certificate>,a:String){};override fun checkServerTrusted(c:Array<X509Certificate>,a:String){}}; val sc=SSLContext.getInstance("TLS");sc.init(null,arrayOf<TrustManager>(tm),SecureRandom());return OkHttpClient.Builder().sslSocketFactory(sc.socketFactory,tm).hostnameVerifier{_,_->true}.pingInterval(20,TimeUnit.SECONDS).build() }
 }

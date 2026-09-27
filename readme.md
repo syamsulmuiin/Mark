@@ -245,3 +245,6 @@ MARK LIV persists unfinished multi-step work independently from the Gemini Live 
 
 Companion camera vision uses the generic `camera.capture` capability and always returns real one-shot image bytes. Android selects the requested front or back camera through Camera2. The shared Windows/Linux/macOS desktop companion captures the configured/default host webcam through OpenCV and reports its actual selection as `default` rather than inventing a front/back identity. Camera applications do not need to be opened. Accessibility/UI inspection is never treated as image data and cannot satisfy a camera or visual-screen request.
 
+
+### Distribution hygiene
+Release packages contain source/runtime assets only. Generated Python caches and bytecode, virtual environments, IDE/test caches, logs, build outputs, and the runtime `storage/` repository are excluded. The server creates required runtime storage directories automatically.

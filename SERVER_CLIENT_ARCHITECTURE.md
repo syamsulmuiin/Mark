@@ -207,6 +207,14 @@ A Live user turn owns at most one attachment transaction for a source/destinatio
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
+### Explicit server storage destination (v60.19)
+
+The transfer_file tool accepts source_device=current and destination_device=server. The server forces permanent object storage and creates a durable file alias for each upload, adding a numeric suffix on filename collisions. It records read-only sender history without creating a recipient inbox entry or starting an assistant edit task. On startup, previous self-routed uploads with available objects are promoted to permanent server aliases and reclassified as server storage. Companion destinations continue to use recipient inbox references and recipient-controlled saving.
+
+### Assistant uploads and delivery completion (v60.18)
+
+A transfer whose source and destination are the same authenticated companion is an assistant upload. Its verified object is retained in the sender history and excluded from the recipient inbox; a named hard link supplies the existing file tools with an extension-bearing path. Other-device transfers create recipient inbox entries. Completed batches inject a Live continuation to report delivery or resume the original requested work.
+
 ### Voice attachment turn boundary (v60.17)
 
 Input transcription resets the per-turn attachment guard before the model invokes tools. Paired-device discovery and transfer_file with an omitted source queue the native picker after the assistant turn.

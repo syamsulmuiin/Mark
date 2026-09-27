@@ -274,6 +274,14 @@ A Live user turn owns at most one attachment transaction for a source/destinatio
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
+### Permanent server file transfer (v60.19)
+
+Voice requests such as “send this file to the server” use the current companion as source and an explicit server destination. The server retains verified files in its object store and file listing, returning their stored names after upload. Server uploads appear only in read-only Sent history. Sending to another paired device still uses the recipient inbox.
+
+### Attachment completion and history (v60.18)
+
+After the picker uploads files, MARK LIV resumes the requested assistant task or announces delivery to another companion. Assistant uploads appear only in the sender’s Sent history; recipients retain Open, Save As and Share. Success and cancellation no longer create warning logs.
+
 ### Voice attachment picker (v60.17)
 
 A new voice request resets the attachment guard as input transcription begins. Unknown local paths trigger the source companion native multi-select picker through transfer_file.

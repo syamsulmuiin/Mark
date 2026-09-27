@@ -55,6 +55,12 @@ class MainActivity : AppCompatActivity() {
     private var deferredPickerRequest: JSONObject? = null
     private var ws: WebSocket? = null
     private val attachmentItems = linkedMapOf<String,JSONObject>()
+    private val sentAttachmentItems = linkedMapOf<String,JSONObject>()
+    private var attachmentTab = "received"
+    private var attachmentHeader: TextView? = null
+    private var attachmentSubtitle: TextView? = null
+    private var attachmentReceivedTab: TextView? = null
+    private var attachmentSentTab: TextView? = null
     private var pendingAttachment: Pair<String,String>? = null
     private var pendingSaveUri: Uri? = null
     private var pendingSaveInfo: JSONObject? = null
@@ -93,7 +99,7 @@ class MainActivity : AppCompatActivity() {
         val panel=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setPadding(dp(20),dp(10),dp(20),dp(12))
-            addView(menuActionRow(R.drawable.ic_attachment,"Attachments","Received files and sharing actions") { dialog ->
+            addView(menuActionRow(R.drawable.ic_attachment,"Attachments","Received files and sent history") { dialog ->
                 dialog.dismiss(); showAttachmentInbox()
             })
             addView(menuActionRow(R.drawable.ic_accessibility_control,"Device Control",
@@ -222,6 +228,8 @@ class MainActivity : AppCompatActivity() {
                 val m=JSONObject(text); when(m.optString("type")){
                     "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
                     "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
+                    "attachment.sent"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(sentAttachmentItems){ sentAttachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); sentAttachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog() } }
+                    "attachment.sent.new", "attachment.sent.update"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(sentAttachmentItems){ sentAttachmentItems[item.getString("id")]=item }; runOnUiThread { refreshAttachmentDialog() } } }
                     "attachment.new"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(attachmentItems){ attachmentItems[item.getString("id")]=item }; runOnUiThread { Toast.makeText(this@MainActivity,"New attachment · ${item.optString("name")}",Toast.LENGTH_LONG).show(); refreshAttachmentDialog(); refreshAttachmentBadge() } } }
                     "attachment.pick.request"->{
                         deferredPickerRequest=m
@@ -414,26 +422,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAttachmentInbox(){
         ws?.send(JSONObject().put("type","attachment.list").toString())
+        attachmentTab="received"
         val panel=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL
-            setPadding(32,16,32,8)
-            addView(TextView(this@MainActivity).apply {
-                text="Files shared with this companion"
-                textSize=13f
-                setTextColor(android.graphics.Color.rgb(145,153,173))
-                setPadding(12,0,12,16)
-            })
+            orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(16),dp(20),dp(12))
+            setBackgroundResource(R.drawable.bg_card)
         }
-        val list=ListView(this).apply { tag="attachment-list"; dividerHeight=1 }
+        attachmentHeader=TextView(this).apply {
+            text="Attachments"; textSize=18f; setTypeface(typeface,android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.rgb(247,248,248))
+        }
+        panel.addView(attachmentHeader)
+        val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; setPadding(0,dp(16),0,dp(12)) }
+        fun tab(label:String,mode:String)=TextView(this).apply {
+            text=label; textSize=13f; gravity=android.view.Gravity.CENTER
+            setPadding(dp(8),dp(12),dp(8),dp(12))
+            setOnClickListener { attachmentTab=mode; refreshAttachmentDialog() }
+        }
+        attachmentReceivedTab=tab("Received","received")
+        attachmentSentTab=tab("Sent","sent")
+        tabs.addView(attachmentReceivedTab,LinearLayout.LayoutParams(0,dp(42),1f))
+        tabs.addView(attachmentSentTab,LinearLayout.LayoutParams(0,dp(42),1f))
+        panel.addView(tabs)
+        attachmentSubtitle=TextView(this).apply {
+            textSize=12f; setTextColor(android.graphics.Color.rgb(145,153,173))
+            setPadding(dp(4),0,0,dp(12))
+        }
+        panel.addView(attachmentSubtitle)
+        val list=ListView(this).apply {
+            tag="attachment-list"; dividerHeight=0
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
         panel.addView(list,LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,dp(320)))
-        attachmentDialog=AlertDialog.Builder(this).setIcon(R.drawable.ic_attachment)
-            .setTitle("Attachments · ${synchronized(attachmentItems){attachmentItems.size}}").setView(panel)
-            .setNegativeButton("Close",null).create()
+        attachmentDialog=AlertDialog.Builder(this).setView(panel).setNegativeButton("Close",null).create()
         list.setOnItemClickListener { _,_,position,_ ->
-            val item=synchronized(attachmentItems){ attachmentItems.values.toList().getOrNull(position) }?:return@setOnItemClickListener
-            showAttachmentActions(item)
+            if(attachmentTab=="received"){
+                val item=synchronized(attachmentItems){ attachmentItems.values.toList().getOrNull(position) }?:return@setOnItemClickListener
+                showAttachmentActions(item)
+            } // Sent is a read-only history; only the recipient can open/save/share.
         }
-        attachmentDialog?.show(); refreshAttachmentDialog()
+        attachmentDialog?.show()
+        attachmentDialog?.window?.setBackgroundDrawableResource(R.drawable.bg_card)
+        refreshAttachmentDialog()
     }
 
     private fun showAttachmentActions(item:JSONObject){
@@ -458,24 +487,50 @@ class MainActivity : AppCompatActivity() {
     private fun refreshAttachmentDialog(){
         val list=attachmentDialog?.findViewById<ListView>(android.R.id.list)
             ?: (attachmentDialog?.window?.decorView?.findViewWithTag<View>("attachment-list") as? ListView)
-        val items=synchronized(attachmentItems){ attachmentItems.values.toList() }
-        list?.adapter=object:BaseAdapter(){
+        if(list==null)return
+        val received=synchronized(attachmentItems){ attachmentItems.values.toList() }
+        val sent=synchronized(sentAttachmentItems){ sentAttachmentItems.values.toList() }
+        val isSent=attachmentTab=="sent"
+        attachmentReceivedTab?.apply {
+            setBackgroundResource(if(isSent) R.drawable.bg_button_secondary else R.drawable.bg_button)
+            setTextColor(if(isSent) android.graphics.Color.rgb(145,153,173) else android.graphics.Color.rgb(247,248,248))
+        }
+        attachmentSentTab?.apply {
+            setBackgroundResource(if(isSent) R.drawable.bg_button else R.drawable.bg_button_secondary)
+            setTextColor(if(isSent) android.graphics.Color.rgb(247,248,248) else android.graphics.Color.rgb(145,153,173))
+        }
+        attachmentSubtitle?.text=if(isSent) "Sent history · Only recipients can open or save these files" else "Received files · Open, save or share on this device"
+        attachmentHeader?.text="Attachments · ${if(isSent) sent.size else received.size}"
+        val items=if(isSent) sent else received
+        list.adapter=object:BaseAdapter(){
             override fun getCount()=items.size
             override fun getItem(position:Int)=items[position]
             override fun getItemId(position:Int)=position.toLong()
             override fun getView(position:Int,convertView:View?,parent:android.view.ViewGroup):View {
                 val item=items[position]
-                val row=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.HORIZONTAL; gravity=android.view.Gravity.CENTER_VERTICAL; setPadding(dp(8),dp(10),dp(8),dp(10)) }
-                val icon=ImageView(this@MainActivity).apply { setImageResource(R.drawable.ic_attachment); setColorFilter(android.graphics.Color.rgb(165,232,235)); setPadding(dp(10),dp(10),dp(10),dp(10)); setBackgroundResource(R.drawable.bg_icon_action) }
+                val row=LinearLayout(this@MainActivity).apply {
+                    orientation=LinearLayout.HORIZONTAL; gravity=android.view.Gravity.CENTER_VERTICAL
+                    setPadding(dp(8),dp(10),dp(8),dp(10)); setBackgroundResource(R.drawable.bg_button_secondary)
+                }
+                val icon=ImageView(this@MainActivity).apply {
+                    setImageResource(R.drawable.ic_attachment); setColorFilter(android.graphics.Color.rgb(165,232,235))
+                    setPadding(dp(10),dp(10),dp(10),dp(10)); setBackgroundResource(R.drawable.bg_icon_action)
+                }
                 row.addView(icon,LinearLayout.LayoutParams(dp(44),dp(44)))
-                val text=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(13),0,0,0) }
-                text.addView(TextView(this@MainActivity).apply {
-                    this.text=item.optString("name","file"); textSize=13f; setTextColor(android.graphics.Color.rgb(247,248,248)); maxLines=1; ellipsize=TextUtils.TruncateAt.MIDDLE
+                val copy=LinearLayout(this@MainActivity).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(13),0,0,0) }
+                copy.addView(TextView(this@MainActivity).apply {
+                    text=item.optString("name","file"); textSize=13f
+                    setTextColor(android.graphics.Color.rgb(247,248,248)); maxLines=1; ellipsize=TextUtils.TruncateAt.MIDDLE
                 })
-                text.addView(TextView(this@MainActivity).apply {
-                    this.text="${formatBytes(item.optLong("size"))}  ·  ${item.optString("status","pending").replaceFirstChar { c -> c.uppercase() }}"; textSize=11f; setTextColor(android.graphics.Color.rgb(145,153,173)); setPadding(0,dp(4),0,0)
+                copy.addView(TextView(this@MainActivity).apply {
+                    val status=item.optString("status","pending")
+                    text=if(isSent) "To ${item.optString("destination_name","device")} · ${if(item.optBoolean("server_upload")) "Stored on server" else if(item.optBoolean("assistant_upload")) "Uploaded to assistant" else if(item.optBoolean("server_upload")) "Stored on server" else if(item.optBoolean("assistant_upload")) "Uploaded to assistant" else if(status=="saved") "Saved by recipient" else "Sent to inbox"}"
+                         else "${formatBytes(item.optLong("size"))} · ${status.replaceFirstChar { c -> c.uppercase() }}"
+                    textSize=11f; setTextColor(android.graphics.Color.rgb(145,153,173)); setPadding(0,dp(4),0,0)
+                    maxLines=1; ellipsize=TextUtils.TruncateAt.END
                 })
-                row.addView(text,LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f)); return row
+                row.addView(copy,LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f))
+                return row
             }
         }
     }

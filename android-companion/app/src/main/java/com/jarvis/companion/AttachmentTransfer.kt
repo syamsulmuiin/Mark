@@ -39,7 +39,7 @@ object AttachmentTransfer {
             }
             val server=JSONObject(r.body?.string()?:"{}"); val hash=digest.digest().joinToString(""){"%02x".format(it)}
             if(server.optString("sha256")!=hash||server.optLong("size",-1)!=total) error("Server upload verification failed")
-            return JSONObject().put("name",displayName).put("sha256",hash).put("size",total).toString()
+            return JSONObject().put("name",displayName).put("stored_name",server.optString("name",displayName)).put("sha256",hash).put("size",total).toString()
         }
     }
     fun receive(activity: Activity, client: OkHttpClient, args: JSONObject): String {

@@ -1288,13 +1288,17 @@ class JarvisLive:
                         if len(matches)==1:return matches[0]
                         online_matches=[d for d in matches if d.get("device_id") in online]
                         return online_matches[0] if len(online_matches)==1 else None
-                    src=_resolve(args.get("source_device")); dst=_resolve(args.get("destination_device"))
+                    source_selector=str(args.get("source_device") or "").strip()
+                    target_selector=str(args.get("destination_device") or "").strip()
+                    src=(_resolve(self._dashboard.origin_device_id) if source_selector.casefold() in ("current", "this device", "this phone") else _resolve(source_selector))
+                    dst=({"device_id":"server","capabilities":[]} if target_selector.casefold() == "server" else _resolve(target_selector))
                     if self._attachment_turn and self._dashboard.attachment_request_status(str(self._attachment_turn.get("request_id") or "")):
                         result=json.dumps(self._dashboard.attachment_request_status(str(self._attachment_turn["request_id"])),ensure_ascii=False)
                     elif not src or not dst: result="Source or destination companion is not uniquely identifiable. Call list_paired_devices first."
+                    elif src.get("device_id")==dst.get("device_id"): result="Source and destination are the same companion. For server storage use destination_device=server; otherwise choose a different paired device."
                     elif src.get("device_id") not in online: result="Source companion is offline; it must be online to attach a local file."
                     elif "file.upload" not in set(src.get("capabilities") or []): result="Source companion does not support file.upload."
-                    elif "attachment.inbox" not in set(dst.get("capabilities") or []): result="Destination companion does not support attachment.inbox."
+                    elif dst.get("device_id")!="server" and "attachment.inbox" not in set(dst.get("capabilities") or []): result="Destination companion does not support attachment.inbox."
                     else:
                         src_id=str(src["device_id"]); dst_id=str(dst["device_id"])
                         active=self._attachment_turn
@@ -2021,6 +2025,36 @@ class JarvisLive:
                 print(f"[Schedule] {e}")
             await asyncio.sleep(20)
 
+    async def _on_attachment_result(self, source_device, destination_device, summary):
+        """Resume the requested voice task only after its files are available."""
+        if not self.session or not self._dashboard or source_device not in self._dashboard._device_sockets:
+            return
+        completed = int(summary.get("completed", 0))
+        failed = int(summary.get("failed", 0))
+        if destination_device == "server":
+            names = [item.get("name") for item in summary.get("items", []) if item.get("ok")]
+            instruction = (
+                "[SERVER FILE STORAGE RESULT] This is the result of the user's prior voice request, "
+                "not a new request. The following file names were permanently stored in the "
+                f"MARK LIV server object store: {json.dumps(names, ensure_ascii=False)}. "
+                f"{failed} file(s) failed. Confirm the stored files to the user in their current "
+                "language. Do not claim to have edited their contents or call transfer_file again."
+            )
+        else:
+            target = self._dashboard._mesh.get(destination_device) or {}
+            target_name = target.get("name") or "the destination companion"
+            instruction = (
+                "[ATTACHMENT TRANSFER RESULT] This is a system event for the user-requested "
+                f"transfer, not a new request. {completed} file(s) were sent to the attachment "
+                f"inbox of {target_name}; {failed} failed. Tell the user briefly in their "
+                "current language. The recipient has not necessarily saved them. "
+                "Do not call transfer_file again."
+            )
+        self._dashboard._active_voice_device = source_device
+        await self.session.send_client_content(
+            turns={"role":"user", "parts":[{"text":instruction}]}, turn_complete=True,
+        )
+
     # ── dashboard command relay ─────────────────────────────────────────────
 
     async def _process_dashboard_commands(self) -> None:
@@ -2085,6 +2119,7 @@ class JarvisLive:
             self._dashboard = DashboardServer()
             self._dashboard.set_connect_callback(self._on_phone_connected)
             self._dashboard.set_interrupt_callback(self.interrupt)
+            self._dashboard.set_attachment_result_callback(self._on_attachment_result)
         except Exception as e:
             print(f"[Dashboard] Disabled: {e}")
             self._dashboard = None
@@ -2218,10 +2253,11 @@ class JarvisLive:
                 _flat_err = _exception_text(e)
                 _flat_lower = _flat_err.lower()
                 if _resumed_with and not _is_transient_transport_error(e) and (
-                    "resum" in _flat_lower
-                    or "handle" in _flat_lower
-                    or "invalid_argument" in _flat_lower
-                    or "not_found" in _flat_lower
+                    "resumption handle" in _flat_lower
+                    or "session resumption" in _flat_lower
+                    or "invalid handle" in _flat_lower
+                    or ("invalid_argument" in _flat_lower and "resum" in _flat_lower)
+                    or ("not_found" in _flat_lower and "resum" in _flat_lower)
                 ):
                     print("[JARVIS] 🔗 Resumption handle rejected — starting a fresh session")
                     self.ui.write_log("SYS: Session handle expired — recovering conversation context locally.")

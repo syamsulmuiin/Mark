@@ -20,12 +20,13 @@ class AttachmentInbox:
         temp.write_text(json.dumps(self.items, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temp, self.path)
 
-    def create(self, *, source_device, destination_device, name, sha256, size):
+    def create(self, *, source_device, destination_device, name, sha256, size, assistant_upload=False, server_upload=False):
         now = time.time()
         item = dict(id=secrets.token_urlsafe(18), source_device=source_device,
                     destination_device=destination_device, name=name, sha256=sha256,
                     size=int(size), created_at=now, expires_at=now+RETENTION_SECONDS,
-                    status="pending")
+                    assistant_upload=bool(assistant_upload), server_upload=bool(server_upload),
+                    status="stored" if server_upload else "assistant_ready" if assistant_upload else "pending")
         self.items[item["id"]] = item
         self._save()
         return dict(item)
@@ -33,7 +34,13 @@ class AttachmentInbox:
     def for_device(self, device_id):
         now = time.time()
         return sorted((dict(item) for item in self.items.values()
-                       if item["destination_device"] == device_id and item["expires_at"] > now),
+                       if item["destination_device"] == device_id and not item.get("assistant_upload") and item["expires_at"] > now),
+                      key=lambda x: x["created_at"], reverse=True)
+
+    def sent_by(self, device_id):
+        now = time.time()
+        return sorted((dict(item) for item in self.items.values()
+                       if item["source_device"] == device_id and item["expires_at"] > now),
                       key=lambda x: x["created_at"], reverse=True)
 
     def get(self, device_id, attachment_id):

@@ -75,6 +75,14 @@ A Live user turn owns at most one attachment transaction for a source/destinatio
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
+### Send files to server (v60.19)
+
+A voice request to send files to the server opens the Android multi-select picker and stores the selected files permanently on the server. The Sent tab shows Stored on server; the phone does not receive its own upload as an incoming attachment.
+
+### Received and Sent attachments (v60.18)
+
+The Attachments dialog has Received and Sent views in the main companion’s dark and cyan visual style. Sent history is read-only; Open, Save As and Share are available only to recipients. Files uploaded to MARK LIV for processing appear in Sent and do not show up as incoming files on the same phone.
+
 ### Voice attachment picker (v60.17)
 
 Voice requests can queue the Android native multi-select picker after the assistant finishes speaking. No chat upload is required.

@@ -32,7 +32,7 @@ def verify(pub,data,sig):
 class App:
     def __init__(self):
         self.st=identity(load()); self.ws=None; self.mic=None; self.out=None; self.running=False; self.speaking=False
-        self.attachments={}; self.pending_attachment=None; self.deferred_attachment_pick=None; self.assistant_turn_complete=False
+        self.attachments={}; self.sent_attachments={}; self.attachment_mode="received"; self.pending_attachment=None; self.deferred_attachment_pick=None; self.assistant_turn_complete=False
         self.root=tk.Tk(); self.root.title('MARK LIV Companion'); self.root.geometry('620x520')
         f=ttk.Frame(self.root,padding=14); f.pack(fill='both',expand=True)
         ttk.Label(f,text='Pair Code').grid(row=0,column=0,sticky='w'); self.code=tk.StringVar(); ttk.Entry(f,textvariable=self.code,width=16).grid(row=0,column=1,sticky='w'); ttk.Button(f,text='Pair',command=self.pair).grid(row=0,column=2)
@@ -106,6 +106,14 @@ class App:
         elif typ=='attachment.inbox':
             self.attachments={x['id']:x for x in m.get('attachments',[])}
             self.root.after(0,self.refresh_attachment_list)
+        elif typ=='attachment.sent':
+            self.sent_attachments={x['id']:x for x in m.get('attachments',[])}
+            self.root.after(0,self.refresh_attachment_list)
+        elif typ in ('attachment.sent.new','attachment.sent.update'):
+            item=m.get('attachment') or {}
+            if item.get('id'):
+                self.sent_attachments[item['id']]=item
+                self.root.after(0,self.refresh_attachment_list)
         elif typ=='attachment.new':
             item=m.get('attachment') or {}
             if item.get('id'):
@@ -221,28 +229,52 @@ class App:
     def show_attachments(self):
         if getattr(self,'attachment_window',None) and self.attachment_window.winfo_exists():
             self.attachment_window.lift(); return
+        self.attachment_mode='received'
         w=tk.Toplevel(self.root); w.title('Attachments · MARK LIV'); w.geometry('560x380'); w.minsize(500,320)
         self.attachment_window=w
-        header=ttk.Frame(w,padding=(12,12,12,0)); header.pack(fill='x'); ttk.Label(header,text='📎  Attachments',font=('TkDefaultFont',13,'bold')).pack(anchor='w'); ttk.Label(header,text='Received files stay here until you choose Open, Save As, or Share.').pack(anchor='w',pady=(3,0)); self.attachment_list=tk.Listbox(w,selectmode='browse',activestyle='dotbox')
+        header=ttk.Frame(w,padding=(12,12,12,0)); header.pack(fill='x')
+        ttk.Label(header,text='📎  Attachments',font=('TkDefaultFont',13,'bold')).pack(anchor='w')
+        tabs=ttk.Frame(w,padding=(12,8,12,4)); tabs.pack(fill='x')
+        ttk.Button(tabs,text='Received',command=lambda:self._show_attachment_mode('received')).pack(side='left')
+        ttk.Button(tabs,text='Sent',command=lambda:self._show_attachment_mode('sent')).pack(side='left',padx=8)
+        self.attachment_hint=ttk.Label(w,text='Received files can be opened or saved on this device.')
+        self.attachment_hint.pack(anchor='w',padx=12)
+        self.attachment_list=tk.Listbox(w,selectmode='browse',activestyle='dotbox')
         self.attachment_list.pack(fill='both',expand=True,padx=12,pady=12)
         buttons=ttk.Frame(w); buttons.pack(fill='x',padx=12,pady=8)
-        ttk.Button(buttons,text='Open',command=lambda:self.request_attachment('open')).pack(side='left')
-        ttk.Button(buttons,text='Save As',command=lambda:self.request_attachment('save')).pack(side='left',padx=8)
-        ttk.Button(buttons,text='Share',command=lambda:self.request_attachment('share')).pack(side='left')
+        self.attachment_actions=ttk.Frame(buttons); self.attachment_actions.pack(side='left')
+        ttk.Button(self.attachment_actions,text='Open',command=lambda:self.request_attachment('open')).pack(side='left')
+        ttk.Button(self.attachment_actions,text='Save As',command=lambda:self.request_attachment('save')).pack(side='left',padx=8)
+        ttk.Button(self.attachment_actions,text='Share',command=lambda:self.request_attachment('share')).pack(side='left')
         ttk.Button(buttons,text='Refresh',command=lambda:self.ws and self.ws.send(json.dumps({'type':'attachment.list'}))).pack(side='right')
         self.refresh_attachment_list()
         if self.ws:self.ws.send(json.dumps({'type':'attachment.list'}))
 
+    def _show_attachment_mode(self,mode):
+        self.attachment_mode=mode
+        if mode=='sent':
+            self.attachment_hint.config(text='Sent history · Only the recipient can open or save these files.')
+            self.attachment_actions.pack_forget()
+        else:
+            self.attachment_hint.config(text='Received files can be opened or saved on this device.')
+            self.attachment_actions.pack(side='left')
+        self.refresh_attachment_list()
+
     def refresh_attachment_list(self):
         widget=getattr(self,'attachment_list',None)
         if widget is None or not widget.winfo_exists():return
-        self.attachment_order=list(self.attachments)
+        self.attachment_order=list(self.sent_attachments if self.attachment_mode=='sent' else self.attachments)
         widget.delete(0,'end')
         for key in self.attachment_order:
-            a=self.attachments[key]
-            widget.insert('end',f"{a['name']}  ·  {a['size']:,} bytes  ·  {a.get('status','pending')}")
+            a=(self.sent_attachments if self.attachment_mode=='sent' else self.attachments)[key]
+            if self.attachment_mode=='sent':
+                status='Saved by recipient' if a.get('status')=='saved' else 'Sent to inbox'
+                widget.insert('end',f"{a['name']}  ·  To {a.get('destination_name','device')}  ·  {status}")
+            else:
+                widget.insert('end',f"{a['name']}  ·  {a['size']:,} bytes  ·  {a.get('status','pending')}")
 
     def request_attachment(self,action):
+        if self.attachment_mode!='received':return
         widget=getattr(self,'attachment_list',None)
         if widget is None or not widget.curselection():return
         item=self.attachments[self.attachment_order[widget.curselection()[0]]]
@@ -312,7 +344,7 @@ class App:
         r=requests.put(str(a['url']),data=chunks(),headers={'X-File-Name':source.name},timeout=300,verify=False); r.raise_for_status(); server=r.json()
         digest=h.hexdigest()
         if server.get('sha256')!=digest or int(server.get('size',-1))!=size: raise RuntimeError('Server upload verification failed')
-        return json.dumps({'name':source.name,'sha256':digest,'size':size})
+        return json.dumps({'name':source.name,'stored_name':server.get('name',source.name),'sha256':digest,'size':size})
     def _file_receive(self, a):
         import hashlib
         name=Path(str(a.get('name') or 'file')).name

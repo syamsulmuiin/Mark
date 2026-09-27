@@ -480,10 +480,12 @@ class DashboardServer:
         self._file_store                  = ObjectStore(STORAGE_ROOT)
         self._attachment_inbox = AttachmentInbox(self._file_store.meta)
         self._file_store.attachment_referenced = self._attachment_inbox.referenced
+        self._promote_legacy_self_uploads()
         self._release_expired_attachments()
         self._transfer_tickets: dict[str, dict] = {}
         self._pending_attachment_picks: dict[str, dict] = {}
         self._attachment_pick_results: dict[str, dict] = {}
+        self._attachment_result_callback = None
         self.app                          = self._build_app()
 
     # ── one-time key management ───────────────────────────────────────────
@@ -654,8 +656,74 @@ class DashboardServer:
     def attachment_request_status(self, request_id: str):
         return self._attachment_pick_results.get(str(request_id or ""))
 
+    def _unique_server_name(self, original):
+        base = _safe_filename(original)
+        suffix = Path(base).suffix
+        stem = base[:-len(suffix)] if suffix else base
+        candidate = base
+        number = 2
+        while self._file_store.resolve(candidate):
+            candidate = f"{stem} ({number}){suffix}"
+            number += 1
+        return candidate
+
+    def _promote_legacy_self_uploads(self):
+        """Preserve uploads previously routed from a device back to itself."""
+        changed = False
+        for item in self._attachment_inbox.items.values():
+            if item.get("source_device") != item.get("destination_device") or item.get("server_upload"):
+                continue
+            obj = self._file_store.by_hash(item.get("sha256", ""))
+            if not obj:
+                continue
+            previous_name = item.get("name") or "file"
+            name = self._unique_server_name(previous_name)
+            digest = item["sha256"]
+            self._file_store.index.setdefault("aliases", {})[name] = {
+                "sha256":digest, "size":item["size"], "updated_at":time.time()}
+            self._file_store.index["objects"][digest]["temporary"] = False
+            item.update(name=name, destination_device="server", server_upload=True,
+                        assistant_upload=False, status="stored")
+            (STORAGE_ROOT / "task_inputs" / f"{item['id']}-{_safe_filename(previous_name)}").unlink(missing_ok=True)
+            changed = True
+        if changed:
+            self._file_store._save()
+            self._attachment_inbox._save()
+
+    def set_attachment_result_callback(self, callback):
+        self._attachment_result_callback = callback
+
+    def attachment_work_path(self, attachment_id):
+        """Named hard link for assistant processing; shares the verified object bytes."""
+        item = self._attachment_inbox.items.get(attachment_id)
+        if not item or not item.get("assistant_upload") or item.get("expires_at", 0) <= time.time():
+            return None
+        obj = self._file_store.by_hash(item["sha256"])
+        if not obj:
+            return None
+        folder = STORAGE_ROOT / "task_inputs"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{attachment_id}-{_safe_filename(item['name'])}"
+        if not path.exists():
+            os.link(obj["path"], path)
+        return path
+
+    def _sent_item(self, item):
+        result = {k: item.get(k) for k in ("id", "name", "size", "status", "destination_device", "created_at")}
+        target = self._mesh.get(item["destination_device"]) or {}
+        result["destination_name"] = "Server" if item.get("server_upload") else "MARK LIV" if item.get("assistant_upload") else target.get("name") or item["destination_device"]
+        result["assistant_upload"] = bool(item.get("assistant_upload"))
+        result["server_upload"] = bool(item.get("server_upload"))
+        return result
+
+    async def _send_attachment_sent(self, ws, device_id):
+        await ws.send_json({"type": "attachment.sent", "attachments":
+                            [self._sent_item(item) for item in self._attachment_inbox.sent_by(device_id)]})
+
     async def transfer_file(self, source_device: str, destination_device: str, source: str, destination_name: str = "", keep_on_server: bool = False):
-        """Upload once, then place a durable attachment reference in the recipient inbox."""
+        """Upload once to permanent server storage or a paired recipient inbox."""
+        if source_device == destination_device:
+            raise ValueError("Source and destination are the same companion; use destination_device=server for server storage.")
         if not str(source or "").strip():
             ws = self._device_sockets.get(source_device)
             if ws is None:
@@ -664,31 +732,45 @@ class DashboardServer:
             self._attachment_pick_results[request_id] = {"ok":True,"status":"awaiting_selection","request_id":request_id}
             self._pending_attachment_picks[request_id] = {
                 "source_device": source_device, "destination_device": destination_device,
-                "destination_name": destination_name, "keep_on_server": bool(keep_on_server),
+                "destination_name": destination_name, "keep_on_server": bool(keep_on_server) or destination_device == "server",
                 "expires": time.time()+300,
             }
             await ws.send_json({"type":"attachment.pick.request", "request_id":request_id,
                                 "destination_device":destination_device})
-            print(f"[WARN Attachment] picker queued request={request_id} source={source_device} destination={destination_device}")
+            print(f"[Attachment] picker queued request={request_id} source={source_device} destination={destination_device}")
             return {"ok":True, "status":"awaiting_selection", "request_id":request_id,
                     "message":"File picker is queued on the source companion. Ask the user to choose a file; transfer will continue automatically."}
         name = _safe_filename(destination_name) if destination_name else "file"
         base = self.get_remote_url().rstrip("/")
-        up = self._new_transfer_ticket("upload", name=name, temporary=not keep_on_server)
+        server_storage = destination_device == "server"
+        up = self._new_transfer_ticket("upload", name=name, temporary=not (keep_on_server or server_storage), server_storage=server_storage)
         reply = await self.call_device(source_device, "file.upload", {
             "source": source, "url": f"{base}/api/transfer/upload/{up}", "name": name}, timeout=300)
         if not isinstance(reply, dict) or not reply.get("ok"):
             raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
         info = json.loads(str(reply.get("result") or "{}"))
         digest, size = str(info.get("sha256") or ""), int(info.get("size") or -1)
-        if not destination_name:
+        if server_storage:
+            name = _safe_filename(info.get("stored_name") or info.get("name") or name)
+        elif not destination_name:
             name = _safe_filename(info.get("name") or name)
         obj = self._file_store.by_hash(digest)
         if not obj or int(obj.get("size", -2)) != size:
             raise RuntimeError("Server upload verification failed")
         # Durable inbox record is committed before optional real-time notification.
         item = self._attachment_inbox.create(source_device=source_device,
-            destination_device=destination_device, name=name, sha256=digest, size=size)
+            destination_device=destination_device, name=name, sha256=digest, size=size,
+            assistant_upload=False, server_upload=server_storage)
+        source_ws = self._device_sockets.get(source_device)
+        if source_ws:
+            try:
+                await source_ws.send_json({"type":"attachment.sent.new", "attachment":self._sent_item(item)})
+            except Exception:
+                pass  # Sent history is recovered from the durable store on reconnect.
+        if server_storage:
+            return {"ok":True, "status":"stored_on_server", "attachment_id":item["id"],
+                    "name":name, "sha256":digest, "size":size,
+                    "destination_device":"server", "saved_to_destination":True}
         ws = self._device_sockets.get(destination_device)
         if ws:
             try:
@@ -706,7 +788,11 @@ class DashboardServer:
                             self._attachment_inbox.for_device(device_id)})
 
     def _release_expired_attachments(self):
+        expired = [(item["id"], item["name"]) for item in self._attachment_inbox.items.values()
+                   if item.get("assistant_upload") and item.get("expires_at", 0) <= time.time()]
         self._attachment_inbox.expire()
+        for attachment_id, name in expired:
+            (STORAGE_ROOT / "task_inputs" / f"{attachment_id}-{_safe_filename(name)}").unlink(missing_ok=True)
         for digest, rec in list(self._file_store.index.get("objects", {}).items()):
             if (rec.get("temporary") and time.time()-float(rec.get("created_at",time.time()))>3600
                     and not self._attachment_inbox.referenced(digest)):
@@ -969,6 +1055,7 @@ class DashboardServer:
                 self._mesh.touch(device_id)
                 await websocket.send_json({"type": "ready", "capabilities": rec.get("capabilities", [])})
                 await self._send_attachment_inbox(websocket, device_id)
+                await self._send_attachment_sent(websocket, device_id)
                 while True:
                     packet = await websocket.receive()
                     if packet.get("type") == "websocket.disconnect":
@@ -1006,11 +1093,11 @@ class DashboardServer:
                     elif msg.get("type") == "attachment.picker.received":
                         request_id=str(msg.get("request_id") or "")
                         if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
-                            print(f"[WARN Attachment] picker request received request={request_id} device={device_id}")
+                            print(f"[Attachment] picker request received request={request_id} device={device_id}")
                     elif msg.get("type") == "attachment.picker.opened":
                         request_id=str(msg.get("request_id") or "")
                         if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
-                            print(f"[WARN Attachment] picker opened request={request_id} device={device_id}")
+                            print(f"[Attachment] picker opened request={request_id} device={device_id}")
                     elif msg.get("type") in ("attachment.source.selected", "attachment.sources.selected"):
                         request_id = str(msg.get("request_id") or "")
                         rec = self._pending_attachment_picks.get(request_id)
@@ -1025,7 +1112,7 @@ class DashboardServer:
                         else:
                             self._pending_attachment_picks.pop(request_id, None)
                             self._attachment_pick_results[request_id] = {"ok":True,"status":"transferring","request_id":request_id,"total":len(sources)}
-                            print(f"[WARN Attachment] sources selected request={request_id} device={device_id} count={len(sources)}")
+                            print(f"[Attachment] sources selected request={request_id} device={device_id} count={len(sources)}")
                             async def _continue_attachment_batch(selected_sources=sources, pending=rec, pending_request_id=request_id):
                                 results=[]
                                 for index, selected_source in enumerate(selected_sources, 1):
@@ -1047,18 +1134,31 @@ class DashboardServer:
                                 self._attachment_pick_results[pending_request_id]=summary
                                 source_ws=self._device_sockets.get(pending["source_device"])
                                 if source_ws:
-                                    await source_ws.send_json({"type":"attachment.transfer.status",
-                                        "message":f"Attachment batch finished: {completed} sent, {failed} failed."})
-                                print(f"[WARN Attachment] batch complete request={pending_request_id} completed={completed} failed={failed}")
+                                    action = "stored on server" if pending["destination_device"] == "server" else "sent"
+                                    try:
+                                        await source_ws.send_json({"type":"attachment.transfer.status",
+                                            "message":f"Attachment batch finished: {completed} {action}, {failed} failed."})
+                                    except Exception:
+                                        pass  # Completion still reaches the Live task below.
+                                if self._attachment_result_callback:
+                                    try:
+                                        await self._attachment_result_callback(pending["source_device"], pending["destination_device"], summary)
+                                    except Exception as exc:
+                                        print(f"[ERROR Attachment] completion announcement failed request={pending_request_id} error={type(exc).__name__}")
+                                if failed:
+                                    print(f"[WARN Attachment] batch complete request={pending_request_id} completed={completed} failed={failed}")
+                                else:
+                                    print(f"[Attachment] batch complete request={pending_request_id} completed={completed} failed=0")
                             asyncio.create_task(_continue_attachment_batch())
                     elif msg.get("type") == "attachment.source.cancelled":
                         request_id = str(msg.get("request_id") or "")
                         if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
                             self._pending_attachment_picks.pop(request_id, None)
                             self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id}
-                            print(f"[WARN Attachment] picker cancelled request={request_id} device={device_id}")
+                            print(f"[Attachment] picker cancelled request={request_id} device={device_id}")
                     elif msg.get("type") == "attachment.list":
                         await self._send_attachment_inbox(websocket, device_id)
+                        await self._send_attachment_sent(websocket, device_id)
                     elif msg.get("type") == "attachment.download":
                         item = self._attachment_inbox.get(device_id, str(msg.get("id") or ""))
                         if not item or not self._file_store.by_hash(item["sha256"]):
@@ -1069,7 +1169,16 @@ class DashboardServer:
                                 "url":self.get_remote_url().rstrip("/")+"/api/transfer/download/"+token,
                                 "name":item["name"], "sha256":item["sha256"], "size":item["size"]})
                     elif msg.get("type") == "attachment.saved":
-                        self._attachment_inbox.mark(device_id, str(msg.get("id") or ""), "saved")
+                        attachment_id = str(msg.get("id") or "")
+                        item = self._attachment_inbox.get(device_id, attachment_id)
+                        if item and self._attachment_inbox.mark(device_id, attachment_id, "saved"):
+                            source_ws = self._device_sockets.get(item["source_device"])
+                            if source_ws:
+                                try:
+                                    item["status"] = "saved"
+                                    await source_ws.send_json({"type":"attachment.sent.update", "attachment":self._sent_item(item)})
+                                except Exception:
+                                    pass
                     elif msg.get("type") == "capability.result":
                         call_id = str(msg.get("call_id") or "")
                         fut = self._device_pending_calls.pop(call_id, None)
@@ -1190,6 +1299,14 @@ class DashboardServer:
                         if size>max_bytes: raise ValueError(f"File too large (max {MAX_UPLOAD_MB} MB)")
                         out.write(chunk)
                 actual_name=_safe_filename(req.headers.get("X-File-Name") or rec["name"]) if rec["name"]=="file" else rec["name"]
+                if rec.get("server_storage"):
+                    base_name = actual_name
+                    suffix = Path(base_name).suffix
+                    stem = base_name[:-len(suffix)] if suffix else base_name
+                    index = 2
+                    while self._file_store.resolve(actual_name):
+                        actual_name = f"{stem} ({index}){suffix}"
+                        index += 1
                 info=self._file_store.ingest(tmp,actual_name,temporary=bool(rec.get("temporary")))
                 return JSONResponse({"ok":True,"name":actual_name,"sha256":info["sha256"],"size":info["size"]})
             except Exception as exc:

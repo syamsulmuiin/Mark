@@ -43,12 +43,12 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "transfer_file",
-        "description": "Send one or more files from an online source companion to the durable attachment inbox of a paired destination companion (online or offline). For a voice request to send local files, call this tool with source omitted when the path is unknown. The source companion opens one native multi-select picker and continues the selected files as a batch. Do not request a chat upload or invent a content URI. The server verifies upload SHA-256 and size, then reports queued/notified, not saved. The recipient chooses Open, Save As or Share in its own UI. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. Set keep_on_server only when explicitly requested.",
+        "description": "Send one or more local files from a companion to either permanent server storage (destination_device=server) or the durable inbox of a different paired companion. Use source_device=current for the companion handling this voice request. Do not use the source companion ID as destination when the user says server. For a voice request to send local files, call this tool with source omitted when the path is unknown. The source companion opens one native multi-select picker and continues the selected files as a batch. Do not request a chat upload or invent a content URI. The server verifies upload SHA-256 and size. Server uploads report stored_on_server; companion recipients receive inbox delivery and choose Open, Save As or Share in their own UI. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. Server destination always stores permanently; for companion-to-companion transfers set keep_on_server only when explicitly requested.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "source_device": {"type":"STRING"},
-                "destination_device": {"type":"STRING"},
+                "source_device": {"type":"STRING", "description":"Exact paired source device ID/name, or current for the companion handling this voice request."},
+                "destination_device": {"type":"STRING", "description":"server for permanent server storage, or exact ID/name of a different paired recipient companion."},
                 "source": {"type":"STRING", "description":"Optional accessible path/content URI for a single known file. Omit to open one native multi-select picker on the source companion."},
                 "destination_name": {"type":"STRING"},
                 "keep_on_server": {"type":"BOOLEAN"}

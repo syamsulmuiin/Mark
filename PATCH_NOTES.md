@@ -1,3 +1,17 @@
+## v60.19
+- Interpret an explicit voice request to send files to the server as destination_device=server with source_device=current, using the origin companion’s native picker.
+- Keep server-target uploads permanently in the server object store and its existing file listing; send them to read-only Sent history, not the phone’s inbox or an automatic assistant edit task. Resolve duplicate server filenames by appending a number before the extension.
+- Report the actual stored filenames after the batch finishes. Requests for another companion continue to use the recipient inbox; source and destination IDs that are identical are rejected instead of guessed.
+- Update Android and Desktop upload results with the server’s stored filename. On startup, promote older self-routed attachment uploads to permanent server aliases so previously uploaded files remain accessible without selecting them again.
+- No source files were removed or deprecated.
+
+## v60.18
+- Complete attachment batches with an explicit Live continuation: voice confirms a device transfer after the batch finishes; uploads to the assistant resume the original requested file task with verified server paths. Do not report an update as complete until it is performed.
+- Treat source=destination as an upload to the assistant. Keep it in the sender’s read-only history and out of the recipient inbox. The server exposes a hard-linked named processing path without duplicating object bytes; links expire with the attachment record.
+- Add separate Received and Sent views on Android and Desktop. Sender history has no Open, Save As or Share controls; these remain on recipient inbox entries. Android uses dark cards and cyan circular icons consistent with its main UI.
+- Successful picker lifecycle and cancelled selection are informational, while failed batch items remain warnings/errors. Tighten Live resumption error matching so an unrelated TaskGroup “unhandled” error cannot masquerade as a rejected handle.
+- No source files were removed or deprecated.
+
 ## v60.17
 - Reset the attachment guard when voice input transcription begins, before the model invokes transfer_file; the prior reset at turn_complete occurred too late.
 - Direct voice file transfers through paired-device discovery and transfer_file with an omitted source to queue the native multi-select picker.

@@ -1,3 +1,12 @@
+## v60.11
+- Moved Android Attachments and Device Control back under the top-right overflow menu to keep the voice surface uncluttered.
+- Improved attachment and Device Control dialogs with icons, state/size information, and clearer actions.
+- Fixed deferred native file selection to wait for the explicit `assistant.turn.complete` runtime event after Live response audio drains; transient SPEAKING/LISTENING transitions no longer launch the picker.
+- Applied the same final-turn picker contract to Desktop companions.
+- Attachment picker/transfer lifecycle diagnostics now use persisted warning/error severity markers so detached `runtime/error.log` captures useful checkpoints without file contents, source paths, hashes, or one-time transfer tokens.
+- Kept the single-copy SHA-256 object store and recipient-controlled attachment inbox semantics unchanged.
+- No source file was deleted or deprecated.
+
 ## v60.10 - Deferred attachment picker and companion UI polish
 
 - Fixed Android attachment delivery capability parity: Android now advertises `attachment.inbox` during pairing and WebSocket proof.

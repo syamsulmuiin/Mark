@@ -32,7 +32,7 @@ def verify(pub,data,sig):
 class App:
     def __init__(self):
         self.st=identity(load()); self.ws=None; self.mic=None; self.out=None; self.running=False; self.speaking=False
-        self.attachments={}; self.pending_attachment=None; self.deferred_attachment_pick=None; self.jarvis_spoke_since_pick=False
+        self.attachments={}; self.pending_attachment=None; self.deferred_attachment_pick=None
         self.root=tk.Tk(); self.root.title('MARK LIV Companion'); self.root.geometry('620x520')
         f=ttk.Frame(self.root,padding=14); f.pack(fill='both',expand=True)
         ttk.Label(f,text='Pair Code').grid(row=0,column=0,sticky='w'); self.code=tk.StringVar(); ttk.Entry(f,textvariable=self.code,width=16).grid(row=0,column=1,sticky='w'); ttk.Button(f,text='Pair',command=self.pair).grid(row=0,column=2)
@@ -88,16 +88,15 @@ class App:
             # to become silent after the first response on some devices/backends.
             if state=='SPEAKING':
                 self.speaking=True
-                if self.deferred_attachment_pick:self.jarvis_spoke_since_pick=True
             elif state in ('LISTENING','ACTIVE','THINKING'):
                 self.speaking=False
-                if state in ('LISTENING','ACTIVE') and self.deferred_attachment_pick and self.jarvis_spoke_since_pick:
-                    self.root.after(0,self._launch_deferred_attachment_picker)
             label = 'Listening' if state=='ACTIVE' else state.title()
             self.root.after(0, lambda value=label: self.status.set(value))
         elif typ=='log': self.note(f"{m.get('speaker','JARVIS')}: {m.get('text','')}")
         elif typ=='attachment.pick.request':
-            self.deferred_attachment_pick=m; self.jarvis_spoke_since_pick=False
+            self.deferred_attachment_pick=m
+        elif typ=='assistant.turn.complete':
+            if self.deferred_attachment_pick:self.root.after(0,self._launch_deferred_attachment_picker)
         elif typ=='attachment.transfer.status': self.note(str(m.get('message') or 'Attachment transfer updated'))
         elif typ=='attachment.inbox':
             self.attachments={x['id']:x for x in m.get('attachments',[])}
@@ -207,7 +206,7 @@ class App:
     def _launch_deferred_attachment_picker(self):
         req=self.deferred_attachment_pick
         if not req:return
-        self.deferred_attachment_pick=None; self.jarvis_spoke_since_pick=False
+        self.deferred_attachment_pick=None
         selected=filedialog.askopenfilename(title='Choose attachment')
         if self.ws:
             if selected:self.ws.send(json.dumps({'type':'attachment.source.selected','request_id':req.get('request_id',''),'source':selected}))

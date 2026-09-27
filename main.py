@@ -1793,6 +1793,10 @@ class JarvisLive:
                 if self._turn_done_event and self._turn_done_event.is_set() and self.audio_in_queue.empty():
                     self.set_speaking(False)
                     self._turn_done_event.clear()
+                    # Picker/UI continuations must wait for the completed Live turn,
+                    # not merely a transient SPEAKING -> LISTENING audio transition.
+                    if self._dashboard:
+                        await self._dashboard.broadcast({"type": "assistant.turn.complete"})
                 continue
             self.set_speaking(True)
             batch = bytearray(chunk)

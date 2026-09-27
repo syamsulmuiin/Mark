@@ -260,3 +260,7 @@ Vision frames are validated and bound to the active Live session so reconnects d
 
 ### Deferred attachment selection and companion controls (v60.10)
 Interactive voice file selection is asynchronous: JARVIS completes its spoken instruction before the source companion opens its native file picker. The selected file then continues through the existing single-copy SHA-256 attachment pipeline. Android exposes dedicated Attachments and Device Control actions; Device Control always delegates enablement to Android Accessibility Settings and never enables the service silently. Attachment transfer failures are logged as diagnostics without file contents or one-time transfer tokens.
+
+
+### Overflow companion menu and final-turn attachment picker (v60.11)
+Android keeps the main voice surface uncluttered: Attachments and Device Control are grouped under the top-right overflow menu. Each destination opens a richer status/action dialog instead of occupying the app bar. Deferred attachment selection no longer uses transient SPEAKING/LISTENING state changes. The runtime emits `assistant.turn.complete` only after the completed Live turn has drained from the companion audio queue; Android and Desktop release a pending native file picker only on that event. Attachment lifecycle diagnostics use warning/error severity markers so detached-server `runtime/error.log` retains picker queued/selected/cancelled, transfer complete, and transfer failure checkpoints without file contents, local source paths, hashes, or transfer tokens.

@@ -33,7 +33,10 @@ object AttachmentTransfer {
         }
         val req=Request.Builder().url(args.getString("url")).header("X-File-Name",displayName.replace(Regex("[\\/]+"),"_")).put(body).build()
         client.newCall(req).execute().use { r ->
-            if(!r.isSuccessful) error("Upload failed: HTTP ${r.code}")
+            if(!r.isSuccessful) {
+                val detail=r.body?.string()?.take(240).orEmpty()
+                error("Upload failed: HTTP ${r.code}${if(detail.isBlank()) "" else " · $detail"}")
+            }
             val server=JSONObject(r.body?.string()?:"{}"); val hash=digest.digest().joinToString(""){"%02x".format(it)}
             if(server.optString("sha256")!=hash||server.optLong("size",-1)!=total) error("Server upload verification failed")
             return JSONObject().put("name",displayName).put("sha256",hash).put("size",total).toString()

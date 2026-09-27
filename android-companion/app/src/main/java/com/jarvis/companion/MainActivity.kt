@@ -52,7 +52,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var phoneControl: ImageButton
     private lateinit var attachmentBadge: TextView
     private var deferredPickerRequest: JSONObject? = null
-    private var jarvisSpokeSincePickerRequest = false
     private var ws: WebSocket? = null
     private val attachmentItems = linkedMapOf<String,JSONObject>()
     private var pendingAttachment: Pair<String,String>? = null
@@ -81,7 +80,6 @@ class MainActivity : AppCompatActivity() {
         endConversation.setOnClickListener { endVoice() }
         startConversation.setOnClickListener { connect() }
         phoneControl.setOnClickListener { showPhoneControlMenu(it) }
-        findViewById<ImageButton>(R.id.attachments).setOnClickListener { showAttachmentInbox() }
         if (Build.VERSION.SDK_INT>=33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
         intent?.data?.getQueryParameter("code")?.let { pairCode.setText(it.uppercase()); pairWithCode(it) }
         if (intent?.data==null && prefs.getBoolean("paired", false)) { showVoice(); connect() }
@@ -90,12 +88,42 @@ class MainActivity : AppCompatActivity() {
     private fun showVoice(){ runOnUiThread { pairPanel.visibility=View.GONE; voicePanel.visibility=View.VISIBLE; status.text=getString(R.string.connecting); orb.state="CONNECTING"; endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE } }
 
     private fun showPhoneControlMenu(anchor: View) {
+        val popup=PopupMenu(this,anchor)
+        popup.menu.add("Attachments").setIcon(R.drawable.ic_attachment)
+        popup.menu.add("Device Control").setIcon(R.drawable.ic_accessibility_control)
+        popup.setOnMenuItemClickListener { item ->
+            when(item.title.toString()){
+                "Attachments" -> showAttachmentInbox()
+                "Device Control" -> showDeviceControlDialog()
+            }
+            true
+        }
+        if(Build.VERSION.SDK_INT>=29) popup.setForceShowIcon(true)
+        popup.show()
+    }
+
+    private fun showDeviceControlDialog() {
         val enabled = JarvisAccessibilityService.instance != null
         val state = if (enabled) "Enabled" else "Disabled"
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(52,24,52,12)
+            addView(TextView(this@MainActivity).apply {
+                text=if(enabled) "●  Control available" else "○  Control requires permission"
+                textSize=14f
+                setTextColor(if(enabled) android.graphics.Color.rgb(115,220,205) else android.graphics.Color.rgb(190,196,210))
+            })
+            addView(TextView(this@MainActivity).apply {
+                text=getString(R.string.device_control_description)
+                textSize=13f
+                setTextColor(android.graphics.Color.rgb(145,153,173))
+                setPadding(0,18,0,0)
+            })
+        }
         AlertDialog.Builder(this)
             .setIcon(R.drawable.ic_accessibility_control)
             .setTitle("Device Control · $state")
-            .setMessage(getString(R.string.device_control_description))
+            .setView(panel)
             .setPositiveButton(getString(R.string.open_accessibility_settings)) { _, _ ->
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
@@ -161,12 +189,13 @@ class MainActivity : AppCompatActivity() {
                     "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
                     "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
                     "attachment.new"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(attachmentItems){ attachmentItems[item.getString("id")]=item }; runOnUiThread { Toast.makeText(this@MainActivity,"New attachment · ${item.optString("name")}",Toast.LENGTH_LONG).show(); refreshAttachmentDialog(); refreshAttachmentBadge() } } }
-                    "attachment.pick.request"->{ deferredPickerRequest=m; jarvisSpokeSincePickerRequest=false }
+                    "attachment.pick.request"->{ deferredPickerRequest=m }
                     "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
-                    "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING" && deferredPickerRequest!=null) jarvisSpokeSincePickerRequest=true; setVoiceState(if(st=="ACTIVE") "LISTENING" else st); if((st=="LISTENING"||st=="ACTIVE") && jarvisSpokeSincePickerRequest) launchDeferredAttachmentPicker() }
+                    "status"->{ val st=m.optString("state").uppercase(); setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
+                    "assistant.turn.complete"->{ if(deferredPickerRequest!=null) launchDeferredAttachmentPicker() }
                     "log"->{ appendTranscript(m.optString("speaker"),m.optString("text")); if(m.optString("speaker")=="jarvis") setVoiceState("LISTENING") }
                     "capability.call"->executeCapability(w,m)
                 }
@@ -331,7 +360,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchDeferredAttachmentPicker(){
         val req=deferredPickerRequest ?: return
-        deferredPickerRequest=null; jarvisSpokeSincePickerRequest=false
+        deferredPickerRequest=null
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
         intent.putExtra("markliv_attachment_request",req.optString("request_id"))
         try { startActivityForResult(intent,93) } catch(e:Exception) {
@@ -342,31 +371,62 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAttachmentInbox(){
         ws?.send(JSONObject().put("type","attachment.list").toString())
-        val list=ListView(this)
-        attachmentDialog=AlertDialog.Builder(this).setIcon(R.drawable.ic_attachment).setTitle("Attachments · ${synchronized(attachmentItems){attachmentItems.size}}").setView(list)
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(32,16,32,8)
+            addView(TextView(this@MainActivity).apply {
+                text="Files shared with this companion"
+                textSize=13f
+                setTextColor(android.graphics.Color.rgb(145,153,173))
+                setPadding(12,0,12,16)
+            })
+        }
+        val list=ListView(this).apply { tag="attachment-list"; dividerHeight=1 }
+        panel.addView(list,LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,dp(320)))
+        attachmentDialog=AlertDialog.Builder(this).setIcon(R.drawable.ic_attachment)
+            .setTitle("Attachments · ${synchronized(attachmentItems){attachmentItems.size}}").setView(panel)
             .setNegativeButton("Close",null).create()
-        list.tag="attachment-list"
         list.setOnItemClickListener { _,_,position,_ ->
             val item=synchronized(attachmentItems){ attachmentItems.values.toList().getOrNull(position) }?:return@setOnItemClickListener
-            val actions=arrayOf("Open","Save As","Share")
-            AlertDialog.Builder(this).setTitle(item.optString("name")).setItems(actions){ _,which ->
-                val action=when(which){0->"open";1->"save";else->"share"}
-                if(action=="save"){
-                    val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                        .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,item.optString("name"))
-                    pendingAttachment=Pair(item.getString("id"),action)
-                    startActivityForResult(intent,91)
-                }else requestAttachment(item.getString("id"),action)
-            }.show()
+            showAttachmentActions(item)
         }
         attachmentDialog?.show(); refreshAttachmentDialog()
+    }
+
+    private fun showAttachmentActions(item:JSONObject){
+        val size=formatBytes(item.optLong("size"))
+        val status=item.optString("status","pending").replaceFirstChar { it.uppercase() }
+        val info=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(52,12,52,8)
+            addView(TextView(this@MainActivity).apply { text="$size  ·  $status"; textSize=13f; setTextColor(android.graphics.Color.rgb(145,153,173)) })
+        }
+        val actions=arrayOf("Open","Save As","Share")
+        AlertDialog.Builder(this).setIcon(R.drawable.ic_attachment).setTitle(item.optString("name")).setView(info).setItems(actions){ _,which ->
+            val action=when(which){0->"open";1->"save";else->"share"}
+            if(action=="save"){
+                val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,item.optString("name"))
+                pendingAttachment=Pair(item.getString("id"),action)
+                startActivityForResult(intent,91)
+            }else requestAttachment(item.getString("id"),action)
+        }.show()
     }
 
     private fun refreshAttachmentDialog(){
         val list=attachmentDialog?.findViewById<ListView>(android.R.id.list)
             ?: (attachmentDialog?.window?.decorView?.findViewWithTag<View>("attachment-list") as? ListView)
-        val names=synchronized(attachmentItems){ attachmentItems.values.map { "${it.optString("name")} · ${it.optLong("size")} bytes · ${it.optString("status","pending")}" } }
+        val names=synchronized(attachmentItems){ attachmentItems.values.map {
+            "📎  ${it.optString("name")}\n      ${formatBytes(it.optLong("size"))}  ·  ${it.optString("status","pending").replaceFirstChar { c -> c.uppercase() }}"
+        } }
         list?.adapter=ArrayAdapter(this,android.R.layout.simple_list_item_1,names)
+    }
+
+    private fun dp(value:Int):Int=(value*resources.displayMetrics.density).toInt()
+    private fun formatBytes(bytes:Long):String=when {
+        bytes>=1024L*1024L -> String.format(Locale.US,"%.1f MB",bytes/(1024.0*1024.0))
+        bytes>=1024L -> String.format(Locale.US,"%.1f KB",bytes/1024.0)
+        else -> "$bytes B"
     }
 
     private fun requestAttachment(id:String,action:String){

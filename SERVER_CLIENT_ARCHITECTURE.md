@@ -173,3 +173,7 @@ Visual analysis requires real image bytes. All camera-capable companions use the
 
 Server transfer storage is project-local under `storage/` with `uploads/`, `share/`, and `downloads/` subdirectories created automatically. The entire `storage/` tree is runtime data and is excluded from Git. Companion save destinations remain companion/user-selected.
 
+
+
+### Vision origin continuity
+Companion-origin vision remains bound to the originating paired device across transient WebSocket reconnects. Missing/offline companion vision never falls back to server camera or screen hardware. Server/host visual capture requires an explicit user request for server/host hardware.

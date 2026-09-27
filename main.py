@@ -1141,7 +1141,11 @@ class JarvisLive:
                 # Companion-origin vision stays on the origin device.
                 _origin = self._dashboard.origin_device_id if self._dashboard else None
                 _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
-                _explicit_server = bool(re.search(r"\b(server|host)\b", _last_user, re.IGNORECASE))
+                _explicit_server = bool(re.search(
+                    r"\b(?:on|from|using|use|via)\s+(?:the\s+)?(?:server|host)\b|"
+                    r"\b(?:server|host)(?:'s)?\s+(?:camera|screen|display|webcam)\b",
+                    _last_user, re.IGNORECASE,
+                ))
                 if _origin and not _explicit_server:
                     _rec = self._dashboard._mesh.get(_origin) or {}
                     _caps = set(_rec.get("capabilities") or [])
@@ -1174,7 +1178,7 @@ class JarvisLive:
                         result = "This companion does not advertise camera.capture. A real image frame is required; UI inspection cannot substitute for camera vision."
                     else:
                         result = "This companion does not advertise a real screen-capture capability. UI inspection cannot substitute for visual screen analysis."
-                else:
+                elif _explicit_server:
                     import time as _t_mod
                     _now = _t_mod.monotonic()
                     _cooldown = 4.0  # seconds — covers echo window after speaking ends
@@ -1209,6 +1213,11 @@ class JarvisLive:
                             f"is arriving with this result. Reply once, from what you actually see "
                             f"in it."
                         )
+                else:
+                    result = (
+                        "No companion origin is associated with this vision request. "
+                        "Server camera/screen capture is not a fallback; request server/host hardware explicitly if that is intended."
+                    )
 
             elif name == "close_camera":
                 self.ui.stop_camera_stream()

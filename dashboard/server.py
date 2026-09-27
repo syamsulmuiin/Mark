@@ -917,8 +917,10 @@ class DashboardServer:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:
                     self._active_voice_device = None
-                if self._origin_device_id == device_id:
-                    self._origin_device_id = None
+                # Keep origin affinity across transient disconnects. The same paired
+                # device may reconnect while its Live turn/tool call is still active.
+                # call_device() still requires an actually connected socket, so retaining
+                # this id cannot execute against an offline device or another companion.
 
         @app.post("/api/command")
         async def command(req: Request):

@@ -1,3 +1,12 @@
+## v60.3 - Companion vision origin continuity
+
+- Fixed companion vision requests falling through to headless server screen/camera capture after a transient companion WebSocket disconnect.
+- Companion origin affinity now survives transient disconnects; device calls still require the paired device to be connected.
+- Server camera/screen capture is no longer a fallback when companion origin is missing.
+- Server/host hardware vision runs only when the user explicitly requests server/host camera or screen.
+- Tightened explicit server/host intent detection so merely mentioning the word server does not redirect companion vision.
+- No source files removed.
+
 ## v60.2 - Android build fix
 
 - Fixed Android companion Kotlin compilation after camera capture support.

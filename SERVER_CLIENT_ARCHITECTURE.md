@@ -177,3 +177,7 @@ Server transfer storage is project-local under `storage/` with `uploads/`, `shar
 
 ### Vision origin continuity
 Companion-origin vision remains bound to the originating paired device across transient WebSocket reconnects. Missing/offline companion vision never falls back to server camera or screen hardware. Server/host visual capture requires an explicit user request for server/host hardware.
+
+
+### Android camera capture readiness
+Android `camera.capture` performs a bounded Camera2 3A warm-up before still capture so exposure, white balance, and focus can settle. This is internal to the Android companion and does not change the generic `camera.capture` capability contract shared with desktop companions.

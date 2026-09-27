@@ -308,11 +308,34 @@ class MainActivity : AppCompatActivity() {
                         override fun onConfigured(cs:CameraCaptureSession){
                             session=cs
                             try {
-                                val req=cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                val warmup=cam.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                                     addTarget(reader.surface)
-                                    set(CaptureRequest.CONTROL_AF_MODE,CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                                 }.build()
-                                cs.capture(req,null,handler)
+                                var warmupFrames=0
+                                var stillStarted=false
+                                val callback=object:CameraCaptureSession.CaptureCallback(){
+                                    override fun onCaptureCompleted(session:CameraCaptureSession,request:CaptureRequest,result:TotalCaptureResult){
+                                        if(stillStarted) return
+                                        warmupFrames++
+                                        val ae=result.get(CaptureResult.CONTROL_AE_STATE)
+                                        val awb=result.get(CaptureResult.CONTROL_AWB_STATE)
+                                        val af=result.get(CaptureResult.CONTROL_AF_STATE)
+                                        val aeReady=ae==null || ae==CaptureResult.CONTROL_AE_STATE_CONVERGED || ae==CaptureResult.CONTROL_AE_STATE_FLASH_REQUIRED || ae==CaptureResult.CONTROL_AE_STATE_LOCKED
+                                        val awbReady=awb==null || awb==CaptureResult.CONTROL_AWB_STATE_CONVERGED || awb==CaptureResult.CONTROL_AWB_STATE_LOCKED
+                                        val afReady=af==null || af==CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED || af==CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED || af==CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED || af==CaptureResult.CONTROL_AF_STATE_INACTIVE
+                                        if((warmupFrames>=3 && aeReady && awbReady && afReady) || warmupFrames>=12){
+                                            stillStarted=true
+                                            try {
+                                                cs.stopRepeating()
+                                                val still=cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                                                    addTarget(reader.surface)
+                                                }.build()
+                                                cs.capture(still,null,handler)
+                                            } catch(e:Exception){ failure=e.message?:e.toString(); latch.countDown() }
+                                        }
+                                    }
+                                }
+                                cs.setRepeatingRequest(warmup,callback,handler)
                             } catch(e:Exception){ failure=e.message?:e.toString(); latch.countDown() }
                         }
                         override fun onConfigureFailed(cs:CameraCaptureSession){ failure="Camera capture session configuration failed"; latch.countDown() }
@@ -321,12 +344,13 @@ class MainActivity : AppCompatActivity() {
                 override fun onDisconnected(cam:CameraDevice){ failure="Camera disconnected"; cam.close(); latch.countDown() }
                 override fun onError(cam:CameraDevice,error:Int){ failure="Camera error: $error"; cam.close(); latch.countDown() }
             },handler)
-            if(!latch.await(8,TimeUnit.SECONDS)) error("Camera capture timed out")
+            if(!latch.await(10,TimeUnit.SECONDS)) error("Camera capture timed out")
             failure?.let { error(it) }
             val bytes=payload?:error("Camera returned no image frame")
             return JSONObject().put("mime_type","image/jpeg").put("data",AndroidBase64.encodeToString(bytes,AndroidBase64.NO_WRAP))
                 .put("source","camera").put("facing",if(facing==CameraCharacteristics.LENS_FACING_FRONT) "front" else "back").toString()
         } finally {
+            try { session?.stopRepeating() } catch(_:Exception){}
             try { session?.close() } catch(_:Exception){}
             try { device?.close() } catch(_:Exception){}
             try { reader.close() } catch(_:Exception){}

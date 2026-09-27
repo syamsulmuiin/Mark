@@ -1,3 +1,22 @@
+## v60.5 - Companion camera default parity
+
+- Audited Windows, Linux, and macOS camera capture for parity with the Android default-camera policy.
+- Desktop camera capture does not force exposure, brightness, contrast, saturation, hue, color effects, or grayscale settings; host OpenCV/backend and camera vendor defaults remain authoritative.
+- Replaced the fixed desktop 10-frame delay with a bounded 12-frame valid/stability warm-up while leaving all camera properties untouched.
+- BGR-to-RGB conversion remains only for correct color channel ordering when encoding with PIL; it is not grayscale processing.
+- Android keeps Camera2/HAL template defaults with bounded warm-up. The shared `camera.capture` result contract is unchanged across companions.
+- No source files removed.
+
+## v60.4 - Android camera exposure warm-up
+
+- Camera warm-up and still capture now use the device Camera2/HAL template defaults without forcing AE, AWB, AF, color effects, or grayscale modes.
+
+- Fixed Android camera captures that could be black or severely underexposed, especially after switching to the rear camera.
+- Camera2 now runs a bounded preview-style 3A warm-up with auto exposure, auto white balance, and continuous autofocus before the still JPEG capture.
+- Capture proceeds after 3A convergence or a bounded frame limit, preserving deterministic completion.
+- Companion routing, voice, UI, desktop camera behavior, and server behavior are unchanged.
+- No source files removed.
+
 ## v60.3 - Companion vision origin continuity
 
 - Fixed companion vision requests falling through to headless server screen/camera capture after a transient companion WebSocket disconnect.

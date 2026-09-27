@@ -171,13 +171,27 @@ def _capture_camera() -> tuple[bytes, str]:
     if not cap.isOpened():
         raise RuntimeError(f"Camera index {index} could not be opened.")
 
-    for _ in range(10):
-        cap.read()
-
-    ret, frame = cap.read()
+    # Keep host/vendor camera defaults untouched. Read a bounded number of
+    # frames so auto exposure/white balance handled by the camera backend has
+    # time to settle, without forcing CAP_PROP_* values.
+    frame = None
+    valid_frames = 0
+    previous_mean = None
+    for _ in range(12):
+        ret, candidate = cap.read()
+        if not ret or candidate is None:
+            continue
+        frame = candidate
+        valid_frames += 1
+        mean = float(np.mean(candidate))
+        if valid_frames >= 3 and previous_mean is not None:
+            delta = abs(mean - previous_mean)
+            if mean > 8 and delta <= max(2.0, mean * 0.05):
+                break
+        previous_mean = mean
     cap.release()
 
-    if not ret or frame is None:
+    if frame is None:
         raise RuntimeError("Camera returned no frame.")
 
     if _PIL:

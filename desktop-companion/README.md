@@ -33,4 +33,4 @@ Credential entry remains protected. Ending a conversation does not stop the serv
 
 ## Camera vision
 
-Windows, Linux and macOS advertise the same native `camera.capture` capability. The shared runtime captures a one-shot frame from the configured/default host webcam with the platform-appropriate OpenCV backend and returns real JPEG bytes to the server. Desktop webcams are reported as `default` unless an explicit mapping exists; the companion never guesses a front/back identity. A camera application does not need to be opened.
+Windows, Linux and macOS advertise the same native `camera.capture` capability. The shared runtime captures a one-shot frame from the configured/default host webcam with the platform-appropriate OpenCV backend and returns real JPEG bytes to the server. Desktop webcams are reported as `default` unless an explicit mapping exists; the companion never guesses a front/back identity. A camera application does not need to be opened. Desktop capture leaves exposure, white balance, focus, brightness, contrast, saturation, hue, and color effects at host/vendor defaults; it only performs a bounded frame warm-up before returning the JPEG.

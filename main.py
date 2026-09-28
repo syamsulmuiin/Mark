@@ -1213,7 +1213,22 @@ class JarvisLive:
                             except Exception as _vision_exc:
                                 result = f"Camera capture failed validation: {_vision_exc}"
                     elif angle == "screen" and "screen.capture" in _caps:
-                        result = "Origin companion advertises screen.capture, but binary screen-frame transport is not implemented by this companion build."
+                        _reply = await self._dashboard.call_device(_origin, "screen.capture", {})
+                        if not isinstance(_reply, dict) or not _reply.get("ok", False):
+                            result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                        else:
+                            try:
+                                _payload = json.loads(str(_reply.get("result", "")))
+                                import base64 as _vision_b64
+                                img_b = _vision_b64.b64decode(_payload["data"], validate=True)
+                                mime_t = str(_payload.get("mime_type") or "image/jpeg")
+                                if not img_b or not mime_t.startswith("image/"):
+                                    raise ValueError("Companion returned invalid screen image data")
+                                self._pending_vision = (self._session_generation, img_b, mime_t, user_text, "screen")
+                                result = ("[VISION_ACTIVE] Origin desktop screen captured and attached to this exchange. "
+                                          "Wait for the image and answer from its contents only.")
+                            except Exception as _vision_exc:
+                                result = f"Screen capture failed validation: {_vision_exc}"
                     elif angle == "camera":
                         result = "This companion does not advertise camera.capture. A real image frame is required; UI inspection cannot substitute for camera vision."
                     else:

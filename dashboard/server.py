@@ -1379,11 +1379,27 @@ class DashboardServer:
                     if req.get("magic") != DISCOVERY_MAGIC:
                         continue
                     code = str(req.get("code") or "").upper()
-                    offer = self._mesh.pending_offer(code)
-                    if not offer:
-                        continue
-                    reply = {"magic": DISCOVERY_MAGIC, "code": code, "server": self.get_remote_url(),
-                             "device_id": self._mesh.device_id, "public_key": self._mesh.public_key}
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+                        route.connect((addr[0], addr[1]))
+                        local_url = f"http://{route.getsockname()[0]}:{PORT}"
+                    if code:
+                        offer = self._mesh.pending_offer(code)
+                        if not offer:
+                            continue
+                        reply = {"magic": DISCOVERY_MAGIC, "code": code, "server": local_url,
+                                 "device_id": self._mesh.device_id, "public_key": self._mesh.public_key}
+                    else:
+                        device_id = str(req.get("device_id") or "")
+                        nonce = str(req.get("nonce") or "")
+                        rec = self._mesh.get(device_id)
+                        if not rec or rec.get("revoked") or not (16 <= len(nonce) <= 128):
+                            continue
+                        if not self._mesh.verify(rec["public_key"], f"discover:{device_id}:{nonce}".encode(), str(req.get("signature") or "")):
+                            continue
+                        reply = {"magic": DISCOVERY_MAGIC, "server": local_url,
+                                 "device_id": self._mesh.device_id, "public_key": self._mesh.public_key,
+                                 "nonce": nonce,
+                                 "server_signature": self._mesh.sign(f"discover:{device_id}:{nonce}:{local_url}".encode())}
                     sock.sendto(json.dumps(reply).encode("utf-8"), addr)
                 except Exception:
                     continue

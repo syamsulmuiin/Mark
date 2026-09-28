@@ -4,6 +4,7 @@ server refactor does not remove established computer/file/browser capabilities.
 """
 from __future__ import annotations
 import importlib, sys
+import logging
 from pathlib import Path
 RUNTIME = Path(__file__).resolve().parent / "runtime"
 if str(RUNTIME) not in sys.path:
@@ -19,6 +20,7 @@ TOOLS = {
     "screen_processor": ("actions.screen_processor", "screen_processor"),
     "send_message": ("actions.send_message", "send_message"),
     "system_monitor": ("actions.system_monitor", "system_monitor"),
+    "youtube_video": ("actions.youtube_video", "youtube_video"),
 }
 
 CREDENTIAL_TERMS = ("password", "passwd", "passcode", "pin", "credential", "unlock_code", "unlock code")
@@ -47,4 +49,9 @@ def invoke(tool: str, parameters: dict | None = None):
     module_name, handler_name = TOOLS[tool]
     module = importlib.import_module(module_name)
     handler = getattr(module, handler_name)
+    if tool == "youtube_video":
+        class LocalPlayer:
+            def write_log(self, message):
+                logging.getLogger("mark_liv.companion").info("%s", message)
+        return handler(parameters=parameters, response=None, player=LocalPlayer(), session_memory=None)
     return handler(parameters=parameters, response=None, player=None, session_memory=None)

@@ -93,3 +93,5 @@ The desktop HUD uses the standard animated reactor core. Face mesh, avatar rende
 Enter a current six-character code created by `python main.py --pair`. Invalid or expired offers display a clear message, and the desktop UI remains responsive while contacting the server. Public HTTPS requests verify the server certificate; only private LAN endpoints can use the existing self-signed transport behavior. Binary voice packets are not parsed as JSON. Desktop connection and unexpected capability failures are written to the rotating companion error log.
 
 The desktop starts on a dedicated dark Pair Code screen with a compact reactor emblem. Paired devices reconnect with their saved identity. The main HUD appears only after the server sends `ready`; no account username or password is required.
+
+The grouped desktop menu provides reconnect, new Pair Code, microphone mute, response interrupt, input/output audio device selection, attachments, and full screen. A remote gateway 502 triggers signed LAN discovery for an already paired device. See `DESKTOP_FEATURE_PARITY.md` at the project root for the original MARK LV control mapping and remaining server-owned controls.

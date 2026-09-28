@@ -1,3 +1,8 @@
+## Desktop capability and gateway review
+- Compare the original MARK LV setup and daily controls with the split desktop runtime. Restore local mute, interrupt, audio device selection, full screen and grouped menu access; reconnect the missing YouTube action dispatcher and desktop screen-frame vision.
+- Diagnose Cloudflare HTTP 502 separately from device errors. Use the existing Pair Code to try LAN pairing when the remote endpoint returns 502, and use a signed device/server discovery exchange to reconnect an already paired desktop on the LAN. Off-LAN connectivity still depends on a working server and tunnel.
+- Record the architectural control mapping in `DESKTOP_FEATURE_PARITY.md`; keep account login absent. No source files were removed.
+
 ## Companion Pair Code surface
 - Restyle the Android Pair Code screen and add a matching desktop entry screen based on the visual reference. Keep the v60.24 signed Pair Code protocol; no account authentication is added.
 - Open the desktop HUD only after the server sends `ready`; disconnects return to the entry surface. No source files were removed.

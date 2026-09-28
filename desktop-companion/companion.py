@@ -2,7 +2,7 @@
 The server remains headless; text, microphone and speaker live on this client.
 """
 from __future__ import annotations
-import base64, json, os, queue, socket, threading, uuid, subprocess, sys, shutil, signal, time
+import base64, json, os, queue, socket, threading, uuid, subprocess, sys, shutil, signal, time, secrets
 from pathlib import Path
 import logging
 from logging.handlers import RotatingFileHandler
@@ -28,7 +28,7 @@ def log_unhandled(kind, value, traceback):
     error_log.error('Unhandled desktop exception', exc_info=(kind, value, traceback))
     sys.__excepthook__(kind, value, traceback)
 sys.excepthook=log_unhandled
-NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','camera.capture','file.upload','file.receive','attachment.inbox','legacy.action']
+NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','camera.capture','screen.capture','file.upload','file.receive','attachment.inbox','legacy.action']
 def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
 def unb64(s): return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
 def load():
@@ -47,6 +47,7 @@ def verify(pub,data,sig):
 class App:
     def __init__(self):
         self.st=identity(load()); self.ws=None; self.mic=None; self.out=None; self.running=False; self.speaking=False
+        self.muted=False;self.input_device=None;self.output_device=None
         self.attachments={}; self.sent_attachments={}; self.attachment_mode="received"; self.pending_attachment=None; self.deferred_attachment_pick=None; self.assistant_turn_complete=False
         self.qt_app=QApplication.instance() or QApplication(sys.argv)
         self.root=DesktopWindow(self)
@@ -73,6 +74,31 @@ class App:
                 except socket.timeout: pass
             raise RuntimeError('Server with this Pair Code was not found on the local network')
         finally:sock.close()
+    def discover_paired(self, timeout=4.0):
+        """Find a paired server on the same LAN using mutual signed identity."""
+        device_id=self.st['device_id']; nonce=secrets.token_urlsafe(24)
+        request={'magic':'MARKLIV_DISCOVER_V1','device_id':device_id,'nonce':nonce,
+                 'signature':b64(priv(self.st).sign(f'discover:{device_id}:{nonce}'.encode()))}
+        sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1);sock.settimeout(.5)
+        try:
+            deadline=time.monotonic()+timeout
+            while time.monotonic()<deadline:
+                sock.sendto(json.dumps(request).encode(),('255.255.255.255',DISCOVERY_PORT))
+                try:data,_=sock.recvfrom(4096)
+                except socket.timeout:continue
+                try:
+                    reply=json.loads(data.decode())
+                    base=str(reply['server']).rstrip('/')
+                    if (reply.get('magic')=='MARKLIV_DISCOVER_V1' and reply.get('nonce')==nonce
+                            and reply.get('device_id')==self.st.get('server_id')
+                            and reply.get('public_key')==self.st.get('server_key')
+                            and base.startswith('http://')
+                            and verify(self.st['server_key'],f'discover:{device_id}:{nonce}:{base}'.encode(),reply.get('server_signature',''))):
+                        return base
+                except (ValueError,KeyError,TypeError):continue
+        finally:sock.close()
+        return None
     def _tls_verify(self, url):
         """Public HTTPS must use trusted certificates; private LAN may be self-signed."""
         hostname = urlparse(str(url)).hostname or ''
@@ -96,6 +122,9 @@ class App:
         base=PUBLIC_BASE_URL
         try:
             response=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=self._tls_verify(base))
+            if response.status_code==502:
+                base=self.discover(code)
+                response=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=self._tls_verify(base))
             if response.status_code==404:
                 raise ValueError('Pair Code invalid or expired. Generate a new code on the server.')
             response.raise_for_status()
@@ -130,14 +159,36 @@ class App:
         self.root.show_login(paired=False,message=message)
     def connect(self):
         if self.ws:return
-        base=self.st.get('server');
+        base=getattr(self,'_lan_base',None) or self.st.get('server');
         if not base:
             self.root.show_login(paired=False,message='Enter a Pair Code to connect.')
             return
         self.root.show_connecting()
         wsbase=base.replace('https://','wss://').replace('http://','ws://'); url=f"{wsbase}/ws/device?device_id={self.st['device_id']}"
-        self.ws=websocket.WebSocketApp(url,on_message=self.on_message,on_data=self.on_data,on_close=self.on_close,on_error=lambda _w,e:self.fault('Connection error',e))
-        threading.Thread(target=lambda:self.ws.run_forever(sslopt=({'cert_reqs':0} if not self._tls_verify(base) else None)),daemon=True).start()
+        ws=websocket.WebSocketApp(url,on_message=self.on_message,on_data=self.on_data,on_close=self.on_close,on_error=self.on_error)
+        self.ws=ws
+        threading.Thread(target=lambda:ws.run_forever(sslopt=({'cert_reqs':0} if not self._tls_verify(base) else None)),daemon=True).start()
+    def on_error(self,ws,error):
+        if ws is not self.ws:return
+        if getattr(error,'status_code',None)==502:
+            self.fault('Remote gateway unavailable (HTTP 502)',RuntimeError('Check the server and Cloudflare tunnel; looking for the paired server on this LAN'))
+            if not getattr(self,'_lan_base',None):
+                self._fallback_ws=ws
+                self.root.after(0,lambda:self.root.show_connection_error('Remote gateway is unavailable. Checking this LAN…'))
+                threading.Thread(target=self._retry_on_lan,args=(ws,),daemon=True).start()
+            return
+        self.fault('Connection error',error)
+        self.root.after(0,lambda:self.root.show_connection_error('Connection failed. Check the server and retry.'))
+    def _retry_on_lan(self,failed_ws):
+        base=self.discover_paired()
+        if failed_ws is not self.ws:return
+        self._fallback_ws=None
+        self.ws=None
+        if base:
+            self._lan_base=base
+            self.root.after(0,self.connect)
+        else:
+            self.root.after(0,lambda:self.root.show_connection_error('Remote gateway returned HTTP 502. Start the server and check its Cloudflare tunnel, then reconnect.'))
     def on_message(self,_w,text):
         # websocket-client also calls on_message for binary audio frames.
         if not isinstance(text,str):return
@@ -211,12 +262,12 @@ class App:
         self.running=True
         try:
             import sounddevice as sd
-            self.out=sd.RawOutputStream(samplerate=24000,channels=1,dtype='int16'); self.out.start()
+            self.out=sd.RawOutputStream(samplerate=24000,channels=1,dtype='int16',device=self.output_device); self.out.start()
             def cb(indata,frames,time_info,status):
-                if self.running and not self.speaking and self.ws and self.ws.sock and self.ws.sock.connected:
+                if self.running and not self.speaking and not self.muted and self.ws and self.ws.sock and self.ws.sock.connected:
                     try:self.ws.send(bytes(indata),opcode=websocket.ABNF.OPCODE_BINARY)
                     except Exception:pass
-            self.mic=sd.RawInputStream(samplerate=16000,channels=1,dtype='int16',blocksize=1024,callback=cb); self.mic.start()
+            self.mic=sd.RawInputStream(samplerate=16000,channels=1,dtype='int16',blocksize=1024,callback=cb,device=self.input_device); self.mic.start()
         except Exception as e:self.running=False; self.fault('Audio device error',e)
     def pause_mic(self):
         # Compatibility hook: do not stop/recreate the PortAudio stream per turn.
@@ -224,7 +275,44 @@ class App:
     def resume_mic(self):
         # The callback remains alive; transmission resumes immediately.
         self.speaking=False
+    def toggle_mic(self):
+        self.muted=not self.muted
+        self.root.mute_action.setText('Unmute microphone' if self.muted else 'Mute microphone')
+        self.note('Microphone muted' if self.muted else 'Microphone active')
+    def interrupt(self):
+        if self.ws and self.ws.sock and self.ws.sock.connected:
+            self.ws.send(json.dumps({'type':'jarvis.interrupt'}))
+    def choose_audio_devices(self):
+        try:
+            import sounddevice as sd
+            devices=sd.query_devices()
+        except Exception as exc:
+            QMessageBox.warning(self.root,'Audio devices',str(exc));return
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QComboBox, QDialogButtonBox
+        dialog=QDialog(self.root);dialog.setWindowTitle('Audio devices')
+        layout=QVBoxLayout(dialog);inputs=QComboBox();outputs=QComboBox()
+        inputs.addItem('System default',None);outputs.addItem('System default',None)
+        for i,device in enumerate(devices):
+            if device['max_input_channels']>0:inputs.addItem(f"{device['name']} ({i})",i)
+            if device['max_output_channels']>0:outputs.addItem(f"{device['name']} ({i})",i)
+        for box,selected in ((inputs,self.input_device),(outputs,self.output_device)):
+            at=box.findData(selected)
+            box.setCurrentIndex(max(at,0))
+        layout.addWidget(QLabel('Microphone'));layout.addWidget(inputs)
+        layout.addWidget(QLabel('Speaker'));layout.addWidget(outputs)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        self.input_device=inputs.currentData();self.output_device=outputs.currentData()
+        if self.ws:
+            self.running=False
+            for stream in (self.mic,self.out):
+                try:stream.stop();stream.close()
+                except Exception:pass
+            self.mic=self.out=None
+            self.start_audio()
     def on_close(self, *_args):
+        if _args and _args[0] is getattr(self,'_fallback_ws',None):return
         if _args and _args[0] is not self.ws:return
         self.running=False
         self.speaking=False
@@ -299,6 +387,12 @@ class App:
             'facing': 'default',
             'requested_facing': requested,
         })
+    def _capture_screen(self):
+        from runtime.actions.screen_processor import _capture_screen
+        image_bytes,mime_type=_capture_screen()
+        if not image_bytes or not str(mime_type).startswith('image/'):
+            raise RuntimeError('Desktop screen capture did not return an image')
+        return json.dumps({'mime_type':str(mime_type),'data':base64.b64encode(image_bytes).decode('ascii')})
     def _launch_deferred_attachment_picker(self):
         req=self.deferred_attachment_pick
         if not req:return
@@ -440,6 +534,7 @@ class App:
         try:
             if cap=='open_url': webbrowser.open(str(a['url'])); result='opened URL'
             elif cap=='camera.capture': result=self._capture_camera(a)
+            elif cap=='screen.capture': result=self._capture_screen()
             elif cap=='file.upload': result=self._file_upload(a)
             elif cap=='file.receive': result=self._file_receive(a)
             elif cap=='app.launch': result=self._launch_app(a.get('app') or a.get('name'))
@@ -454,6 +549,7 @@ class App:
         except Exception as e:ok=False; result=str(e); self.fault('Capability '+str(cap),e)
         self.ws.send(json.dumps({'type':'capability.result','call_id':m.get('call_id',''),'ok':ok,'result':result}))
     def disconnect(self):
+        self._lan_base=None
         self.running=False
         self.speaking=False
         for x in (self.mic,self.out):

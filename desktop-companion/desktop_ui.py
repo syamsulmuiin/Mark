@@ -2,10 +2,11 @@
 from __future__ import annotations
 import psutil
 from PyQt6.QtCore import QObject, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QRadialGradient
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QRadialGradient, QKeySequence
 from PyQt6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QMainWindow, QMessageBox,
-                             QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget, QDialog)
+                             QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget, QDialog,
+                             QMenu)
 from hud import C, HudCanvas, LogWidget, MetricBar
 
 
@@ -86,6 +87,25 @@ class DesktopWindow(QMainWindow):
         header.addStretch()
         self.status_label = QLabel('DISCONNECTED'); self.status_label.setStyleSheet(f'color: {C.ACC}; font-weight: bold;')
         header.addWidget(self.status_label)
+        menu_button=QPushButton('⋮');menu_button.setToolTip('Companion controls')
+        menu_button.setFixedWidth(36)
+        menu=QMenu(self)
+        menu.setStyleSheet(f'''QMenu {{ background: {C.PANEL}; color: {C.TEXT}; border: 1px solid {C.BORDER_B}; padding: 7px; }}
+            QMenu::item {{ padding: 7px 22px; }}
+            QMenu::item:selected {{ background: {C.PRI_GHO}; color: {C.PRI}; }}
+            QMenu::separator {{ height: 1px; background: {C.BORDER}; margin: 6px; }}''')
+        menu.addSection('CONNECTION')
+        menu.addAction('Reconnect',owner.connect)
+        menu.addAction('Disconnect',owner.disconnect)
+        menu.addAction('Use a new Pair Code',owner.prepare_new_pair_code)
+        menu.addSeparator();menu.addSection('LOCAL CONTROLS')
+        self.mute_action=menu.addAction('Mute microphone',owner.toggle_mic)
+        menu.addAction('Interrupt response',owner.interrupt)
+        menu.addAction('Audio devices…',owner.choose_audio_devices)
+        menu.addAction('Attachments…',owner.show_attachments)
+        fullscreen=menu.addAction('Full screen',self.toggle_fullscreen)
+        fullscreen.setShortcut(QKeySequence('F11'));self.addAction(fullscreen)
+        menu_button.setMenu(menu);header.addWidget(menu_button)
         main.addLayout(header)
         row = QHBoxLayout(); row.setSpacing(12); main.addLayout(row, 1)
         left = self._panel(row, 158)
@@ -176,6 +196,8 @@ class DesktopWindow(QMainWindow):
     def show_dashboard(self):
         self.pages.setCurrentWidget(self.dashboard_page)
         self.set_status('Connected · voice on client')
+    def toggle_fullscreen(self):
+        self.showNormal() if self.isFullScreen() else self.showFullScreen()
     def show_connection_error(self,message):
         self.show_login(paired=bool(self.owner.st.get('paired')),message=message)
     def _panel(self, row, width, stretch=0):

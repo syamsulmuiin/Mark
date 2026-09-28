@@ -469,8 +469,8 @@ class MainActivity : AppCompatActivity() {
         ws?.send(JSONObject().put("type","attachment.list").toString())
         val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; setPadding(0,0,0,dp(12)) }
         fun tab(label:String,mode:String)=TextView(this).apply {
-            text=label; textSize=13f; gravity=android.view.Gravity.CENTER
-            setPadding(dp(8),dp(12),dp(8),dp(12))
+            text=label; textSize=14f; gravity=android.view.Gravity.CENTER
+            setPadding(dp(8),dp(10),dp(8),dp(12))
             setOnClickListener { attachmentTab=mode; refreshAttachmentDialog() }
         }
         attachmentReceivedTab=tab("Received","received")
@@ -526,12 +526,14 @@ class MainActivity : AppCompatActivity() {
         val sent=synchronized(sentAttachmentItems){ sentAttachmentItems.values.toList() }
         val isSent=attachmentTab=="sent"
         attachmentReceivedTab?.apply {
-            setBackgroundResource(if(isSent) R.drawable.bg_button_secondary else R.drawable.bg_button)
-            setTextColor(if(isSent) android.graphics.Color.rgb(145,153,173) else android.graphics.Color.rgb(247,248,248))
+            setBackgroundResource(if(isSent) android.R.color.transparent else R.drawable.bg_attachment_tab_selected)
+            setTextColor(if(isSent) android.graphics.Color.rgb(145,164,170) else android.graphics.Color.rgb(165,232,235))
+            setTypeface(null,if(isSent) android.graphics.Typeface.NORMAL else android.graphics.Typeface.BOLD)
         }
         attachmentSentTab?.apply {
-            setBackgroundResource(if(isSent) R.drawable.bg_button else R.drawable.bg_button_secondary)
-            setTextColor(if(isSent) android.graphics.Color.rgb(247,248,248) else android.graphics.Color.rgb(145,153,173))
+            setBackgroundResource(if(isSent) R.drawable.bg_attachment_tab_selected else android.R.color.transparent)
+            setTextColor(if(isSent) android.graphics.Color.rgb(165,232,235) else android.graphics.Color.rgb(145,164,170))
+            setTypeface(null,if(isSent) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
         attachmentSubtitle?.text=if(isSent) "Sent history · Only recipients can open or save these files" else "Received files · Open, save or share on this device"
         companionTitle?.text="Attachments · ${if(isSent) sent.size else received.size}"

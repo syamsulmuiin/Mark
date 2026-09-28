@@ -90,7 +90,7 @@ python desktop-companion/install.py
 python desktop-companion/companion.py
 ```
 
-The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint.
+The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
 
 ## Application-agnostic device automation
 
@@ -218,12 +218,6 @@ The dashboard/transport layer is optional where its dependencies are unavailable
 
 **Ending a conversation stops the server:** this is incorrect behavior. Conversation lifecycle must remain separate from explicit server shutdown.
 
-## Development rules
-
-Preserve existing behavior unless a change is explicitly requested. Fix root causes with the smallest compatible patch. Device automation must remain application-agnostic. Do not add per-application UI recipes when the generic companion capability model can perform the task.
-
-Documentation describes the current implementation. Version-by-version history belongs in `PATCH_NOTES.md`, not in this README.
-
 ### Intentional voice end
 
 Ending a voice conversation is terminal for that voice session. The companion records the intentional end before closing transport, so WebSocket close/failure callbacks do not trigger automatic reconnect. Unexpected transport loss still uses self-recovery. A new user-initiated voice connection clears the ended state and starts a new session.
@@ -258,43 +252,43 @@ If reinstalling a companion creates a new cryptographic device identity, pairing
 Vision frames are validated and bound to the active Live session so reconnects do not replay stale image payloads. Rejected companion actions are protected by a generic unchanged-action guard: MARK-LIV must re-inspect/replan or change the action before executing the same rejected device operation again.
 
 
-### Deferred attachment selection and companion controls (v60.10)
+### Deferred attachment selection and companion controls
 Interactive voice file selection is asynchronous: JARVIS completes its spoken instruction before the source companion opens its native file picker. The selected file then continues through the existing single-copy SHA-256 attachment pipeline. Android exposes dedicated Attachments and Device Control actions; Device Control always delegates enablement to Android Accessibility Settings and never enables the service silently. Attachment transfer failures are logged as diagnostics without file contents or one-time transfer tokens.
 
 
-### Overflow companion menu and final-turn attachment picker (v60.11)
+### Overflow companion menu and final-turn attachment picker
 Android keeps the main voice surface uncluttered: Attachments and Device Control are grouped under the top-right overflow menu. Each destination opens a richer status/action dialog instead of occupying the app bar. Deferred attachment selection no longer uses transient SPEAKING/LISTENING state changes. The runtime emits `assistant.turn.complete` only after the completed Live turn has drained from the companion audio queue; Android and Desktop release a pending native file picker only on that event. Attachment lifecycle diagnostics use warning/error severity markers so detached-server `runtime/error.log` retains picker queued/selected/cancelled, transfer complete, and transfer failure checkpoints without file contents, local source paths, hashes, or transfer tokens.
 
 
-### Single-request attachment transaction and companion-styled menus (v60.12)
+### Single-request attachment transaction and companion-styled menus
 A Live user turn owns at most one attachment transaction for a source/destination pair. Once native selection is queued, repeated `transfer_file` calls in the same user turn—including model-generated content URIs—reuse the existing transaction status and cannot open another picker or upload another file. The server records completion/failure/cancellation for that request so a retry receives the real outcome rather than starting over. Android companion submenus now follow the main dark/cyan visual language with circular action icons, clearer status copy, and middle-ellipsized filenames that keep the file extension visible.
 
 
-### Multi-file attachment batches (v60.13)
+### Multi-file attachment batches
 A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
 
 
-### Unified companion menu (v60.20)
+### Unified companion menu
 
 The Android overflow menu uses one dark panel with a compact close icon in the header. Attachments, Device Control, and recipient file actions share the panel and use back navigation without stacked dialogs or prominent footer buttons.
 
-### Permanent server file transfer (v60.19)
+### Permanent server file transfer
 
 Voice requests such as “send this file to the server” use the current companion as source and an explicit server destination. The server retains verified files in its object store and file listing, returning their stored names after upload. Server uploads appear only in read-only Sent history. Sending to another paired device still uses the recipient inbox.
 
-### Attachment completion and history (v60.18)
+### Attachment completion and history
 
 After the picker uploads files, MARK LIV resumes the requested assistant task or announces delivery to another companion. Assistant uploads appear only in the sender’s Sent history; recipients retain Open, Save As and Share. Success and cancellation no longer create warning logs.
 
-### Voice attachment picker (v60.17)
+### Voice attachment picker
 
 A new voice request resets the attachment guard as input transcription begins. Unknown local paths trigger the source companion native multi-select picker through transfer_file.
 
-### Attachment and Live recovery fixes (v60.15)
+### Attachment and Live recovery fixes
 
 Android document uploads preserve the displayed filename and extension. Attachment batches retain one request through model retries and expose a transferring state. Temporary Gemini Live 1011 disconnects reconnect without duplicate error tracebacks.
 
-### Attachment picker diagnostics and duplicate-name routing (v60.14)
+### Attachment picker diagnostics and duplicate-name routing
 Attachment picker delivery now has explicit `received` and `opened` acknowledgements, persisted by the server diagnostic logger. Android and Desktop remember whether the current assistant turn has already completed, so a picker request arriving immediately after the completion event is opened once instead of waiting forever for an event that already occurred. SPEAKING/THINKING resets that completion latch for the next response.
 
 Device-name resolution now prefers an exact device ID. When several non-revoked records share the same display name, exactly one currently-online match may be selected; multiple online matches remain ambiguous and are never guessed. Historical trust records are not silently deleted because identical model names can represent different physical devices.

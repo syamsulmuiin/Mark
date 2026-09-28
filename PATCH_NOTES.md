@@ -1,3 +1,15 @@
+## v60.23
+- Remove the unused desktop holographic-face renderer, mesh, model asset, and viseme module. The standard animated reactor core remains the only desktop HUD visual; update its desktop prompt accordingly.
+- Replace Android Received/Sent tab fills with transparent tabs and a cyan selected underline; match text weight and contrast to the main voice surface.
+- Restyle Android Pair Code with the JARVIS header, dark card, cyan action button, and consistent text/input colors. Remove the obsolete purple button background resource.
+- Provide a standalone idempotent clean-once script beside the release archive for the five removed files.
+
+## v60.21
+- Restore the original MARK LV PyQt holographic HUD, animated face, telemetry, and activity panel in the desktop companion, while keeping MARK LIV server/client pairing, voice, device actions, and attachment workflows.
+- Add a rotating persistent desktop error log under the companion user profile; document the distinction from the server log. Return a clear permission result for rejected device UI calls instead of printing a server traceback.
+- Remove version suffixes from README section headings and move developer guidelines into CONTRIBUTING.md.
+- No files removed or deprecated; companion.py is updated and hud.py, desktop_ui.py and CONTRIBUTING.md are added.
+
 ## v60.20
 - Rebuilt the Android companion overflow menu as one dark panel with a compact top-right close icon and consistent header/back navigation.
 - Attachments, Device Control, and received-file actions now render within the same panel rather than stacking separate dialogs or using prominent bottom Close buttons.

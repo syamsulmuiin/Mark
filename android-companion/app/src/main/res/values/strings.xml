@@ -5,6 +5,7 @@
     <string name="pair_code_hint">6-character Pair Code</string>
     <string name="pair">PAIR</string>
     <string name="pair_code_help">Enter the Pair Code shown by JARVIS</string>
+    <string name="pair_code_status">Ready to pair</string>
     <string name="pairing">Pairing…</string>
     <string name="more_options">More options</string>
     <string name="enable_phone_control">Enable Phone Control</string>

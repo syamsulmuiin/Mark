@@ -13,3 +13,4 @@ opencv-python>=4.8,<5
 playwright>=1.40,<2
 psutil>=5.9,<8
 send2trash
+PyQt6>=6.5,<7

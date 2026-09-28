@@ -1,12 +1,18 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/bg_app">
 
-    <LinearLayout android:id="@+id/pairPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="28dp">
-        <TextView android:text="JARVIS" android:textColor="#F4F5FF" android:textSize="18sp" android:textStyle="bold" android:letterSpacing="0.24" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <TextView android:text="@string/pair_device" android:textColor="#777E93" android:textSize="11sp" android:letterSpacing="0.16" android:layout_marginTop="8dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <EditText android:id="@+id/pairCode" android:hint="@string/pair_code_hint" android:textColor="#FFFFFF" android:textColorHint="#555D72" android:textSize="20sp" android:gravity="center" android:letterSpacing="0.20" android:inputType="textCapCharacters" android:maxLength="6" android:singleLine="true" android:background="@drawable/bg_input" android:layout_marginTop="12dp" android:layout_width="match_parent" android:layout_height="58dp"/>
-        <Button android:id="@+id/pair" android:text="@string/pair" android:textColor="#FFFFFF" android:textStyle="bold" android:background="@drawable/bg_button" android:layout_marginTop="14dp" android:layout_width="match_parent" android:layout_height="54dp"/>
-        <TextView android:id="@+id/pairStatus" android:text="@string/pair_code_help" android:textColor="#777E93" android:textSize="12sp" android:gravity="center" android:layout_marginTop="18dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    <LinearLayout android:id="@+id/pairPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="24dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="24dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:text="JARVIS" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.20" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <View android:layout_width="5dp" android:layout_height="5dp" android:layout_marginLeft="7dp" android:background="@drawable/bg_cyan_dot"/>
+            </LinearLayout>
+            <TextView android:text="@string/pair_device" android:textColor="#F7F8F8" android:textSize="20sp" android:textStyle="bold" android:layout_marginTop="24dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            <TextView android:text="@string/pair_code_help" android:textColor="#91A4AA" android:textSize="13sp" android:layout_marginTop="7dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+            <EditText android:id="@+id/pairCode" android:hint="@string/pair_code_hint" android:textColor="#F7F8F8" android:textColorHint="#91A4AA" android:textSize="20sp" android:gravity="center" android:letterSpacing="0.20" android:inputType="textCapCharacters" android:maxLength="6" android:singleLine="true" android:background="@drawable/bg_input" android:layout_marginTop="20dp" android:layout_width="match_parent" android:layout_height="58dp"/>
+            <Button android:id="@+id/pair" android:text="@string/pair" android:textColor="#001417" android:textStyle="bold" android:background="@drawable/bg_start_conversation" android:layout_marginTop="14dp" android:layout_width="match_parent" android:layout_height="54dp"/>
+            <TextView android:id="@+id/pairStatus" android:text="@string/pair_code_status" android:textColor="#91A4AA" android:textSize="12sp" android:gravity="center" android:layout_marginTop="18dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout android:id="@+id/voicePanel" android:visibility="gone" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_horizontal" android:paddingBottom="12dp">

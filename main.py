@@ -1339,13 +1339,23 @@ class JarvisLive:
                         if _mapped_cap != _requested_cap and _mapped_cap not in _caps:
                             _mapped_cap = _requested_cap
                         _device_args = args.get("args") or {}
-                        _sig, _blocked = self._guard_device_action(device_id, _mapped_cap, _device_args)
-                        if _blocked:
-                            result = _blocked
+                        if _mapped_cap not in _caps:
+                            result = (f"The current companion does not permit {_mapped_cap}. "
+                                      "Check its advertised capabilities and required device permissions "
+                                      "before trying a different supported action.")
                         else:
-                            reply = await self._dashboard.call_device(device_id, _mapped_cap, _device_args)
-                            result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
-                            self._finish_device_action(_sig, _mapped_cap, result)
+                            _sig, _blocked = self._guard_device_action(device_id, _mapped_cap, _device_args)
+                            if _blocked:
+                                result = _blocked
+                            else:
+                                try:
+                                    reply = await self._dashboard.call_device(device_id, _mapped_cap, _device_args)
+                                except PermissionError:
+                                    result = (f"The current companion rejected {_mapped_cap}. "
+                                              "Check its device permission or re-pair if capability grants changed.")
+                                else:
+                                    result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                                    self._finish_device_action(_sig, _mapped_cap, result)
 
             elif name == "call_paired_device":
                 if not self._dashboard:

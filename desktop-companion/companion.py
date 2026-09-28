@@ -4,15 +4,28 @@ The server remains headless; text, microphone and speaker live on this client.
 from __future__ import annotations
 import base64, json, os, queue, socket, threading, uuid, subprocess, sys, shutil, signal, time
 from pathlib import Path
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-import requests, websocket, sounddevice as sd
+import logging
+from logging.handlers import RotatingFileHandler
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from desktop_ui import DesktopWindow, AttachmentDialog, TextValue
+import requests, websocket
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from runtime.core.network_config import PUBLIC_BASE_URL, DISCOVERY_PORT
 
 APP_DIR=Path.home()/".mark-liv-companion"; APP_DIR.mkdir(exist_ok=True)
 STATE=APP_DIR/"state.json"
+LOG_DIR=APP_DIR/"logs"; LOG_DIR.mkdir(exist_ok=True)
+error_log=logging.getLogger('mark_liv.companion')
+error_log.setLevel(logging.WARNING)
+error_handler=RotatingFileHandler(LOG_DIR/'error.log',maxBytes=2_000_000,backupCount=2,encoding='utf-8')
+error_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+error_log.addHandler(error_handler)
+
+def log_unhandled(kind, value, traceback):
+    error_log.error('Unhandled desktop exception', exc_info=(kind, value, traceback))
+    sys.__excepthook__(kind, value, traceback)
+sys.excepthook=log_unhandled
 NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','camera.capture','file.upload','file.receive','attachment.inbox','legacy.action']
 def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
 def unb64(s): return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
@@ -33,18 +46,18 @@ class App:
     def __init__(self):
         self.st=identity(load()); self.ws=None; self.mic=None; self.out=None; self.running=False; self.speaking=False
         self.attachments={}; self.sent_attachments={}; self.attachment_mode="received"; self.pending_attachment=None; self.deferred_attachment_pick=None; self.assistant_turn_complete=False
-        self.root=tk.Tk(); self.root.title('MARK LIV Companion'); self.root.geometry('620x520')
-        f=ttk.Frame(self.root,padding=14); f.pack(fill='both',expand=True)
-        ttk.Label(f,text='Pair Code').grid(row=0,column=0,sticky='w'); self.code=tk.StringVar(); ttk.Entry(f,textvariable=self.code,width=16).grid(row=0,column=1,sticky='w'); ttk.Button(f,text='Pair',command=self.pair).grid(row=0,column=2)
-        self.status=tk.StringVar(value='Disconnected'); ttk.Label(f,textvariable=self.status).grid(row=2,column=0,columnspan=3,sticky='w',pady=8)
-        self.log=tk.Text(f,height=18,state='disabled'); self.log.grid(row=3,column=0,columnspan=3,sticky='nsew')
-        self.cmd=tk.StringVar(); e=ttk.Entry(f,textvariable=self.cmd); e.grid(row=4,column=0,columnspan=2,sticky='ew',pady=8); e.bind('<Return>',lambda _e:self.send()); ttk.Button(f,text='Send',command=self.send).grid(row=4,column=2)
-        ttk.Button(f,text='Connect voice',command=self.connect).grid(row=5,column=0,sticky='w'); ttk.Button(f,text='Disconnect',command=self.disconnect).grid(row=5,column=1,sticky='w')
-        ttk.Button(f,text='📎  Attachments',command=self.show_attachments).grid(row=5,column=2,sticky='e')
-        f.columnconfigure(1,weight=1); f.rowconfigure(3,weight=1)
+        self.qt_app=QApplication.instance() or QApplication(sys.argv)
+        self.root=DesktopWindow(self)
+        self.code=TextValue(self.root.code_input)
+        self.cmd=TextValue(self.root.command_input)
+        self.status=type('Status', (), {'set': lambda _, value: self.root.after(0, lambda: self.root.set_status(value))})()
+        self.log=self.root.log
         if self.st.get('paired'): self.root.after(300,self.connect)
-        self.root.protocol('WM_DELETE_WINDOW',self.close)
-    def note(self,s): self.root.after(0,lambda:(self.log.configure(state='normal'),self.log.insert('end',s+'\n'),self.log.see('end'),self.log.configure(state='disabled')))
+    def note(self,s):
+        self.log.append_log(str(s))
+    def fault(self,context,exc):
+        error_log.error('%s: %s: %s',context,type(exc).__name__,str(exc).split('?',1)[0])
+        self.note(f'{context}: {exc}')
     def discover(self, code, timeout=4.0):
         msg=json.dumps({'magic':'MARKLIV_DISCOVER_V1','code':code}).encode()
         sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1); sock.settimeout(0.5)
@@ -65,13 +78,13 @@ class App:
             caps=list(NATIVE_CAPABILITIES)
             r=requests.post(f'{base}/api/pairing/accept',json={'code':code,'peer':peer,'signature':sig,'capabilities':caps},timeout=8,verify=False); r.raise_for_status()
             self.st.update(server=base,server_key=o['public_key'],server_id=o['device_id'],paired=True); save(self.st); self.status.set('Paired'); self.connect()
-        except Exception as e: messagebox.showerror('Pair failed',str(e))
+        except Exception as e: self.fault('Pair failed',e); self.root.after(0,lambda:QMessageBox.critical(self.root,'Pair failed',str(e)))
     def connect(self):
         if self.ws:return
         base=self.st.get('server');
         if not base: self.note('Not paired'); return
         wsbase=base.replace('https://','wss://').replace('http://','ws://'); url=f"{wsbase}/ws/device?device_id={self.st['device_id']}"
-        self.ws=websocket.WebSocketApp(url,on_message=self.on_message,on_data=self.on_data,on_close=self.on_close,on_error=lambda _w,e:self.note(f'Connection error: {e}'))
+        self.ws=websocket.WebSocketApp(url,on_message=self.on_message,on_data=self.on_data,on_close=self.on_close,on_error=lambda _w,e:self.fault('Connection error',e))
         threading.Thread(target=lambda:self.ws.run_forever(sslopt={'cert_reqs':0}),daemon=True).start()
     def on_message(self,_w,text):
         m=json.loads(text); typ=m.get('type')
@@ -129,19 +142,21 @@ class App:
     def on_data(self,_w,data,opcode,_fin):
         if opcode==websocket.ABNF.OPCODE_BINARY and self.out:
             self.speaking=True
+            self.root.hud.set_audio_level(min(1.0, (sum(abs(int.from_bytes(data[i:i+2], 'little', signed=True)) for i in range(0, min(len(data), 512), 2)) / 256) / 12000))
             try:self.out.write(data)
-            except Exception as e:self.note(f'Audio output error: {e}')
+            except Exception as e:self.fault('Audio output error',e)
     def start_audio(self):
         if self.running:return
         self.running=True
         try:
+            import sounddevice as sd
             self.out=sd.RawOutputStream(samplerate=24000,channels=1,dtype='int16'); self.out.start()
             def cb(indata,frames,time_info,status):
                 if self.running and not self.speaking and self.ws and self.ws.sock and self.ws.sock.connected:
                     try:self.ws.send(bytes(indata),opcode=websocket.ABNF.OPCODE_BINARY)
                     except Exception:pass
             self.mic=sd.RawInputStream(samplerate=16000,channels=1,dtype='int16',blocksize=1024,callback=cb); self.mic.start()
-        except Exception as e:self.note(f'Audio device error: {e}')
+        except Exception as e:self.running=False; self.fault('Audio device error',e)
     def pause_mic(self):
         # Compatibility hook: do not stop/recreate the PortAudio stream per turn.
         self.speaking=True
@@ -221,69 +236,51 @@ class App:
         if not req:return
         self.deferred_attachment_pick=None
         if self.ws:self.ws.send(json.dumps({'type':'attachment.picker.opened','request_id':req.get('request_id','')}))
-        selected=list(filedialog.askopenfilenames(title='Choose attachments'))
+        selected=list(QFileDialog.getOpenFileNames(self.root,'Choose attachments')[0])
         if self.ws:
             if selected:self.ws.send(json.dumps({'type':'attachment.sources.selected','request_id':req.get('request_id',''),'sources':selected}))
             else:self.ws.send(json.dumps({'type':'attachment.source.cancelled','request_id':req.get('request_id','')}))
 
     def show_attachments(self):
-        if getattr(self,'attachment_window',None) and self.attachment_window.winfo_exists():
-            self.attachment_window.lift(); return
+        if getattr(self,'attachment_window',None) and self.attachment_window.isVisible():
+            self.attachment_window.raise_(); self.attachment_window.activateWindow(); return
         self.attachment_mode='received'
-        w=tk.Toplevel(self.root); w.title('Attachments · MARK LIV'); w.geometry('560x380'); w.minsize(500,320)
-        self.attachment_window=w
-        header=ttk.Frame(w,padding=(12,12,12,0)); header.pack(fill='x')
-        ttk.Label(header,text='📎  Attachments',font=('TkDefaultFont',13,'bold')).pack(anchor='w')
-        tabs=ttk.Frame(w,padding=(12,8,12,4)); tabs.pack(fill='x')
-        ttk.Button(tabs,text='Received',command=lambda:self._show_attachment_mode('received')).pack(side='left')
-        ttk.Button(tabs,text='Sent',command=lambda:self._show_attachment_mode('sent')).pack(side='left',padx=8)
-        self.attachment_hint=ttk.Label(w,text='Received files can be opened or saved on this device.')
-        self.attachment_hint.pack(anchor='w',padx=12)
-        self.attachment_list=tk.Listbox(w,selectmode='browse',activestyle='dotbox')
-        self.attachment_list.pack(fill='both',expand=True,padx=12,pady=12)
-        buttons=ttk.Frame(w); buttons.pack(fill='x',padx=12,pady=8)
-        self.attachment_actions=ttk.Frame(buttons); self.attachment_actions.pack(side='left')
-        ttk.Button(self.attachment_actions,text='Open',command=lambda:self.request_attachment('open')).pack(side='left')
-        ttk.Button(self.attachment_actions,text='Save As',command=lambda:self.request_attachment('save')).pack(side='left',padx=8)
-        ttk.Button(self.attachment_actions,text='Share',command=lambda:self.request_attachment('share')).pack(side='left')
-        ttk.Button(buttons,text='Refresh',command=lambda:self.ws and self.ws.send(json.dumps({'type':'attachment.list'}))).pack(side='right')
+        self.attachment_window=AttachmentDialog(self)
+        self.attachment_list=self.attachment_window.items
+        self.attachment_window.show()
         self.refresh_attachment_list()
         if self.ws:self.ws.send(json.dumps({'type':'attachment.list'}))
 
     def _show_attachment_mode(self,mode):
         self.attachment_mode=mode
-        if mode=='sent':
-            self.attachment_hint.config(text='Sent history · Only the recipient can open or save these files.')
-            self.attachment_actions.pack_forget()
-        else:
-            self.attachment_hint.config(text='Received files can be opened or saved on this device.')
-            self.attachment_actions.pack(side='left')
+        self.attachment_window.set_mode(mode)
         self.refresh_attachment_list()
 
     def refresh_attachment_list(self):
         widget=getattr(self,'attachment_list',None)
-        if widget is None or not widget.winfo_exists():return
-        self.attachment_order=list(self.sent_attachments if self.attachment_mode=='sent' else self.attachments)
-        widget.delete(0,'end')
+        if widget is None or not self.attachment_window.isVisible():return
+        items=self.sent_attachments if self.attachment_mode=='sent' else self.attachments
+        self.attachment_order=list(items)
+        widget.clear()
         for key in self.attachment_order:
-            a=(self.sent_attachments if self.attachment_mode=='sent' else self.attachments)[key]
+            item=items[key]
             if self.attachment_mode=='sent':
-                status='Saved by recipient' if a.get('status')=='saved' else 'Sent to inbox'
-                widget.insert('end',f"{a['name']}  ·  To {a.get('destination_name','device')}  ·  {status}")
+                status='Stored on server' if item.get('destination_device')=='server' else ('Saved by recipient' if item.get('status')=='saved' else 'Sent to inbox')
+                widget.addItem(f"{item['name']}  ·  To {item.get('destination_name','device')}  ·  {status}")
             else:
-                widget.insert('end',f"{a['name']}  ·  {a['size']:,} bytes  ·  {a.get('status','pending')}")
+                widget.addItem(f"{item['name']}  ·  {item['size']:,} bytes  ·  {item.get('status','pending')}")
 
     def request_attachment(self,action):
         if self.attachment_mode!='received':return
         widget=getattr(self,'attachment_list',None)
-        if widget is None or not widget.curselection():return
-        item=self.attachments[self.attachment_order[widget.curselection()[0]]]
+        if widget is None or widget.currentRow()<0:return
+        item=self.attachments[self.attachment_order[widget.currentRow()]]
         if action=='share':
-            messagebox.showinfo('Share attachment','Save the attachment first, then use your desktop share application. Native share sheets are not available consistently on every desktop OS.')
+            QMessageBox.information(self.root,'Share attachment','Save the attachment first, then use your desktop share application. Native share sheets are not available consistently on every desktop OS.')
             return
         target=None
         if action=='save':
-            target=filedialog.asksaveasfilename(initialfile=item['name'])
+            target=QFileDialog.getSaveFileName(self.root,'Save attachment',item['name'])[0]
             if not target:return
         if not self.ws:self.note('Connect to receive attachments');return
         self.pending_attachment={'id':item['id'],'action':action,'target':target}
@@ -317,7 +314,7 @@ class App:
                 elif sys.platform=='darwin':subprocess.Popen(['open',str(dest)])
                 else:subprocess.Popen(['xdg-open',str(dest)])
             self.note('Attachment '+pending['action']+': '+str(dest))
-        except Exception as exc:self.note('Attachment failed: '+str(exc))
+        except Exception as exc:self.fault('Attachment failed',exc)
 
     def _file_upload(self, a):
         import hashlib
@@ -325,7 +322,7 @@ class App:
         if not source_name:
             selected=[]; done=threading.Event()
             def pick():
-                try:selected.append(filedialog.askopenfilename(title='Attach a file'))
+                try:selected.append(QFileDialog.getOpenFileName(self.root,'Attach a file')[0])
                 finally:done.set()
             self.root.after(0,pick)
             if not done.wait(120):raise TimeoutError('File selection timed out')
@@ -384,7 +381,7 @@ class App:
                 from local_runtime import invoke
                 result=invoke(str(a.get('tool') or ''), a.get('parameters') or {})
             else: ok=False; result='unsupported capability: '+str(cap)
-        except Exception as e:ok=False; result=str(e)
+        except Exception as e:ok=False; result=str(e); self.fault('Capability '+str(cap),e)
         self.ws.send(json.dumps({'type':'capability.result','call_id':m.get('call_id',''),'ok':ok,'result':result}))
     def disconnect(self):
         self.running=False
@@ -397,6 +394,6 @@ class App:
             try:self.ws.close()
             except Exception:pass
         self.ws=None
-    def close(self): self.disconnect(); self.root.destroy()
-    def run(self):self.root.mainloop()
+    def close(self): self.root.close()
+    def run(self): self.root.show(); return self.qt_app.exec()
 if __name__=='__main__':App().run()

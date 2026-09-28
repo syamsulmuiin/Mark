@@ -231,3 +231,7 @@ The source companion supplies the displayed filename for opaque Android document
 Attachment picker delivery now has explicit `received` and `opened` acknowledgements, persisted by the server diagnostic logger. Android and Desktop remember whether the current assistant turn has already completed, so a picker request arriving immediately after the completion event is opened once instead of waiting forever for an event that already occurred. SPEAKING/THINKING resets that completion latch for the next response.
 
 Device-name resolution now prefers an exact device ID. When several non-revoked records share the same display name, exactly one currently-online match may be selected; multiple online matches remain ambiguous and are never guessed. Historical trust records are not silently deleted because identical model names can represent different physical devices.
+
+## Companion visual identity
+
+The desktop companion renders the original animated reactor core without the face mesh or avatar renderer. Android uses the same dark/cyan visual language for voice, pairing and attachment tabs. These UI assets live exclusively in companions; the server remains headless.

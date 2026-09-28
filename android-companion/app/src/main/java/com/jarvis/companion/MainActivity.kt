@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message } }
+    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message; pairStatus.visibility=View.VISIBLE } }
 
     private fun identity(): Triple<String,ByteArray,ByteArray> {
         var id=prefs.getString("device_id",null); var priv=prefs.getString("private",null)
@@ -228,8 +228,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun pairWithCode(rawCode:String) {
         val code=rawCode.trim().uppercase()
-        if(code.length != 6){ pairStatus.text=getString(R.string.pair_code_help); return }
+        if(code.length != 6){ pairStatus.text=getString(R.string.pair_code_help); pairStatus.visibility=View.VISIBLE; return }
         pairStatus.text=getString(R.string.pairing)
+        pairStatus.visibility=View.VISIBLE
         pairAgainstServer(code, BuildConfig.MARK_LIV_PUBLIC_URL)
     }
 
@@ -772,7 +773,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy(){ stopMic(); try{player?.stop()}catch(_:Exception){}; player?.release(); player=null; ws?.close(1000,"activity closed"); super.onDestroy() }
     private fun ui(s:String)=runOnUiThread{status.text=s}
-    private fun pairUi(s:String)=runOnUiThread{pairStatus.text=s}
+    private fun pairUi(s:String)=runOnUiThread{pairStatus.text=s; pairStatus.visibility=View.VISIBLE}
     private fun b64(b:ByteArray)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b)
     private fun unb64(s:String)=java.util.Base64.getUrlDecoder().decode(s)
     private fun lanClient():OkHttpClient { val tm=object:X509TrustManager{override fun getAcceptedIssuers()=arrayOf<X509Certificate>();override fun checkClientTrusted(c:Array<X509Certificate>,a:String){};override fun checkServerTrusted(c:Array<X509Certificate>,a:String){}}; val sc=SSLContext.getInstance("TLS");sc.init(null,arrayOf<TrustManager>(tm),SecureRandom());return OkHttpClient.Builder().sslSocketFactory(sc.socketFactory,tm).hostnameVerifier{_,_->true}.pingInterval(20,TimeUnit.SECONDS).build() }

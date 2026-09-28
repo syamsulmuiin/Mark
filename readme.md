@@ -90,7 +90,7 @@ python desktop-companion/install.py
 python desktop-companion/companion.py
 ```
 
-The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
+The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Pairing checks public TLS certificates and keeps the UI responsive; desktop errors are stored in `~/.mark-liv-companion/logs/error.log`. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
 
 ## Application-agnostic device automation
 

@@ -9,6 +9,8 @@ from logging.handlers import RotatingFileHandler
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from desktop_ui import DesktopWindow, AttachmentDialog, TextValue
 import requests, websocket
+from urllib.parse import urlparse
+import ipaddress
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from runtime.core.network_config import PUBLIC_BASE_URL, DISCOVERY_PORT
@@ -71,23 +73,77 @@ class App:
                 except socket.timeout: pass
             raise RuntimeError('Server with this Pair Code was not found on the local network')
         finally:sock.close()
-    def pair(self):
+    def _tls_verify(self, url):
+        """Public HTTPS must use trusted certificates; private LAN may be self-signed."""
+        hostname = urlparse(str(url)).hostname or ''
+        if hostname.lower() == 'localhost':
+            return False
         try:
-            code=self.code.get().strip().upper(); base=PUBLIC_BASE_URL; o=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=False).json(); nonce=o['nonce']
-            peer={'device_id':self.st['device_id'],'name':self.st['name'],'public_key':self.st['public_key']}; sig=b64(priv(self.st).sign(f'{nonce}:{code}'.encode()))
-            caps=list(NATIVE_CAPABILITIES)
-            r=requests.post(f'{base}/api/pairing/accept',json={'code':code,'peer':peer,'signature':sig,'capabilities':caps},timeout=8,verify=False); r.raise_for_status()
-            self.st.update(server=base,server_key=o['public_key'],server_id=o['device_id'],paired=True); save(self.st); self.status.set('Paired'); self.connect()
-        except Exception as e: self.fault('Pair failed',e); self.root.after(0,lambda:QMessageBox.critical(self.root,'Pair failed',str(e)))
+            return not ipaddress.ip_address(hostname).is_private
+        except ValueError:
+            return True
+    def pair(self):
+        code=self.code.get().strip().upper()
+        if len(code)!=6:
+            QMessageBox.information(self.root,'Pair Code','Enter the 6-character Pair Code from the server.')
+            return
+        if getattr(self,'_pairing',False):return
+        self._pairing=True
+        self.root.pair_button.setEnabled(False)
+        self.status.set('Pairing')
+        threading.Thread(target=self._pair_worker,args=(code,),daemon=True).start()
+    def _pair_worker(self,code):
+        base=PUBLIC_BASE_URL
+        try:
+            response=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=self._tls_verify(base))
+            if response.status_code==404:
+                raise ValueError('Pair Code invalid or expired. Generate a new code on the server.')
+            response.raise_for_status()
+            try: offer=response.json()
+            except ValueError: raise ValueError('Pairing endpoint did not return JSON. Check the server address and tunnel.') from None
+            if not isinstance(offer,dict) or not all(offer.get(k) for k in ('nonce','public_key','device_id')):
+                raise ValueError(str(offer.get('error') or 'Pairing offer is incomplete; check the server and Pair Code.') if isinstance(offer,dict) else 'Pairing offer is invalid.')
+            peer={'device_id':self.st['device_id'],'name':self.st['name'],'public_key':self.st['public_key']}
+            sig=b64(priv(self.st).sign(f"{offer['nonce']}:{code}".encode()))
+            reply=requests.post(f'{base}/api/pairing/accept',json={'code':code,'peer':peer,'signature':sig,'capabilities':list(NATIVE_CAPABILITIES)},timeout=8,verify=self._tls_verify(base))
+            if not reply.ok:
+                try: reason=reply.json().get('error')
+                except ValueError: reason=None
+                raise ValueError(str(reason or f'Pairing rejected (HTTP {reply.status_code}).'))
+            self.st.update(server=base,server_key=offer['public_key'],server_id=offer['device_id'],paired=True)
+            save(self.st)
+            self.root.after(0,self._paired)
+        except Exception as exc:
+            message=str(exc)
+            if isinstance(exc,ValueError):self.note('Pairing: '+message)
+            else:self.fault('Pair failed',exc)
+            self.root.after(0,lambda message=message:self._pair_failed(message))
+    def _paired(self):
+        self._pairing=False
+        self.root.pair_button.setEnabled(True)
+        self.status.set('Paired')
+        self.connect()
+    def _pair_failed(self,message):
+        self._pairing=False
+        self.root.pair_button.setEnabled(True)
+        self.status.set('Disconnected')
+        QMessageBox.warning(self.root,'Pair failed',message)
     def connect(self):
         if self.ws:return
         base=self.st.get('server');
         if not base: self.note('Not paired'); return
         wsbase=base.replace('https://','wss://').replace('http://','ws://'); url=f"{wsbase}/ws/device?device_id={self.st['device_id']}"
         self.ws=websocket.WebSocketApp(url,on_message=self.on_message,on_data=self.on_data,on_close=self.on_close,on_error=lambda _w,e:self.fault('Connection error',e))
-        threading.Thread(target=lambda:self.ws.run_forever(sslopt={'cert_reqs':0}),daemon=True).start()
+        threading.Thread(target=lambda:self.ws.run_forever(sslopt=({'cert_reqs':0} if not self._tls_verify(base) else None)),daemon=True).start()
     def on_message(self,_w,text):
-        m=json.loads(text); typ=m.get('type')
+        # websocket-client also calls on_message for binary audio frames.
+        if not isinstance(text,str):return
+        try:m=json.loads(text)
+        except json.JSONDecodeError:
+            self.note('Ignored malformed server text frame')
+            return
+        if not isinstance(m,dict):return
+        typ=m.get('type')
         if typ=='challenge':
             ch=m['challenge']; expected=self.st.get('server_key','')
             if not verify(expected,f"{self.st['device_id']}:{ch}".encode(),m.get('server_signature','')): self.note('Server identity verification failed'); self.disconnect(); return
@@ -297,7 +353,7 @@ class App:
             dest.parent.mkdir(parents=True,exist_ok=True)
             tmp=dest.with_name(dest.name+'.part'); h=hashlib.sha256(); size=0
             try:
-                with requests.get(info['url'],stream=True,timeout=300,verify=False) as resp:
+                with requests.get(info['url'],stream=True,timeout=300,verify=self._tls_verify(info['url'])) as resp:
                     resp.raise_for_status()
                     with open(tmp,'wb') as out:
                         for chunk in resp.iter_content(1024*1024):
@@ -338,7 +394,7 @@ class App:
                     b=f.read(1024*1024)
                     if not b: break
                     h.update(b); size+=len(b); yield b
-        r=requests.put(str(a['url']),data=chunks(),headers={'X-File-Name':source.name},timeout=300,verify=False); r.raise_for_status(); server=r.json()
+        r=requests.put(str(a['url']),data=chunks(),headers={'X-File-Name':source.name},timeout=300,verify=self._tls_verify(a['url'])); r.raise_for_status(); server=r.json()
         digest=h.hexdigest()
         if server.get('sha256')!=digest or int(server.get('size',-1))!=size: raise RuntimeError('Server upload verification failed')
         return json.dumps({'name':source.name,'stored_name':server.get('name',source.name),'sha256':digest,'size':size})
@@ -354,7 +410,7 @@ class App:
             while dest.exists(): dest=dest.with_name(f'{stem}_{i}{suffix}'); i+=1
         tmp=dest.with_name(dest.name+'.part'); h=hashlib.sha256(); size=0
         try:
-            with requests.get(str(a['url']),stream=True,timeout=300,verify=False) as r:
+            with requests.get(str(a['url']),stream=True,timeout=300,verify=self._tls_verify(a['url'])) as r:
                 r.raise_for_status()
                 with open(tmp,'wb') as f:
                     for b in r.iter_content(1024*1024):
@@ -379,7 +435,9 @@ class App:
             elif cap=='desktop.command': result=self._desktop_command(a)
             elif cap=='legacy.action':
                 from local_runtime import invoke
-                result=invoke(str(a.get('tool') or ''), a.get('parameters') or {})
+                tool=str(a.get('tool') or '').strip()
+                if not tool:raise ValueError('Missing local tool name in legacy.action request')
+                result=invoke(tool, a.get('parameters') or {})
             else: ok=False; result='unsupported capability: '+str(cap)
         except Exception as e:ok=False; result=str(e); self.fault('Capability '+str(cap),e)
         self.ws.send(json.dumps({'type':'capability.result','call_id':m.get('call_id',''),'ok':ok,'result':result}))

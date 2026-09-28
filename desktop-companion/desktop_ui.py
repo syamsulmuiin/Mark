@@ -29,7 +29,7 @@ class DesktopWindow(QMainWindow):
         self.setWindowTitle('MARK LIV · Desktop Companion')
         self.resize(1040, 720)
         self.setMinimumSize(820, 580)
-        self.setStyleSheet(f'''QWidget {{ background: {C.BG}; color: {C.TEXT}; font-family: 'Courier New'; }}
+        self.setStyleSheet(f'''QWidget {{ background: {C.BG}; color: {C.TEXT}; font-family: 'Segoe UI', sans-serif; }}
             QFrame#panel {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 5px; }}
             QLabel#title {{ color: {C.PRI}; font-size: 20px; font-weight: bold; }}
             QLabel#caption {{ color: {C.TEXT_DIM}; font-size: 11px; }}
@@ -51,7 +51,7 @@ class DesktopWindow(QMainWindow):
         left = self._panel(row, 158)
         self._label(left, 'DEVICE LINK')
         self.code_input = QLineEdit(); self.code_input.setPlaceholderText('Pair code'); left.addWidget(self.code_input)
-        self._button(left, 'PAIR DEVICE', owner.pair)
+        self.pair_button=self._button(left, 'PAIR DEVICE', owner.pair)
         self._button(left, 'CONNECT VOICE', owner.connect)
         self._button(left, 'DISCONNECT', owner.disconnect)
         left.addSpacing(16)
@@ -84,6 +84,7 @@ class DesktopWindow(QMainWindow):
         label=QLabel(value); label.setObjectName('caption'); label.setWordWrap(True); layout.addWidget(label)
     def _button(self, layout, label, callback):
         btn=QPushButton(label); btn.clicked.connect(callback); layout.addWidget(btn)
+        return btn
     def after(self, delay, callback): self.dispatcher.call.emit(callback, delay)
     def update_metrics(self):
         for bar, value in ((self.cpu, psutil.cpu_percent()), (self.mem, psutil.virtual_memory().percent), (self.disk, psutil.disk_usage(str(__import__('pathlib').Path.home())).percent)):

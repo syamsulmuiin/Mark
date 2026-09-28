@@ -102,4 +102,4 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 
 ## Companion surfaces
 
-The pairing screen uses the same dark card, cyan primary action, and JARVIS header as the voice screen. Received and Sent attachment tabs have transparent backgrounds with a cyan underline for the selected tab; file history and recipient-only actions are unchanged.
+The compact pairing screen uses the same dark card, cyan primary action, and JARVIS header as the voice screen. Its status line appears only during pairing or when input needs attention. Received and Sent attachment tabs have transparent backgrounds with a cyan underline for the selected tab; file history and recipient-only actions are unchanged.

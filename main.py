@@ -1339,7 +1339,9 @@ class JarvisLive:
                         if _mapped_cap != _requested_cap and _mapped_cap not in _caps:
                             _mapped_cap = _requested_cap
                         _device_args = args.get("args") or {}
-                        if _mapped_cap not in _caps:
+                        if _mapped_cap == "legacy.action" and not str(_device_args.get("tool") or "").strip():
+                            result = "legacy.action requires a named desktop tool and its parameters."
+                        elif _mapped_cap not in _caps:
                             result = (f"The current companion does not permit {_mapped_cap}. "
                                       "Check its advertised capabilities and required device permissions "
                                       "before trying a different supported action.")
@@ -1387,13 +1389,25 @@ class JarvisLive:
                         _target_id = str(target.get("device_id"))
                         _capability = str(args.get("capability", ""))
                         _device_args = args.get("args") or {}
-                        _sig, _blocked = self._guard_device_action(_target_id, _capability, _device_args)
-                        if _blocked:
-                            result = _blocked
+                        _caps = set(target.get("capabilities") or [])
+                        if _capability == "legacy.action" and not str(_device_args.get("tool") or "").strip():
+                            result = "legacy.action requires a named desktop tool and its parameters."
+                        elif not _capability or _capability not in _caps:
+                            result = (f"Paired device {_target_id} does not permit {_capability or 'an unspecified capability'}. "
+                                      "Check its advertised capabilities and required device permissions.")
                         else:
-                            reply = await self._dashboard.call_device(_target_id, _capability, _device_args)
-                            result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
-                            self._finish_device_action(_sig, _capability, result)
+                            _sig, _blocked = self._guard_device_action(_target_id, _capability, _device_args)
+                            if _blocked:
+                                result = _blocked
+                            else:
+                                try:
+                                    reply = await self._dashboard.call_device(_target_id, _capability, _device_args)
+                                except PermissionError:
+                                    result = (f"Paired device {_target_id} rejected {_capability}. "
+                                              "Check its device permission or re-pair if capability grants changed.")
+                                else:
+                                    result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                                    self._finish_device_action(_sig, _capability, result)
 
             elif name == "manage_monitor":
                 action = args.get("action", "").lower().strip()

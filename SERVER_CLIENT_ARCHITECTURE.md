@@ -235,3 +235,5 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 ## Companion visual identity
 
 The desktop companion renders the original animated reactor core without the face mesh or avatar renderer. Android uses the same dark/cyan visual language for voice, pairing and attachment tabs. These UI assets live exclusively in companions; the server remains headless.
+
+The desktop companion handles pairing asynchronously, verifies TLS for public endpoints, and routes binary WebSocket frames exclusively to voice playback. The server reports denied device capabilities as tool results without changing device permissions. Its rotating error log excludes successful transfer and zero-rejection discovery records.

@@ -1,3 +1,10 @@
+## v60.24
+- Handle expired/invalid Pair Codes, incomplete pairing offers and invalid endpoint responses on the desktop companion without a KeyError or delayed-callback NameError. Pairing requests run off the GUI thread and use normal certificate verification for public HTTPS.
+- Treat binary WebSocket audio as audio only, preventing JSON/Unicode decoding errors. Reject legacy.action requests without a tool name before dispatch; report paired-device capability denials without server tracebacks.
+- Use system mono fonts for the desktop HUD and system UI fonts for controls. Minimize the Android pairing card and show its status line only during pairing or when attention is needed.
+- Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
+- No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
+
 ## v60.23
 - Remove the unused desktop holographic-face renderer, mesh, model asset, and viseme module. The standard animated reactor core remains the only desktop HUD visual; update its desktop prompt accordingly.
 - Replace Android Received/Sent tab fills with transparent tabs and a cyan selected underline; match text weight and contrast to the main voice surface.

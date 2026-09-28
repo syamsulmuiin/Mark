@@ -87,3 +87,7 @@ Desktop failures are recorded in `~/.mark-liv-companion/logs/error.log` (Windows
 ## Reactor visual
 
 The desktop HUD uses the standard animated reactor core. Face mesh, avatar renderer, and lip-sync files are not shipped with the desktop companion.
+
+## Pairing and connection diagnostics
+
+Enter a current six-character code created by `python main.py --pair`. Invalid or expired offers display a clear message, and the desktop UI remains responsive while contacting the server. Public HTTPS requests verify the server certificate; only private LAN endpoints can use the existing self-signed transport behavior. Binary voice packets are not parsed as JSON. Desktop connection and unexpected capability failures are written to the rotating companion error log.

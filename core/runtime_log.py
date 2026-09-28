@@ -101,6 +101,9 @@ class SeverityFilteredStream(io.TextIOBase):
         lowered = stripped.casefold()
         if not stripped or stripped.startswith(("You:", "JARVIS:", "SYS:")):
             return False
+        if (lowered.startswith("[plugins] plugin discovery complete:") and "0 rejected" in lowered
+                or lowered.startswith("[attachment] batch complete") and "failed=0" in lowered):
+            return False
         explicit = ("[error", "[warn", "warning:", "error:", "exception:", "traceback",
                     "critical:", "fatal:", "permissionerror:", "runtimeerror:",
                     "modulenotfounderror:", "importerror:")

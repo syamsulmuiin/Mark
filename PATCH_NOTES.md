@@ -1,3 +1,7 @@
+## Companion Pair Code surface
+- Restyle the Android Pair Code screen and add a matching desktop entry screen based on the visual reference. Keep the v60.24 signed Pair Code protocol; no account authentication is added.
+- Open the desktop HUD only after the server sends `ready`; disconnects return to the entry surface. No source files were removed.
+
 ## v60.24
 - Handle expired/invalid Pair Codes, incomplete pairing offers and invalid endpoint responses on the desktop companion without a KeyError or delayed-callback NameError. Pairing requests run off the GUI thread and use normal certificate verification for public HTTPS.
 - Treat binary WebSocket audio as audio only, preventing JSON/Unicode decoding errors. Reject legacy.action requests without a tool name before dispatch; report paired-device capability denials without server tracebacks.

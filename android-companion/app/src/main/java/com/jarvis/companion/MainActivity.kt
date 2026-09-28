@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message; pairStatus.visibility=View.VISIBLE } }
+    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message; pairStatus.visibility=if(message.isBlank()) View.GONE else View.VISIBLE } }
 
     private fun identity(): Triple<String,ByteArray,ByteArray> {
         var id=prefs.getString("device_id",null); var priv=prefs.getString("private",null)

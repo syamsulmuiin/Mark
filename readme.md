@@ -2,10 +2,6 @@
 
 MARK-LIV is a headless JARVIS server with native companion clients for Android, Windows, Linux, and macOS. The server owns the AI session, trusted-device mesh, memory, scheduling, remote transport, and server-side services. Interactive voice and device-local UI execution belong to companions.
 
-## Project language policy
-
-Project-facing source comments, documentation, prompts, logs, UI text, and examples are maintained in English. Natural-language compatibility aliases may contain non-English input literals only where required for multilingual command recognition; those aliases belong in `core/language_compat.py`.
-
 ## Architecture
 
 ```text
@@ -90,7 +86,7 @@ python desktop-companion/install.py
 python desktop-companion/companion.py
 ```
 
-The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Pairing checks public TLS certificates and keeps the UI responsive; desktop errors are stored in `~/.mark-liv-companion/logs/error.log`. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
+The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Both companions show a focused dark/cyan Pair Code screen for a new device. The desktop dashboard opens after the signed server `ready` message. Pairing checks public TLS certificates and keeps the UI responsive; desktop errors are stored in `~/.mark-liv-companion/logs/error.log`. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
 
 ## Application-agnostic device automation
 

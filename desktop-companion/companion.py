@@ -85,7 +85,7 @@ class App:
     def pair(self):
         code=self.code.get().strip().upper()
         if len(code)!=6:
-            QMessageBox.information(self.root,'Pair Code','Enter the 6-character Pair Code from the server.')
+            self.root.show_login(paired=False,message='Enter the 6-character Pair Code from the server.')
             return
         if getattr(self,'_pairing',False):return
         self._pairing=True
@@ -121,17 +121,20 @@ class App:
     def _paired(self):
         self._pairing=False
         self.root.pair_button.setEnabled(True)
-        self.status.set('Paired')
+        self.root.show_connecting()
         self.connect()
     def _pair_failed(self,message):
         self._pairing=False
         self.root.pair_button.setEnabled(True)
         self.status.set('Disconnected')
-        QMessageBox.warning(self.root,'Pair failed',message)
+        self.root.show_login(paired=False,message=message)
     def connect(self):
         if self.ws:return
         base=self.st.get('server');
-        if not base: self.note('Not paired'); return
+        if not base:
+            self.root.show_login(paired=False,message='Enter a Pair Code to connect.')
+            return
+        self.root.show_connecting()
         wsbase=base.replace('https://','wss://').replace('http://','ws://'); url=f"{wsbase}/ws/device?device_id={self.st['device_id']}"
         self.ws=websocket.WebSocketApp(url,on_message=self.on_message,on_data=self.on_data,on_close=self.on_close,on_error=lambda _w,e:self.fault('Connection error',e))
         threading.Thread(target=lambda:self.ws.run_forever(sslopt=({'cert_reqs':0} if not self._tls_verify(base) else None)),daemon=True).start()
@@ -148,7 +151,9 @@ class App:
             ch=m['challenge']; expected=self.st.get('server_key','')
             if not verify(expected,f"{self.st['device_id']}:{ch}".encode(),m.get('server_signature','')): self.note('Server identity verification failed'); self.disconnect(); return
             self.ws.send(json.dumps({'type':'proof','signature':b64(priv(self.st).sign(ch.encode())),'capabilities':list(NATIVE_CAPABILITIES)}))
-        elif typ=='ready': self.root.after(0,lambda:self.status.set('Connected · voice on client')); self.start_audio()
+        elif typ=='ready':
+            self.root.after(0,self.root.show_dashboard)
+            self.start_audio()
         elif typ=='status':
             state=str(m.get('state','')).upper()
             # Keep one stable input stream for the whole interactive session.
@@ -220,6 +225,7 @@ class App:
         # The callback remains alive; transmission resumes immediately.
         self.speaking=False
     def on_close(self, *_args):
+        if _args and _args[0] is not self.ws:return
         self.running=False
         self.speaking=False
         for x in (self.mic,self.out):
@@ -227,7 +233,13 @@ class App:
             except Exception:pass
         self.mic=self.out=None
         self.ws=None
-        self.root.after(0,lambda:self.status.set('Disconnected'))
+        revoked=len(_args)>1 and _args[1] in (4001,4003)
+        if revoked:
+            self.st['paired']=False
+            save(self.st)
+        message=('Device pairing was rejected. Enter a new Pair Code.' if revoked
+                 else 'Connection closed. Reconnect to continue.')
+        self.root.after(0,lambda message=message:(self.status.set('Disconnected'),self.root.show_connection_error(message)))
     def send(self):
         text=self.cmd.get().strip()
         if text and self.ws: self.ws.send(json.dumps({'type':'jarvis.command','text':text})); self.note('YOU: '+text); self.cmd.set('')
@@ -452,6 +464,11 @@ class App:
             try:self.ws.close()
             except Exception:pass
         self.ws=None
+        self.root.show_login(paired=bool(self.st.get('paired')),
+            message='Disconnected. Reconnect to continue.' if self.st.get('paired') else '')
+    def prepare_new_pair_code(self):
+        self.disconnect()
+        self.root.show_login(paired=False)
     def close(self): self.root.close()
     def run(self): self.root.show(); return self.qt_app.exec()
 if __name__=='__main__':App().run()

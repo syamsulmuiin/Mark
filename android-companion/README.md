@@ -103,3 +103,5 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 ## Companion surfaces
 
 The compact pairing screen uses the same dark card, cyan primary action, and JARVIS header as the voice screen. Its status line appears only during pairing or when input needs attention. Received and Sent attachment tabs have transparent backgrounds with a cyan underline for the selected tab; file history and recipient-only actions are unchanged.
+
+The Pair Code screen uses a compact reactor emblem, centered brand, and one clear pairing action. Already paired Android devices connect with their saved signed identity; no account form is required.

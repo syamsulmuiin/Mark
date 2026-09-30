@@ -4,6 +4,7 @@ import json
 import re
 import time
 from pathlib import Path
+from core.artifact_paths import ARTIFACT_ROOT
 
 
 def get_base_dir():
@@ -19,7 +20,6 @@ MAX_BUILD_ATTEMPTS = 3
 # fallback ladder. Writing a model name here is what left this file hanging
 # forever whenever that one alias was unwell.
 from core import gemini
-from core.artifact_paths import ARTIFACT_ROOT
 
 
 

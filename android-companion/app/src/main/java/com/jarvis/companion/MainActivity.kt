@@ -77,7 +77,7 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
-    private val playbackQueue = LinkedBlockingQueue<ByteArray>(64)
+    private val playbackQueue = LinkedBlockingQueue<ByteArray>(256)
     @Volatile private var playbackRunning = false
     private var playbackThread: Thread? = null
     @Volatile private var micRunning = false
@@ -345,9 +345,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }.apply { name="JarvisAudioPlayback"; isDaemon=true; start() }
         }
-        if(!playbackQueue.offer(pcm)){
-            playbackQueue.poll()
-            playbackQueue.offer(pcm)
+        try{
+            if(!playbackQueue.offer(pcm, 500, TimeUnit.MILLISECONDS)){
+                runOnUiThread { ui("Audio playback buffer full") }
+            }
+        }catch(_:InterruptedException){
+            Thread.currentThread().interrupt()
         }
     }
 

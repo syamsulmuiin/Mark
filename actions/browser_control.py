@@ -12,6 +12,8 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
+from core.artifact_paths import artifact_path
+
 from playwright.async_api import (
     async_playwright,
     BrowserContext,
@@ -814,7 +816,7 @@ class _BrowserSession:
     async def screenshot(self, path: str = None) -> str:
         page = await self._get_page()
         try:
-            save_path = path or str(Path.home() / "Desktop" / "jarvis_screenshot.png")
+            save_path = path or str(artifact_path("jarvis_screenshot.png", "browser"))
             await page.screenshot(path=save_path, full_page=False)
             return f"Screenshot saved: {save_path}"
         except Exception as e:

@@ -13,12 +13,14 @@ def get_base_dir():
 
 BASE_DIR           = get_base_dir()
 API_CONFIG_PATH    = BASE_DIR / "config" / "api_keys.json"
-DESKTOP            = Path.home() / "Desktop"
+ARTIFACTS         = ARTIFACT_ROOT / "code"
 MAX_BUILD_ATTEMPTS = 3
 # Model choice lives in core/gemini.py, and so does the timeout and the
 # fallback ladder. Writing a model name here is what left this file hanging
 # forever whenever that one alias was unwell.
 from core import gemini
+from core.artifact_paths import ARTIFACT_ROOT
+
 
 
 def _get_api_key() -> str:
@@ -58,9 +60,9 @@ def _resolve_save_path(output_path: str, language: str) -> Path:
     }
     if output_path:
         p = Path(output_path)
-        return p if p.is_absolute() else DESKTOP / p
+        return p if p.is_absolute() else ARTIFACTS / p
     ext = ext_map.get((language or "python").lower(), ".py")
-    return DESKTOP / f"jarvis_code{ext}"
+    return ARTIFACTS / f"jarvis_code{ext}"
 
 
 def _read_file(file_path: str) -> tuple[str, str]:

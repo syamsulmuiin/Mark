@@ -34,6 +34,7 @@ except ImportError:
     _TRANSCRIPT_OK = False
 
 from config import get_os, is_windows, is_mac, is_linux
+from core.artifact_paths import artifact_path
 
 
 def _get_base_dir() -> Path:
@@ -168,7 +169,6 @@ def _get_transcript(video_id: str) -> str | None:
 
 def _summarize_with_gemini(transcript: str, video_url: str) -> str:
     from google.genai import types
-    from core import gemini
 
     max_chars = 80000
     truncated = transcript[:max_chars] + ("..." if len(transcript) > max_chars else "")
@@ -196,9 +196,7 @@ def _summarize_with_gemini(transcript: str, video_url: str) -> str:
 def _save_summary(content: str, video_url: str) -> str:
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"youtube_summary_{ts}.txt"
-    desktop  = Path.home() / "Desktop"
-    desktop.mkdir(parents=True, exist_ok=True)
-    filepath = desktop / filename
+    filepath = artifact_path(filename, "youtube")
 
     header = (
         f"JARVIS — YouTube Summary\n"
@@ -344,7 +342,7 @@ def _handle_summarize(parameters: dict, player, speak) -> str:
 
     if parameters.get("save", False):
         saved_path = _save_summary(summary, url)
-        return f"Summary complete and saved to Desktop: {saved_path}"
+        return f"Summary complete and saved to server storage: {saved_path}"
 
     return summary
 

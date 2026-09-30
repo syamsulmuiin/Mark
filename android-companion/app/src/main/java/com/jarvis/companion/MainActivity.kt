@@ -36,6 +36,7 @@ import java.security.cert.X509Certificate
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.sqrt
 import javax.net.ssl.*
 
@@ -76,6 +77,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
+    private val playbackQueue = LinkedBlockingQueue<ByteArray>(64)
+    @Volatile private var playbackRunning = false
+    private var playbackThread: Thread? = null
     @Volatile private var micRunning = false
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
@@ -290,9 +294,9 @@ class MainActivity : AppCompatActivity() {
                     "capability.call"->executeCapability(w,m)
                 }
             } catch(_:Exception){ ui("Invalid message from JARVIS") } }
-            override fun onMessage(w:WebSocket,bytes:ByteString){ setVoiceState("SPEAKING"); playAudio(bytes.toByteArray()) }
-            override fun onClosing(w:WebSocket,code:Int,reason:String){ stopMic(); releasePlayer(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
-            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ stopMic(); releasePlayer(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
+            override fun onMessage(w:WebSocket,bytes:ByteString){ setVoiceState("SPEAKING"); enqueueAudio(bytes.toByteArray()) }
+            override fun onClosing(w:WebSocket,code:Int,reason:String){ stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
+            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
         })
     }
 
@@ -329,6 +333,31 @@ class MainActivity : AppCompatActivity() {
     }
     private fun stopMic(){ micRunning=false; try{recorder?.stop()}catch(_:Exception){}; recorder?.release(); recorder=null }
     private val audioLock=Any()
+
+    private fun enqueueAudio(pcm:ByteArray){
+        if(pcm.isEmpty()) return
+        if(!playbackRunning){
+            playbackRunning=true
+            playbackThread=Thread {
+                while(playbackRunning){
+                    val next=try{ playbackQueue.take() }catch(_:InterruptedException){ break }
+                    playAudio(next)
+                }
+            }.apply { name="JarvisAudioPlayback"; isDaemon=true; start() }
+        }
+        if(!playbackQueue.offer(pcm)){
+            playbackQueue.poll()
+            playbackQueue.offer(pcm)
+        }
+    }
+
+    private fun stopPlayback(){
+        playbackRunning=false
+        playbackQueue.clear()
+        playbackThread?.interrupt()
+        playbackThread=null
+        releasePlayer()
+    }
 
     private fun releasePlayer(){
         synchronized(audioLock){
@@ -397,7 +426,7 @@ class MainActivity : AppCompatActivity() {
         transcript.text=transcriptTurns.joinToString("\n\n")
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
-    private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); releasePlayer(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
+    private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
     private fun setEnded()=runOnUiThread { status.text=getString(R.string.conversation_ended); orb.state="SLEEPING"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
@@ -771,7 +800,7 @@ class MainActivity : AppCompatActivity() {
         return Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    override fun onDestroy(){ stopMic(); try{player?.stop()}catch(_:Exception){}; player?.release(); player=null; ws?.close(1000,"activity closed"); super.onDestroy() }
+    override fun onDestroy(){ stopMic(); stopPlayback(); ws?.close(1000,"activity closed"); super.onDestroy() }
     private fun ui(s:String)=runOnUiThread{status.text=s}
     private fun pairUi(s:String)=runOnUiThread{pairStatus.text=s; pairStatus.visibility=View.VISIBLE}
     private fun b64(b:ByteArray)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b)

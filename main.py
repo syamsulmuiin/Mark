@@ -421,6 +421,8 @@ class JarvisLive:
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
+        self._phone_activity_active = False
+        self._phone_last_voice     = 0.0
         self._pending_vision       = None    # (session_generation, img_bytes, mime_type, question, angle)
         self._session_generation    = 0       # increments for every Live connection; stale vision is never replayed
         self._blocked_device_action = None    # exact rejected device action; requires re-inspect/replan before retry
@@ -1606,6 +1608,14 @@ class JarvisLive:
         sent = 0
         while True:
             msg = await self.out_queue.get()
+            if msg.get("activity_start"):
+                await self.session.send_realtime_input(activity_start=types.ActivityStart())
+                _trace_event("activity_start")
+                continue
+            if msg.get("activity_end"):
+                await self.session.send_realtime_input(activity_end=types.ActivityEnd())
+                _trace_event("activity_end")
+                continue
             # Gemini 3.x Live rejects the old realtime_input.media_chunks field
             # (what `media=...` maps to) and closes the socket with a 1007. Send
             # mic / phone PCM through the new `audio` field instead. Queue items
@@ -2020,16 +2030,43 @@ class JarvisLive:
     # ── Phone audio relay ────────────────────────────────────────────────────────
 
     async def _relay_phone_audio(self) -> None:
-        """Forward phone mic PCM chunks from dashboard queue into the Gemini Live session."""
+        """Forward phone mic PCM chunks with explicit activity boundaries."""
         q = self._dashboard._phone_audio_queue
         while True:
             try:
                 chunk = await asyncio.wait_for(q.get(), timeout=1.0)
             except asyncio.TimeoutError:
-                # No audio for 1 s → phone mic inactive, give PC mic back
                 self._phone_active = False
+                if self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
+                    try:
+                        self.out_queue.put_nowait({"activity_end": True})
+                    except asyncio.QueueFull:
+                        pass
+                    self._phone_activity_active = False
                 continue
-            self._phone_active = True   # phone is streaming — silence PC mic
+            self._phone_active = True
+            raw = chunk.get("data", b"")
+            try:
+                samples = np.frombuffer(raw, dtype=np.int16)
+                rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) if samples.size else 0.0
+            except Exception:
+                rms = 0.0
+            now = time.monotonic()
+            voice = rms >= 250.0
+            if voice:
+                self._phone_last_voice = now
+                if not self._phone_activity_active:
+                    try:
+                        self.out_queue.put_nowait({"activity_start": True})
+                    except asyncio.QueueFull:
+                        pass
+                    self._phone_activity_active = True
+            elif self._phone_activity_active and now - self._phone_last_voice >= 0.65:
+                try:
+                    self.out_queue.put_nowait({"activity_end": True})
+                except asyncio.QueueFull:
+                    pass
+                self._phone_activity_active = False
             with self._speaking_lock:
                 speaking = self._is_speaking
             if not speaking and not self.ui.muted:
@@ -2221,6 +2258,8 @@ class JarvisLive:
                     self._vision_busy          = False
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
+                    self._phone_activity_active = False
+                    self._phone_last_voice     = 0.0
 
                     print("[JARVIS] Connected.")
                     _trace_event("live_connected", model=LIVE_MODEL, session=self._session_generation)

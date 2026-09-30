@@ -9,6 +9,7 @@ Install deps:  pip install fastapi "uvicorn[standard]" cryptography
 """
 
 import asyncio
+import array
 import base64
 import hashlib
 import re
@@ -1084,7 +1085,13 @@ class DashboardServer:
                         count = self._audio_frame_counts.get(device_id, 0) + 1
                         self._audio_frame_counts[device_id] = count
                         if count == 1 or count % 50 == 0:
-                            _interaction_event("audio_in", device_id=device_id, frames=count, bytes=len(audio))
+                            try:
+                                samples = array.array("h")
+                                samples.frombytes(audio[:len(audio) - (len(audio) % 2)])
+                                rms = int((sum(v * v for v in samples) / max(1, len(samples))) ** 0.5)
+                            except Exception:
+                                rms = -1
+                            _interaction_event("audio_in", device_id=device_id, frames=count, bytes=len(audio), rms=rms)
                         try:
                             self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000"})
                         except asyncio.QueueFull:

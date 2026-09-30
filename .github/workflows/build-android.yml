@@ -2,6 +2,12 @@ name: Build Android Companion
 
 on:
   workflow_dispatch:
+    inputs:
+      mark_liv_public_url:
+        description: Public Mark-LIV URL embedded in the APK
+        required: false
+        default: https://markliv-staging.kasirdigital.web.id
+        type: string
   push:
     paths:
       - 'android-companion/**'
@@ -17,6 +23,8 @@ jobs:
   debug:
     name: Debug APK
     runs-on: ubuntu-latest
+    env:
+      MARK_LIV_PUBLIC_URL: ${{ inputs.mark_liv_public_url || 'https://markliv-staging.kasirdigital.web.id' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -49,6 +57,8 @@ jobs:
     name: Signed Release APK
     runs-on: ubuntu-latest
     environment: android-release
+    env:
+      MARK_LIV_PUBLIC_URL: ${{ inputs.mark_liv_public_url || 'https://markliv-staging.kasirdigital.web.id' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6

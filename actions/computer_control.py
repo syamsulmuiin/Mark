@@ -15,6 +15,8 @@ import time
 import random
 from pathlib import Path
 
+from core.artifact_paths import artifact_path
+
 try:
     import pyautogui
     pyautogui.FAILSAFE = True
@@ -62,7 +64,7 @@ _SAFE_SCREENSHOT_ROOTS = (
 )
 
 def _safe_screenshot_path(requested: str | None) -> Path:
-    fallback = Path.home() / "Desktop" / "jarvis_screenshot.png"
+    fallback = artifact_path("jarvis_screenshot.png", "computer")
     if not requested:
         return fallback
     try:

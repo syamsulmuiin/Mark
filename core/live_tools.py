@@ -57,6 +57,19 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "send_server_file",
+        "description": "Send a file already created on the JARVIS server directly to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. The destination companion saves it into its shared Downloads folder and the transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "destination_device": {"type":"STRING", "description":"Exact paired destination device ID/name, or current for the companion handling this request."},
+                "source": {"type":"STRING", "description":"Absolute path of the file already present on the server."},
+                "destination_name": {"type":"STRING", "description":"Optional filename to use on the companion."}
+            },
+            "required": ["destination_device", "source"]
+        }
+    },
+    {
         "name": "call_current_device",
         "description": (
             "Control the companion device that is currently talking to JARVIS. Use this for requests such as "

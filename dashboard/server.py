@@ -19,6 +19,7 @@ import string
 import time
 import json
 import os
+import shutil
 from pathlib import Path
 
 _DEPS_OK = False
@@ -807,6 +808,25 @@ class DashboardServer:
                 "attachment_id":item["id"], "name":name, "sha256":digest,
                 "size":size, "destination_device":destination_device,
                 "saved_to_destination":False}
+
+    async def send_server_file(self, destination_device: str, source: str, destination_name: str = ""):
+        """Download a server-created file directly into a paired companion's Downloads."""
+        path = Path(str(source or "")).expanduser()
+        if not path.is_file():
+            raise FileNotFoundError(f"Server file not found: {path}")
+        name = _safe_filename(destination_name or path.name)
+        tmp = self._file_store.tmp / secrets.token_hex(12)
+        shutil.copyfile(path, tmp)
+        info = self._file_store.ingest(tmp, name, temporary=False)
+        token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
+        reply = await self.call_device(destination_device, "file.receive", {
+            "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
+            "name": name, "sha256": info["sha256"], "size": info["size"]}, timeout=300)
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
+        return {"ok": True, "status": "saved_to_device", "name": name,
+                "sha256": info["sha256"], "size": info["size"],
+                "destination_device": destination_device, "result": reply.get("result")}
 
     async def _send_attachment_inbox(self, ws, device_id):
         await ws.send_json({"type":"attachment.inbox", "attachments":

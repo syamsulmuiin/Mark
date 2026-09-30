@@ -1345,6 +1345,27 @@ class JarvisLive:
                                 self._attachment_turn={"source_device":src_id,"destination_device":dst_id,"request_id":info.get("request_id")}
                             result=json.dumps(info,ensure_ascii=False)
 
+            elif name == "send_server_file":
+                if not self._dashboard:
+                    result = "Device mesh is unavailable."
+                else:
+                    devices=self._dashboard._mesh.list_devices(); online=set(self._dashboard._device_sockets)
+                    selector=str(args.get("destination_device") or "").strip()
+                    if selector.casefold() in ("current", "this device", "this phone"):
+                        target=self._dashboard._mesh.get(self._dashboard.origin_device_id) or {}
+                    else:
+                        exact=next((d for d in devices if d.get("device_id")==selector and not d.get("revoked")),None)
+                        matches=[d for d in devices if str(d.get("name","")).casefold()==selector.casefold() and not d.get("revoked")]
+                        target=exact or (matches[0] if len(matches)==1 else None)
+                    if not target or target.get("device_id") not in online:
+                        result="Destination companion is not uniquely identifiable or is offline. Call list_paired_devices first."
+                    elif "file.receive" not in set(target.get("capabilities") or []):
+                        result="Destination companion does not support file.receive."
+                    else:
+                        result=json.dumps(await self._dashboard.send_server_file(
+                            str(target["device_id"]), str(args.get("source") or ""),
+                            str(args.get("destination_name") or "")), ensure_ascii=False)
+
             elif name == "call_current_device":
                 if not self._dashboard:
                     result = "Device mesh is unavailable."

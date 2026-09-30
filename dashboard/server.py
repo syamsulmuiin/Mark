@@ -56,6 +56,17 @@ def _safe_filename(raw: str) -> str:
 
 STORAGE_ROOT = BASE_DIR / "storage"
 STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+INTERACTION_LOG = BASE_DIR / "runtime" / "interaction.log"
+INTERACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+
+def _interaction_event(event: str, **fields) -> None:
+    """Persist bounded voice/device boundary events without payloads or secrets."""
+    record = {"ts": round(time.time(), 3), "event": event, **fields}
+    try:
+        with INTERACTION_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
 
 def _get_gemini_key() -> str | None:
     try:
@@ -477,6 +488,7 @@ class DashboardServer:
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
+        self._audio_frame_counts: dict[str, int] = {}
         self._file_store                  = ObjectStore(STORAGE_ROOT)
         self._attachment_inbox = AttachmentInbox(self._file_store.meta)
         self._file_store.attachment_referenced = self._attachment_inbox.referenced
@@ -609,10 +621,13 @@ class DashboardServer:
                 return
         ws = self._device_sockets.get(device_id)
         if ws is None:
+            _interaction_event("audio_out_dropped", reason="no_socket", bytes=len(pcm))
             return
         try:
             await ws.send_bytes(pcm)
+            _interaction_event("audio_out", device_id=device_id, bytes=len(pcm))
         except Exception:
+            _interaction_event("audio_out_failed", device_id=device_id, bytes=len(pcm))
             self._device_sockets.pop(device_id, None)
             if self._active_voice_device == device_id:
                 self._active_voice_device = None
@@ -637,6 +652,7 @@ class DashboardServer:
         fut = asyncio.get_running_loop().create_future()
         self._device_pending_calls[call_id] = fut
         try:
+            _interaction_event("capability_call", device_id=device_id, capability=capability)
             await ws.send_json({"type":"capability.call", "call_id":call_id, "capability":capability, "args":args or {}})
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
@@ -1053,6 +1069,7 @@ class DashboardServer:
                     rec = self._mesh.set_capabilities(device_id, [str(c) for c in live_caps if str(c).strip()])
                 self._device_sockets[device_id] = websocket
                 self._mesh.touch(device_id)
+                _interaction_event("device_ready", device_id=device_id)
                 await websocket.send_json({"type": "ready", "capabilities": rec.get("capabilities", [])})
                 await self._send_attachment_inbox(websocket, device_id)
                 await self._send_attachment_sent(websocket, device_id)
@@ -1064,9 +1081,14 @@ class DashboardServer:
                     if audio is not None:
                         self._origin_device_id = device_id
                         self._active_voice_device = device_id
+                        count = self._audio_frame_counts.get(device_id, 0) + 1
+                        self._audio_frame_counts[device_id] = count
+                        if count == 1 or count % 50 == 0:
+                            _interaction_event("audio_in", device_id=device_id, frames=count, bytes=len(audio))
                         try:
                             self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000"})
                         except asyncio.QueueFull:
+                            _interaction_event("audio_queue_full", device_id=device_id, frames=count)
                             pass
                         continue
                     raw = packet.get("text")
@@ -1083,6 +1105,7 @@ class DashboardServer:
                         if text:
                             self._origin_device_id = device_id
                             self._active_voice_device = device_id
+                            _interaction_event("text_command_in", device_id=device_id, chars=len(text))
                             await self._command_queue.put(text)
                             if self._wake_callback: self._wake_callback()
                     elif msg.get("type") == "jarvis.interrupt":
@@ -1181,11 +1204,13 @@ class DashboardServer:
                                     pass
                     elif msg.get("type") == "capability.result":
                         call_id = str(msg.get("call_id") or "")
+                        _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
                         fut = self._device_pending_calls.pop(call_id, None)
                         if fut and not fut.done(): fut.set_result(msg)
             except (WebSocketDisconnect, asyncio.TimeoutError):
                 pass
             finally:
+                _interaction_event("device_disconnect", device_id=device_id)
                 if self._device_sockets.get(device_id) is websocket:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:

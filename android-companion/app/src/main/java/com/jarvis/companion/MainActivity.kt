@@ -389,16 +389,32 @@ class MainActivity : AppCompatActivity() {
             }
             return try{
                 val min=AudioTrack.getMinBufferSize(24000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4096)
-                val created=AudioTrack(AudioManager.STREAM_MUSIC,24000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT,min*4,AudioTrack.MODE_STREAM)
+                val format=AudioFormat.Builder()
+                    .setSampleRate(24000)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+                val attrs=AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                val created=AudioTrack.Builder()
+                    .setAudioAttributes(attrs)
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(min*4)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
                 if(created.state!=AudioTrack.STATE_INITIALIZED){
                     try{ created.release() }catch(_:Exception){}
+                    ui("Audio output unavailable")
                     null
                 }else{
+                    created.setVolume(1.0f)
                     created.play()
                     player=created
                     created
                 }
-            }catch(_:Exception){ null }
+            }catch(e:Exception){ ui("Audio output error: ${e.message ?: e::class.java.simpleName}"); null }
         }
     }
 

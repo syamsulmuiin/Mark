@@ -1214,7 +1214,7 @@ class DashboardServer:
                         _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
                         fut = self._device_pending_calls.pop(call_id, None)
                         if fut and not fut.done(): fut.set_result(msg)
-            except (WebSocketDisconnect, asyncio.TimeoutError):
+            except (WebSocketDisconnect, asyncio.TimeoutError, KeyError):
                 pass
             finally:
                 _interaction_event("device_disconnect", device_id=device_id)

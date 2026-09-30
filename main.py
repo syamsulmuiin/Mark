@@ -98,6 +98,17 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
+_TRACE_LOG      = BASE_DIR / "runtime" / "interaction.log"
+
+def _trace_event(event: str, **fields) -> None:
+    """Write bounded session diagnostics without audio/text payloads."""
+    try:
+        _TRACE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with _TRACE_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ts": round(time.time(), 3), "event": event, **fields}, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+
 from core.model_config import get_live_model
 LIVE_MODEL          = get_live_model()
 CHANNELS            = 1
@@ -1592,6 +1603,7 @@ class JarvisLive:
         )
 
     async def _send_realtime(self):
+        sent = 0
         while True:
             msg = await self.out_queue.get()
             # Gemini 3.x Live rejects the old realtime_input.media_chunks field
@@ -1605,6 +1617,9 @@ class JarvisLive:
                     mime_type=msg.get("mime_type", "audio/pcm"),
                 )
             )
+            sent += 1
+            if sent == 1 or sent % 50 == 0:
+                _trace_event("audio_to_gemini", chunks=sent, bytes=len(msg.get("data", b"")))
 
     async def _listen_audio(self):
         """Server runtime never opens a local microphone.
@@ -2208,6 +2223,7 @@ class JarvisLive:
                     self._interrupted          = False
 
                     print("[JARVIS] Connected.")
+                    _trace_event("live_connected", model=LIVE_MODEL, session=self._session_generation)
                     if self._recovery_context_pending:
                         self.ui.write_log("SYS: Reconnected — conversation context recovered locally.")
                         self._recovery_context_pending = False

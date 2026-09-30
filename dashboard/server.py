@@ -536,7 +536,15 @@ class DashboardServer:
         return f"http://{self._ip}:{PORT}"
 
     def get_remote_url(self) -> str:
-        """Stable public endpoint when Cloudflare remote access is configured."""
+        """Return the endpoint reachable by a companion for HTTP transfers.
+
+        The staging tunnel is managed outside this process, so the tunnel can be
+        alive even when the local remote_access flag is disabled. Prefer the
+        explicit public URL in that setup; otherwise preserve the local fallback.
+        """
+        configured = os.environ.get("MARK_LIV_PUBLIC_URL", "").strip().rstrip("/")
+        if configured:
+            return configured
         if cloudflare_enabled():
             return self._public_url or cloudflare_public_url()
         return self.get_url()

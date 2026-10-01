@@ -811,7 +811,12 @@ class DashboardServer:
                 "saved_to_destination":False}
 
     async def send_server_file(self, destination_device: str, source: str, destination_name: str = ""):
-        """Download a server-created file directly into a paired companion's Downloads."""
+        """Send a server-created file to the canonical companion destination.
+
+        The destination is explicit on the wire so completion reports cannot
+        silently claim an unspecified folder. Android receives Downloads/MARK-LIV;
+        desktop companions retain their own Downloads default.
+        """
         path = Path(str(source or "")).expanduser()
         if not path.is_file():
             raise FileNotFoundError(f"Server file not found: {path}")
@@ -820,14 +825,25 @@ class DashboardServer:
         shutil.copyfile(path, tmp)
         info = self._file_store.ingest(tmp, name, temporary=False)
         token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
-        reply = await self.call_device(destination_device, "file.receive", {
+        target = self._mesh.get(destination_device) or {}
+        capabilities = set(target.get("capabilities") or [])
+        destination = "Downloads/MARK-LIV" if "android.ui.inspect" in capabilities else ""
+        payload = {
             "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
-            "name": name, "sha256": info["sha256"], "size": info["size"]}, timeout=300)
+            "name": name, "sha256": info["sha256"], "size": info["size"]}
+        if destination:
+            payload["destination"] = destination
+        reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
         if not isinstance(reply, dict) or not reply.get("ok"):
             raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
-        return {"ok": True, "status": "saved_to_device", "name": name,
-                "sha256": info["sha256"], "size": info["size"],
-                "destination_device": destination_device, "result": reply.get("result")}
+        result = {"ok": True, "status": "saved_to_device", "name": name,
+                  "source": str(path), "sha256": info["sha256"], "size": info["size"],
+                  "destination_device": destination_device,
+                  "destination_verified": True,
+                  "result": reply.get("result")}
+        if destination:
+            result["destination"] = destination
+        return result
 
     async def _send_attachment_inbox(self, ws, device_id):
         await ws.send_json({"type":"attachment.inbox", "attachments":

@@ -58,7 +58,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_server_file",
-        "description": "Send a file already created on the JARVIS server directly to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. The destination companion saves it into its shared Downloads folder and the transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "description": "Send a file already created on the JARVIS server directly to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. The server chooses and reports the exact destination folder; Android uses Downloads/MARK-LIV and desktop uses its Downloads folder. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
         "parameters": {
             "type": "OBJECT",
             "properties": {

@@ -2250,6 +2250,8 @@ class JarvisLive:
 
         while True:
             try:
+                if self._dashboard:
+                    self._dashboard.set_phone_audio_enabled(False)
                 print("[JARVIS] Connecting...")
                 self.ui.set_state("THINKING")
                 _resumed_with = self._resume_handle is not None
@@ -2272,6 +2274,8 @@ class JarvisLive:
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
+                    if self._dashboard:
+                        self._dashboard.set_phone_audio_enabled(True)
 
                     # Reset transient state that must not carry over from a previous session
                     self._pending_vision       = None
@@ -2405,8 +2409,11 @@ class JarvisLive:
                     self._recovery_context_pending = bool(self._session_log)
                     if expired:
                         self._resume_handle = None
+                    dropped = self._dashboard.set_phone_audio_enabled(False) if self._dashboard else 0
                     self.audio_in_queue = asyncio.Queue()
+                    self.out_queue = asyncio.Queue(maxsize=200)
                     self._phone_activity_active = False
+                    _trace_event("live_reconnect", reason="session_expired", dropped_phone_frames=dropped)
                     self._conn_backoff = 0
                     continue
                 # Transient network loss is an availability state, not a code
@@ -2484,6 +2491,8 @@ class JarvisLive:
                     self._conn_backoff = 3
             finally:
                 self.session = None
+                if self._dashboard:
+                    self._dashboard.set_phone_audio_enabled(False)
                 # A transport/session rollover is not the end of the user's
                 # conversation. Keep the transcript in RAM so an expired provider
                 # resumption handle can be recovered locally on the next connect.

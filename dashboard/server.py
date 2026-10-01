@@ -490,6 +490,7 @@ class DashboardServer:
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
+        self._accept_phone_audio: bool             = True
         self._last_audio_queue_full_log: float    = 0.0
         self._audio_frame_counts: dict[str, int] = {}
         self._file_store                  = ObjectStore(STORAGE_ROOT)
@@ -502,6 +503,19 @@ class DashboardServer:
         self._attachment_pick_results: dict[str, dict] = {}
         self._attachment_result_callback = None
         self.app                          = self._build_app()
+
+    def set_phone_audio_enabled(self, enabled: bool) -> int:
+        """Gate companion microphone frames during Live-session rollover."""
+        self._accept_phone_audio = bool(enabled)
+        dropped = 0
+        if not enabled:
+            while True:
+                try:
+                    self._phone_audio_queue.get_nowait()
+                    dropped += 1
+                except asyncio.QueueEmpty:
+                    break
+        return dropped
 
     # ── one-time key management ───────────────────────────────────────────
 
@@ -1129,6 +1143,8 @@ class DashboardServer:
                         self._active_voice_device = device_id
                         count = self._audio_frame_counts.get(device_id, 0) + 1
                         self._audio_frame_counts[device_id] = count
+                        if not self._accept_phone_audio:
+                            continue
                         if count == 1 or count % 50 == 0:
                             try:
                                 samples = array.array("h")

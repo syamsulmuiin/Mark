@@ -1159,7 +1159,24 @@ class JarvisLive:
                 elif action == "checkpoint":
                     result = "Checkpoint saved." if task_state.checkpoint(str(args.get("summary", "")), str(args.get("evidence", ""))) else "No active persistent task."
                 elif action == "block":
-                    result = "Task paused with blocker preserved." if task_state.block(str(args.get("reason", ""))) else "No active persistent task."
+                    reason = str(args.get("reason", "")).strip()
+                    _reason_lower = reason.casefold()
+                    _credential_words = ("credential", "password", "passcode", "pin", "otp", "kata sandi", "kredensial")
+                    _looks_credential = any(word in _reason_lower for word in _credential_words)
+                    if _looks_credential:
+                        _last = task_state.active().get("last_action") or {}
+                        _last_text = json.dumps(_last, ensure_ascii=False).casefold()
+                        _real_prompt = ("authentication_required" in _last_text
+                                        or "credential input is blocked" in _last_text
+                                        or "enter your password" in _last_text
+                                        or "credential prompt" in _last_text)
+                        if not _real_prompt:
+                            result = ("Task was not paused for credentials: no actual credential prompt was observed. "
+                                      "The preceding operation failed for another reason and must be routed or retried correctly.")
+                        else:
+                            result = "Task paused with blocker preserved." if task_state.block(reason) else "No active persistent task."
+                    else:
+                        result = "Task paused with blocker preserved." if task_state.block(reason) else "No active persistent task."
                 elif action == "complete":
                     result = "Persistent task completed." if task_state.complete(str(args.get("evidence", ""))) else "No active persistent task."
                 else:
@@ -1504,6 +1521,11 @@ class JarvisLive:
                     "file_controller", "browser_control", "screen_processor", "send_message",
                     "system_monitor", "youtube_video",
                 }
+                # These actions are server-side work. Never reinterpret them as
+                # Android/Desktop UI operations merely because the request arrived
+                # through a companion; device work must use call_current_device or
+                # legacy.action explicitly.
+                _server_only_actions = {"code_helper", "dev_agent", "web_search", "self_repair_diagnostic"}
 
                 # Mixed actions can contain both backend-only operations and operations that
                 # manipulate a device/host UI.  Classify the requested operation instead of
@@ -1547,7 +1569,9 @@ class JarvisLive:
                     operation = _requested_operation(tool_args)
                     return operation in _generic_device_operations or operation in _mixed_device_action_ops.get(tool_name, set())
 
-                if _origin and _is_companion_device_operation(name, args) and not _explicit_server:
+                if (_origin and name not in _server_only_actions
+                        and _is_companion_device_operation(name, args)
+                        and not _explicit_server):
                     try:
                         _rec = self._dashboard._mesh.get(_origin) or {}
                         _caps = set(_rec.get("capabilities") or [])

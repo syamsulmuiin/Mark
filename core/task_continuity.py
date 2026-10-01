@@ -61,6 +61,13 @@ def complete(evidence=''):
 def recovery_instruction():
     d=active()
     if not d:return ''
+    last=d.get('last_action') or {}
+    # A task that has only been begun is not an interrupted task.  Do not inject
+    # it into a freshly reconnected conversation: doing so lets stale work take
+    # precedence over the user's new request.  Automatic recovery is reserved
+    # for an action that was actually in flight.
+    if d.get('status') in {'IN_PROGRESS','RECOVERING'} and last.get('state') != 'STARTED':
+        return ''
     cps=d.get('verified_checkpoints',[])[-12:]
     payload={'goal':d.get('goal',''),'constraints':d.get('constraints',''),
              'completion_criteria':d.get('completion_criteria',''),'status':d.get('status',''),

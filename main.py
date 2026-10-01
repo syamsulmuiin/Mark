@@ -2370,7 +2370,9 @@ class JarvisLive:
                         self.ui.write_log("SYS: Reconnected — conversation restored.")
 
                     _unfinished = task_state.active()
-                    if _unfinished and _unfinished.get("status") != "WAITING":
+                    _last_task_action = (_unfinished.get("last_action") or {}) if _unfinished else {}
+                    if (_unfinished and _unfinished.get("status") != "WAITING"
+                            and _last_task_action.get("state") == "STARTED"):
                         task_state.resume()
                         async def _resume_unfinished_task():
                             await asyncio.sleep(0.35)

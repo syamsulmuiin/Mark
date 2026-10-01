@@ -423,6 +423,7 @@ class JarvisLive:
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
         self._phone_activity_active = False
         self._phone_last_voice     = 0.0
+        self._last_audio_queue_full_log = 0.0
         self._pending_vision       = None    # (session_generation, img_bytes, mime_type, question, angle)
         self._session_generation    = 0       # increments for every Live connection; stale vision is never replayed
         self._blocked_device_action = None    # exact rejected device action; requires re-inspect/replan before retry
@@ -2388,6 +2389,7 @@ class JarvisLive:
                 # with the latest session-resumption handle instead of dumping a
                 # TaskGroup/1008 traceback.
                 if ("goaway" in _err_lower or "session durat" in _err_lower
+                        or "session expired" in _err_lower
                         or ("1008" in _err_lower and (
                             "failed to close" in _err_lower
                             or "operation was aborted" in _err_lower
@@ -2395,10 +2397,16 @@ class JarvisLive:
                         or "keepalive ping timeout" in _err_lower
                         or "timed out while closing connection" in _err_lower):
                     # Gemini may surface normal Live-session rollover either as a
-                    # GoAway or as API/WebSocket 1008 "operation was aborted".
-                    # Preserve transcript/resumption state and reconnect quietly.
+                    # GoAway, a provider session-expired policy close, or a
+                    # WebSocket 1008. Expired sessions cannot be resumed with the
+                    # old handle; clear it and reconnect cleanly.
+                    expired = "session expired" in _err_lower
                     print("[JARVIS] Live session rollover — reconnecting.")
                     self._recovery_context_pending = bool(self._session_log)
+                    if expired:
+                        self._resume_handle = None
+                    self.audio_in_queue = asyncio.Queue()
+                    self._phone_activity_active = False
                     self._conn_backoff = 0
                     continue
                 # Transient network loss is an availability state, not a code

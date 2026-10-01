@@ -490,6 +490,7 @@ class DashboardServer:
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
+        self._last_audio_queue_full_log: float    = 0.0
         self._audio_frame_counts: dict[str, int] = {}
         self._file_store                  = ObjectStore(STORAGE_ROOT)
         self._attachment_inbox = AttachmentInbox(self._file_store.meta)
@@ -1123,7 +1124,10 @@ class DashboardServer:
                         try:
                             self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000"})
                         except asyncio.QueueFull:
-                            _interaction_event("audio_queue_full", device_id=device_id, frames=count)
+                            now = time.monotonic()
+                            if now - self._last_audio_queue_full_log >= 1.0:
+                                self._last_audio_queue_full_log = now
+                                _interaction_event("audio_queue_full", device_id=device_id, frames=count)
                             pass
                         continue
                     raw = packet.get("text")

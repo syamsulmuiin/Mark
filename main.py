@@ -418,6 +418,7 @@ class JarvisLive:
         self.audio_in_queue       = None
         self.out_queue            = None
         self._loop                     = None
+        self._tool_progress_task   = None
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
@@ -792,6 +793,43 @@ class JarvisLive:
             except RuntimeError:
                 pass
 
+    async def _tool_progress_heartbeat(self, tool_name: str):
+        """Keep the paired companion visibly alive during long server work.
+
+        Tool execution is awaited inside the Live receive loop, so no spoken
+        response can arrive until the tool returns.  Send a sparse transcript
+        heartbeat after the first delay; this is status only, not a new model
+        turn, and therefore cannot interrupt or corrupt the active task.
+        """
+        labels = {
+            "code_helper": "pembuatan dokumen/kode",
+            "dev_agent": "pekerjaan pengembangan",
+            "web_search": "pencarian informasi",
+            "self_repair_diagnostic": "diagnostik sistem",
+            "send_server_file": "pengiriman berkas",
+            "transfer_file": "transfer berkas",
+        }
+        label = labels.get(str(tool_name), "pekerjaan yang diminta")
+        try:
+            await asyncio.sleep(8)
+            while True:
+                if self._dashboard:
+                    await self._dashboard.broadcast({
+                        "type": "status",
+                        "state": "thinking",
+                        "progress": f"Masih memproses {label}. Companion tetap terhubung.",
+                    })
+                    await self._dashboard.broadcast({
+                        "type": "log",
+                        "speaker": "jarvis",
+                        "text": f"Masih memproses {label}; belum selesai.",
+                        "progress": True,
+                        "ts": datetime.now().isoformat(),
+                    })
+                await asyncio.sleep(20)
+        except asyncio.CancelledError:
+            raise
+
     def set_push_to_talk(self, enabled: bool) -> str:
         """Turn hold-to-talk on or off. Returns the scope actually achieved."""
         from core.hotkey import PushToTalk
@@ -1116,6 +1154,9 @@ class JarvisLive:
 
         if name != "task_continuity":
             task_state.action_started(name, args)
+        _progress_task = None
+        if name != "task_continuity":
+            _progress_task = asyncio.create_task(self._tool_progress_heartbeat(name))
 
         try:
             if name == "self_repair_diagnostic":
@@ -1628,6 +1669,12 @@ class JarvisLive:
             traceback.print_exc()
             self.speak_error(name, e)
 
+        if _progress_task is not None:
+            _progress_task.cancel()
+            try:
+                await _progress_task
+            except asyncio.CancelledError:
+                pass
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 

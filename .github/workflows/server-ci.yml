@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install test dependency
-        run: python -m pip install --upgrade pip pytest
+        run: python -m pip install --upgrade pip pytest 'cryptography>=42,<50'
       - name: Compile Python sources
         run: python -m compileall -q actions core dashboard main.py memory plugins
       - name: Run tests

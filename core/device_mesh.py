@@ -5,7 +5,7 @@ from conversational memory. Pairing proves possession of a peer private key;
 permissions are explicit capabilities and are never implied by trust alone.
 """
 from __future__ import annotations
-import base64, hashlib, json, os, secrets, socket, threading, time, uuid
+import base64, hashlib, hmac, json, os, secrets, socket, threading, time, uuid
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
@@ -64,45 +64,113 @@ class DeviceMesh:
             Ed25519PublicKey.from_public_bytes(cls._unb64(public_key)).verify(cls._unb64(signature), payload); return True
         except Exception: return False
 
-    def create_pairing_offer(self, ttl=600):
-        now, nonce = int(time.time()), secrets.token_urlsafe(24)
-        code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
-        offer = {**self.public_identity(), "nonce": nonce, "code": code, "expires_at": now + int(ttl)}
-        canonical = json.dumps(offer, sort_keys=True, separators=(",", ":")).encode()
-        offer["signature"] = self.sign(canonical)
-        with self._lock: self._pending[code] = {"nonce": nonce, "expires_at": offer["expires_at"], "offer": dict(offer)}
-        return offer
-
-    def pending_offer(self, code):
-        code = str(code or "").upper()
+    def create_pairing_request(self, peer: dict, ttl: int = 300) -> dict:
+        """Create an opaque pending request; no pairing code is returned."""
+        device_id = str(peer.get("device_id", "")).strip()
+        public_key = str(peer.get("public_key", "")).strip()
+        if not device_id or not public_key:
+            raise ValueError("peer identity missing")
+        now = int(time.time())
+        pairing_id = secrets.token_urlsafe(24)
+        nonce = secrets.token_urlsafe(24)
+        record = {
+            "pairing_id": pairing_id,
+            "peer": {
+                "device_id": device_id,
+                "name": str(peer.get("name") or device_id),
+                "public_key": public_key,
+            },
+            "nonce": nonce,
+            "code_digest": None,
+            "attempts": 0,
+            "expires_at": now + int(ttl),
+            "created_at": now,
+            "claimed_at": None,
+        }
         with self._lock:
-            pending = self._pending.get(code)
-            if not pending or pending["expires_at"] < time.time():
-                self._pending.pop(code, None)
-                return None
-            return dict(pending.get("offer") or {})
+            self._pending[pairing_id] = record
+        return {
+            "pairing_id": pairing_id,
+            "nonce": nonce,
+            "expires_at": record["expires_at"],
+            "local": self.public_identity(),
+        }
 
-    def accept_pairing(self, code, peer, signature, capabilities=None, replace_device_ids=None):
-        with self._lock: pending = self._pending.pop(str(code).upper(), None)
-        if not pending or pending["expires_at"] < time.time(): raise ValueError("pairing code invalid or expired")
-        required = (pending["nonce"] + ":" + str(code).upper()).encode()
-        if not self.verify(peer.get("public_key", ""), required, signature): raise ValueError("peer signature verification failed")
-        did = str(peer.get("device_id", "")).strip()
-        if not did: raise ValueError("peer device_id missing")
-        caps = sorted(set(capabilities or DEFAULT_CAPABILITIES))
-        rec = {"device_id": did, "name": str(peer.get("name") or did), "public_key": peer["public_key"],
-               "capabilities": caps, "paired_at": int(time.time()), "last_seen": int(time.time()), "revoked": False}
-        replaced = []
+    def pending_requests(self):
+        now = int(time.time())
         with self._lock:
-            for old_id in sorted(set(map(str, replace_device_ids or []))):
-                if old_id != did and old_id in self._trusted:
-                    self._trusted.pop(old_id, None)
-                    replaced.append(old_id)
-            self._trusted[did] = rec
+            expired = [key for key, value in self._pending.items() if value.get("expires_at", 0) <= now]
+            for key in expired:
+                self._pending.pop(key, None)
+            return [
+                {
+                    "pairing_id": value["pairing_id"],
+                    "device_id": value["peer"]["device_id"],
+                    "name": value["peer"]["name"],
+                    "expires_at": value["expires_at"],
+                    "code_issued": bool(value.get("code_digest")),
+                }
+                for value in self._pending.values()
+            ]
+
+    def issue_pairing_code(self, pairing_id: str) -> dict:
+        with self._lock:
+            record = self._pending.get(str(pairing_id or ""))
+            if not record or record.get("claimed_at") is not None:
+                raise ValueError("pairing_not_found_or_used")
+            if record["expires_at"] <= int(time.time()):
+                self._pending.pop(record["pairing_id"], None)
+                raise ValueError("pairing_expired")
+            code_chars = [
+                secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ"),
+                secrets.choice("23456789"),
+                *(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6)),
+            ]
+            secrets.SystemRandom().shuffle(code_chars)
+            code = "".join(code_chars)
+            record["code_digest"] = hashlib.sha256(code.encode()).hexdigest()
+            record["issued_at"] = int(time.time())
+            record["attempts"] = 0
+            return {"pairing_id": record["pairing_id"], "code": code, "expires_at": record["expires_at"], "device_id": record["peer"]["device_id"]}
+
+    def claim_pairing_request(self, pairing_id: str, code: str, signature: str, capabilities=None) -> dict:
+        pairing_id = str(pairing_id or "")
+        code = str(code or "").strip().upper()
+        with self._lock:
+            record = self._pending.get(pairing_id)
+            if not record or record.get("claimed_at") is not None:
+                raise ValueError("pairing_not_found_or_used")
+            if record["expires_at"] <= int(time.time()):
+                self._pending.pop(pairing_id, None)
+                raise ValueError("pairing_expired")
+            if not record.get("code_digest"):
+                raise ValueError("pairing_code_not_issued")
+            if record.get("attempts", 0) >= 5:
+                self._pending.pop(pairing_id, None)
+                raise ValueError("pairing_locked")
+            digest = hashlib.sha256(code.encode()).hexdigest()
+            if not hmac.compare_digest(record["code_digest"], digest):
+                record["attempts"] = int(record.get("attempts", 0)) + 1
+                if record["attempts"] >= 5:
+                    self._pending.pop(pairing_id, None)
+                raise ValueError("pairing_code_invalid")
+            peer = record["peer"]
+            payload = f"{pairing_id}:{code}:{record['nonce']}".encode()
+            if not self.verify(peer["public_key"], payload, signature):
+                raise ValueError("peer_signature_invalid")
+            rec = {
+                "device_id": peer["device_id"],
+                "name": peer["name"],
+                "public_key": peer["public_key"],
+                "capabilities": sorted(set(capabilities or DEFAULT_CAPABILITIES)),
+                "paired_at": int(time.time()),
+                "last_seen": int(time.time()),
+                "revoked": False,
+            }
+            self._trusted[peer["device_id"]] = rec
             self._atomic(self.trust_path, self._trusted)
-        result = dict(rec)
-        result["replaced_device_ids"] = replaced
-        return result
+            self._pending.pop(pairing_id, None)
+            return dict(rec)
 
     def list_devices(self):
         with self._lock: return [{k:v for k,v in r.items() if k != "public_key"} for r in self._trusted.values()]

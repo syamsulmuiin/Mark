@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
         pairPanel=findViewById(R.id.pairPanel); voicePanel=findViewById(R.id.voicePanel)
         orb=findViewById(R.id.orb); transcript=findViewById(R.id.transcript); transcriptScroll=findViewById(R.id.transcriptScroll); endConversation=findViewById(R.id.endConversation)
         startConversation=findViewById(R.id.startConversation); phoneControl=findViewById(R.id.phoneControl); attachmentBadge=findViewById(R.id.attachmentBadge)
+        findViewById<Button>(R.id.requestPairing).setOnClickListener { requestPairing() }
         findViewById<Button>(R.id.pair).setOnClickListener { pairWithCode(pairCode.text.toString()) }
         endConversation.setOnClickListener { endVoice() }
         startConversation.setOnClickListener { connect() }
@@ -230,39 +231,62 @@ class MainActivity : AppCompatActivity() {
     private fun sign(data:ByteArray):String { val p=Ed25519PrivateKeyParameters(identity().second,0); val s=Ed25519Signer(); s.init(true,p); s.update(data,0,data.size); return b64(s.generateSignature()) }
     private fun verify(pub:String,data:ByteArray,sig:String):Boolean = try { val v=Ed25519Signer(); v.init(false,Ed25519PublicKeyParameters(unb64(pub),0)); v.update(data,0,data.size); v.verifySignature(unb64(sig)) } catch(_:Exception){false}
 
-    private fun pairWithCode(rawCode:String) {
-        val code=rawCode.trim().uppercase()
-        if(code.length != 6){ pairStatus.text=getString(R.string.pair_code_help); pairStatus.visibility=View.VISIBLE; return }
-        pairStatus.text=getString(R.string.pairing)
-        pairStatus.visibility=View.VISIBLE
-        pairAgainstServer(code, BuildConfig.MARK_LIV_PUBLIC_URL)
+    private fun requestPairing() {
+        pairStatus.text = "Meminta permintaan pairing…"
+        pairStatus.visibility = View.VISIBLE
+        val ident = identity()
+        val peer = JSONObject().put("device_id", ident.first).put("name", Build.MODEL).put("public_key", b64(ident.third))
+        val request = Request.Builder()
+            .url("${serverBase}/api/pairing/request")
+            .post(peer.toString().let { JSONObject().put("peer", peer).toString().toRequestBody("application/json".toMediaType()) })
+            .build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(c: Call, e: java.io.IOException) = pairUi("Permintaan pairing gagal: ${e.message}")
+            override fun onResponse(c: Call, r: Response) { r.use {
+                val body = it.body?.string().orEmpty()
+                if (!it.isSuccessful) { pairUi("Pairing tidak tersedia: HTTP ${it.code}"); return }
+                try {
+                    val o = JSONObject(body)
+                    prefs.edit()
+                        .putString("server", serverBase)
+                        .putString("pending_pairing_id", o.getString("pairing_id"))
+                        .putString("pending_pairing_nonce", o.getString("nonce"))
+                        .putString("server_key", o.getJSONObject("local").getString("public_key"))
+                        .putString("server_id", o.getJSONObject("local").getString("device_id"))
+                        .apply()
+                    pairUi("Permintaan dibuat. Minta kode satu kali dari operator, lalu masukkan di bawah.")
+                } catch (_: Exception) { pairUi("Respons pairing tidak valid") }
+            }}
+        })
     }
 
-    private fun pairAgainstServer(code:String, base:String) {
-        val ident=identity()
-        val peer=JSONObject().put("device_id",ident.first).put("name",Build.MODEL).put("public_key",b64(ident.third))
-        client.newCall(Request.Builder().url("$base/api/pairing/offer/$code").build()).enqueue(object:Callback{
-            override fun onFailure(c:Call,e:java.io.IOException)=pairUi("Pairing failed: ${e.message}")
-            override fun onResponse(c:Call,r:Response){ r.use { response ->
-                if(!response.isSuccessful){ pairUi(if(response.code==502) "JARVIS tunnel is offline (502)" else "Pairing server error: ${response.code}"); return }
-                val o=try { JSONObject(response.body?.string().orEmpty()) } catch(_:Exception){ pairUi("Invalid response from JARVIS"); return }
-                val nonce=o.optString("nonce"); val serverKey=o.optString("public_key"); val serverId=o.optString("device_id")
-                if(nonce.isBlank()||serverKey.isBlank()||serverId.isBlank()){pairUi("Pairing code invalid or expired");return}
-                val caps=org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))
-                val body=JSONObject()
-                    .put("code",code)
-                    .put("peer",peer)
-                    .put("signature",sign("$nonce:$code".toByteArray()))
-                    .put("capabilities",caps)
-                val req=Request.Builder().url("$base/api/pairing/accept").post(body.toString().toRequestBody("application/json".toMediaType())).build()
-                client.newCall(req).enqueue(object:Callback{
-                    override fun onFailure(c:Call,e:java.io.IOException)=pairUi("Pair failed: ${e.message}")
-                    override fun onResponse(c:Call,r:Response){ r.use {
-                        if(!it.isSuccessful){pairUi("Pair rejected: ${it.code}");return}
-                        prefs.edit().putString("server",base).putString("server_key",serverKey).putString("server_id",serverId).putBoolean("paired",true).apply()
-                        showVoice(); connect()
-                    }}
-                })
+    private fun pairWithCode(rawCode: String) {
+        val code = rawCode.trim().uppercase()
+        val pairingId = prefs.getString("pending_pairing_id", null)
+        val nonce = prefs.getString("pending_pairing_nonce", null)
+        if (pairingId.isNullOrBlank() || nonce.isNullOrBlank()) {
+            pairUi("Minta permintaan pairing terlebih dahulu.")
+            return
+        }
+        if (!code.matches(Regex("[A-Z0-9]{8}"))) {
+            pairStatus.text = "Kode pairing harus terdiri dari 8 karakter huruf/angka."
+            pairStatus.visibility = View.VISIBLE
+            return
+        }
+        pairStatus.text = "Memverifikasi pairing…"
+        pairStatus.visibility = View.VISIBLE
+        val ident = identity()
+        val signature = sign("$pairingId:$code:$nonce".toByteArray())
+        val caps = org.json.JSONArray(listOf("jarvis.command", "notification", "vibration", "clipboard.write", "open_url", "app.launch", "app.close", "android.settings.open", "camera.capture", "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click", "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"))
+        val body = JSONObject().put("pairing_id", pairingId).put("code", code).put("signature", signature).put("capabilities", caps)
+        val request = Request.Builder().url("${serverBase}/api/pairing/claim")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(c: Call, e: java.io.IOException) = pairUi("Pairing gagal: ${e.message}")
+            override fun onResponse(c: Call, r: Response) { r.use {
+                if (!it.isSuccessful) { pairUi("Pairing ditolak: HTTP ${it.code}"); return }
+                prefs.edit().remove("pending_pairing_id").remove("pending_pairing_nonce").putBoolean("paired", true).apply()
+                showVoice(); connect()
             }}
         })
     }

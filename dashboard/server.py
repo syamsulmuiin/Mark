@@ -48,7 +48,7 @@ from core.runtime_errors import Boundary, classify_error
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
 STATIC_DIR  = Path(__file__).parent / "static"
 PORT        = DASHBOARD_PORT
-DISCOVERY_MAGIC = "MARKLIV_DISCOVER_V1"
+DISCOVERY_MAGIC = "ASSISTANT_DISCOVER_V1"
 MAX_UPLOAD_MB = 500
 
 def _safe_filename(raw: str) -> str:
@@ -546,7 +546,7 @@ class DashboardServer:
         alive even when the local remote_access flag is disabled. Prefer the
         explicit public URL in that setup; otherwise preserve the local fallback.
         """
-        configured = os.environ.get("MARK_LIV_PUBLIC_URL", "").strip().rstrip("/")
+        configured = os.environ.get("ASSISTANT_PUBLIC_URL", "").strip().rstrip("/")
         if configured:
             return configured
         if cloudflare_enabled():

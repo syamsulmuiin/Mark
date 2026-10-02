@@ -457,7 +457,7 @@ class MainActivity : AppCompatActivity() {
                 if(n>0){
                     val level=pcmLevel(buf,n)
                     orb.audioLevel(level)
-                    if(level >= interruptLevelThreshold) voicedFrames++ else voicedFrames=0
+                    if(speechLike(buf,n,level)) voicedFrames++ else voicedFrames=0
                     val now=android.os.SystemClock.elapsedRealtime()
                     if(voicedFrames >= interruptFrameCount &&
                         (voiceState=="SPEAKING" || voiceState=="THINKING") &&
@@ -642,6 +642,29 @@ class MainActivity : AppCompatActivity() {
     }}
     private fun endVoice(){ intentionalVoiceEnd=true; heartbeatHandler.removeCallbacks(heartbeatRunnable); stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
     private fun setEnded()=runOnUiThread { status.text=getString(R.string.conversation_ended); orb.state="SLEEPING"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
+    private fun speechLike(b:ByteArray,n:Int,level:Float):Boolean {
+        if(level < interruptLevelThreshold || n < 4) return false
+        var crossings=0
+        var diffEnergy=0.0
+        var energy=0.0
+        var previous=0
+        var count=0
+        var i=0
+        while(i+1<n){
+            val sample=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt()
+            if(count>0 && ((sample>=0) != (previous>=0))) crossings++
+            if(count>0){ val diff=(sample-previous).toDouble(); diffEnergy += diff*diff }
+            energy += sample.toDouble()*sample
+            previous=sample; count++; i+=2
+        }
+        if(count<2 || energy<=0.0) return false
+        val zeroCrossRate=crossings.toFloat()/(count-1).toFloat()
+        val diffRatio=kotlin.math.sqrt(diffEnergy/(count-1)).toFloat() /
+            kotlin.math.sqrt(energy/count).toFloat()
+        // Speech has voiced/low-frequency structure; steady hiss and isolated
+        // clicks usually have a high zero-crossing or frame-difference ratio.
+        return zeroCrossRate in 0.01f..0.35f && diffRatio < 1.35f
+    }
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
     private fun executeCapability(w:WebSocket,m:JSONObject){ val cap=m.optString("capability"); val a=m.optJSONObject("args")?:JSONObject()

@@ -1,3 +1,10 @@
+## v60.42 - Add local speech-shape gate for barge-in
+
+- Kept Android Acoustic Echo Cancellation and Noise Suppression enabled when available.
+- Added a lightweight local speech-shape gate using zero-crossing and frame-difference features before an interrupt can be sent.
+- Amplitude alone no longer qualifies as user speech, reducing false interrupts from steady noise, hiss, clicks, and residual speaker echo.
+- The gate remains bounded and local; microphone PCM and derived features are still streamed through the existing conversation path without storing audio.
+
 ## v60.41 - Reduce false barge-in during Companion playback
 
 - Increased the Android interrupt threshold from `0.16` to `0.22`.

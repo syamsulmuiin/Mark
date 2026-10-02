@@ -11,6 +11,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Maintain persistent continuity for any substantive multi-step task. Before the first action of such a task call action=begin. "
             "After a milestone is actually verified call checkpoint. If credentials/user-only authorization or a genuine unavailable capability blocks progress call block. "
+            "Only use a credential blocker when the immediately preceding tool result explicitly reports AUTHENTICATION_REQUIRED or an actual credential prompt; never infer it from a routing, capability, or file-generation error. "
             "Call complete only after the user's requested end state is verified. This is generic and must not depend on application names or task type."
         ),
         "parameters": {
@@ -54,6 +55,19 @@ TOOL_DECLARATIONS = [
                 "keep_on_server": {"type":"BOOLEAN"}
             },
             "required": ["source_device","destination_device"]
+        }
+    },
+    {
+        "name": "send_server_file",
+        "description": "Send a file already created on the JARVIS server directly to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. The server chooses and reports the exact destination folder; Android uses Downloads/MARK-LIV and desktop uses its Downloads folder. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "destination_device": {"type":"STRING", "description":"Exact paired destination device ID/name, or current for the companion handling this request."},
+                "source": {"type":"STRING", "description":"Absolute path of the file already present on the server."},
+                "destination_name": {"type":"STRING", "description":"Optional filename to use on the companion."}
+            },
+            "required": ["destination_device", "source"]
         }
     },
     {

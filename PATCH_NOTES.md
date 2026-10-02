@@ -1,4 +1,8 @@
-## Desktop capability and gateway review
+## Runtime boundary isolation
+- Classify Live-session, Companion WebSocket, file-transfer, tunnel, and task failures into bounded actions without coupling them to product/version names.
+- Persist structured runtime error events with boundary/category/action metadata; provider model failover remains separate from transport reconnect.
+- Telegram is not part of this runtime boundary set; Telegram adapter isolation belongs to the Hermes Gateway layer.
+
 - Compare the original MARK LV setup and daily controls with the split desktop runtime. Restore local mute, interrupt, audio device selection, full screen and grouped menu access; reconnect the missing YouTube action dispatcher and desktop screen-frame vision.
 - Diagnose Cloudflare HTTP 502 separately from device errors. Use the existing Pair Code to try LAN pairing when the remote endpoint returns 502, and use a signed device/server discovery exchange to reconnect an already paired desktop on the LAN. Off-LAN connectivity still depends on a working server and tunnel.
 - Record the architectural control mapping in `DESKTOP_FEATURE_PARITY.md`; keep account login absent. No source files were removed.

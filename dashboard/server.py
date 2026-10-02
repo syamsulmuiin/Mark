@@ -9,6 +9,7 @@ Install deps:  pip install fastapi "uvicorn[standard]" cryptography
 """
 
 import asyncio
+import array
 import base64
 import hashlib
 import re
@@ -18,6 +19,7 @@ import string
 import time
 import json
 import os
+import shutil
 from pathlib import Path
 
 _DEPS_OK = False
@@ -42,6 +44,7 @@ from core.device_mesh import DeviceMesh
 from core.file_store import ObjectStore
 from core.attachment_inbox import AttachmentInbox
 from core.cloudflare_tunnel import NamedTunnel, enabled as cloudflare_enabled, public_url as cloudflare_public_url
+from core.runtime_errors import Boundary, classify_error
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
 STATIC_DIR  = Path(__file__).parent / "static"
 PORT        = DASHBOARD_PORT
@@ -56,6 +59,17 @@ def _safe_filename(raw: str) -> str:
 
 STORAGE_ROOT = BASE_DIR / "storage"
 STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+INTERACTION_LOG = BASE_DIR / "runtime" / "interaction.log"
+INTERACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+
+def _interaction_event(event: str, **fields) -> None:
+    """Persist bounded voice/device boundary events without payloads or secrets."""
+    record = {"ts": round(time.time(), 3), "event": event, **fields}
+    try:
+        with INTERACTION_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
 
 def _get_gemini_key() -> str | None:
     try:
@@ -477,6 +491,9 @@ class DashboardServer:
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
+        self._accept_phone_audio: bool             = True
+        self._last_audio_queue_full_log: float    = 0.0
+        self._audio_frame_counts: dict[str, int] = {}
         self._file_store                  = ObjectStore(STORAGE_ROOT)
         self._attachment_inbox = AttachmentInbox(self._file_store.meta)
         self._file_store.attachment_referenced = self._attachment_inbox.referenced
@@ -487,6 +504,19 @@ class DashboardServer:
         self._attachment_pick_results: dict[str, dict] = {}
         self._attachment_result_callback = None
         self.app                          = self._build_app()
+
+    def set_phone_audio_enabled(self, enabled: bool) -> int:
+        """Gate companion microphone frames during Live-session rollover."""
+        self._accept_phone_audio = bool(enabled)
+        dropped = 0
+        if not enabled:
+            while True:
+                try:
+                    self._phone_audio_queue.get_nowait()
+                    dropped += 1
+                except asyncio.QueueEmpty:
+                    break
+        return dropped
 
     # ── one-time key management ───────────────────────────────────────────
 
@@ -523,7 +553,15 @@ class DashboardServer:
         return f"http://{self._ip}:{PORT}"
 
     def get_remote_url(self) -> str:
-        """Stable public endpoint when Cloudflare remote access is configured."""
+        """Return the endpoint reachable by a companion for HTTP transfers.
+
+        The staging tunnel is managed outside this process, so the tunnel can be
+        alive even when the local remote_access flag is disabled. Prefer the
+        explicit public URL in that setup; otherwise preserve the local fallback.
+        """
+        configured = os.environ.get("MARK_LIV_PUBLIC_URL", "").strip().rstrip("/")
+        if configured:
+            return configured
         if cloudflare_enabled():
             return self._public_url or cloudflare_public_url()
         return self.get_url()
@@ -609,10 +647,20 @@ class DashboardServer:
                 return
         ws = self._device_sockets.get(device_id)
         if ws is None:
+            _interaction_event("audio_out_dropped", reason="no_socket", bytes=len(pcm))
             return
         try:
             await ws.send_bytes(pcm)
-        except Exception:
+            _interaction_event("audio_out", device_id=device_id, bytes=len(pcm))
+        except Exception as exc:
+            decision = classify_error(Boundary.COMPANION_SOCKET, exc)
+            _interaction_event(
+                "audio_out_failed",
+                device_id=device_id,
+                bytes=len(pcm),
+                category=decision.category,
+                action=decision.action.value,
+            )
             self._device_sockets.pop(device_id, None)
             if self._active_voice_device == device_id:
                 self._active_voice_device = None
@@ -637,8 +685,19 @@ class DashboardServer:
         fut = asyncio.get_running_loop().create_future()
         self._device_pending_calls[call_id] = fut
         try:
+            _interaction_event("capability_call", device_id=device_id, capability=capability)
             await ws.send_json({"type":"capability.call", "call_id":call_id, "capability":capability, "args":args or {}})
             return await asyncio.wait_for(fut, timeout=timeout)
+        except Exception as exc:
+            decision = classify_error(Boundary.COMPANION_SOCKET, exc)
+            _interaction_event(
+                "capability_failed",
+                device_id=device_id,
+                capability=capability,
+                category=decision.category,
+                action=decision.action.value,
+            )
+            raise
         finally:
             self._device_pending_calls.pop(call_id, None)
 
@@ -782,6 +841,41 @@ class DashboardServer:
                 "attachment_id":item["id"], "name":name, "sha256":digest,
                 "size":size, "destination_device":destination_device,
                 "saved_to_destination":False}
+
+    async def send_server_file(self, destination_device: str, source: str, destination_name: str = ""):
+        """Send a server-created file to the canonical companion destination.
+
+        The destination is explicit on the wire so completion reports cannot
+        silently claim an unspecified folder. Android receives Downloads/MARK-LIV;
+        desktop companions retain their own Downloads default.
+        """
+        path = Path(str(source or "")).expanduser()
+        if not path.is_file():
+            raise FileNotFoundError(f"Server file not found: {path}")
+        name = _safe_filename(destination_name or path.name)
+        tmp = self._file_store.tmp / secrets.token_hex(12)
+        shutil.copyfile(path, tmp)
+        info = self._file_store.ingest(tmp, name, temporary=False)
+        token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
+        target = self._mesh.get(destination_device) or {}
+        capabilities = set(target.get("capabilities") or [])
+        destination = "Downloads/MARK-LIV" if "android.ui.inspect" in capabilities else ""
+        payload = {
+            "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
+            "name": name, "sha256": info["sha256"], "size": info["size"]}
+        if destination:
+            payload["destination"] = destination
+        reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
+        result = {"ok": True, "status": "saved_to_device", "name": name,
+                  "source": str(path), "sha256": info["sha256"], "size": info["size"],
+                  "destination_device": destination_device,
+                  "destination_verified": True,
+                  "result": reply.get("result")}
+        if destination:
+            result["destination"] = destination
+        return result
 
     async def _send_attachment_inbox(self, ws, device_id):
         await ws.send_json({"type":"attachment.inbox", "attachments":
@@ -1053,6 +1147,7 @@ class DashboardServer:
                     rec = self._mesh.set_capabilities(device_id, [str(c) for c in live_caps if str(c).strip()])
                 self._device_sockets[device_id] = websocket
                 self._mesh.touch(device_id)
+                _interaction_event("device_ready", device_id=device_id)
                 await websocket.send_json({"type": "ready", "capabilities": rec.get("capabilities", [])})
                 await self._send_attachment_inbox(websocket, device_id)
                 await self._send_attachment_sent(websocket, device_id)
@@ -1064,9 +1159,25 @@ class DashboardServer:
                     if audio is not None:
                         self._origin_device_id = device_id
                         self._active_voice_device = device_id
+                        count = self._audio_frame_counts.get(device_id, 0) + 1
+                        self._audio_frame_counts[device_id] = count
+                        if not self._accept_phone_audio:
+                            continue
+                        if count == 1 or count % 50 == 0:
+                            try:
+                                samples = array.array("h")
+                                samples.frombytes(audio[:len(audio) - (len(audio) % 2)])
+                                rms = int((sum(v * v for v in samples) / max(1, len(samples))) ** 0.5)
+                            except Exception:
+                                rms = -1
+                            _interaction_event("audio_in", device_id=device_id, frames=count, bytes=len(audio), rms=rms)
                         try:
                             self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000"})
                         except asyncio.QueueFull:
+                            now = time.monotonic()
+                            if now - self._last_audio_queue_full_log >= 1.0:
+                                self._last_audio_queue_full_log = now
+                                _interaction_event("audio_queue_full", device_id=device_id, frames=count)
                             pass
                         continue
                     raw = packet.get("text")
@@ -1083,6 +1194,7 @@ class DashboardServer:
                         if text:
                             self._origin_device_id = device_id
                             self._active_voice_device = device_id
+                            _interaction_event("text_command_in", device_id=device_id, chars=len(text))
                             await self._command_queue.put(text)
                             if self._wake_callback: self._wake_callback()
                     elif msg.get("type") == "jarvis.interrupt":
@@ -1181,11 +1293,13 @@ class DashboardServer:
                                     pass
                     elif msg.get("type") == "capability.result":
                         call_id = str(msg.get("call_id") or "")
+                        _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
                         fut = self._device_pending_calls.pop(call_id, None)
                         if fut and not fut.done(): fut.set_result(msg)
-            except (WebSocketDisconnect, asyncio.TimeoutError):
+            except (WebSocketDisconnect, asyncio.TimeoutError, KeyError):
                 pass
             finally:
+                _interaction_event("device_disconnect", device_id=device_id)
                 if self._device_sockets.get(device_id) is websocket:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:

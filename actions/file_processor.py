@@ -24,6 +24,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime
+from core.artifact_paths import artifact_path
 
 # Model choice, timeout and fallback ladder all live in core/gemini.py.
 from core import gemini
@@ -83,7 +84,7 @@ def _file_size_str(path: Path) -> str:
 def _output_path(src: Path, suffix: str, new_ext: str = None) -> Path:
     ext  = new_ext or src.suffix
     name = f"{src.stem}_{suffix}{ext}"
-    return src.parent / name
+    return artifact_path(name, "file_processor")
 
 def _process_image(path: Path, action: str, params: dict, speak=None) -> str:
     try:
@@ -684,7 +685,9 @@ def _process_video(path: Path, action: str, params: dict, speak=None) -> str:
     if action == "transcribe":
         if not _ffmpeg_available():
             return "ffmpeg not found. Needed for video transcription."
-        tmp_audio = Path(tempfile.mktemp(suffix=".mp3"))
+        with tempfile.NamedTemporaryFile(suffix=".mp3", dir=artifact_path("tmp", "file_processor").parent, delete=False) as handle:
+            tmp_audio = Path(handle.name)
+
         try:
             subprocess.run(
                 ["ffmpeg", "-i", str(path), "-q:a", "0", "-map", "a",

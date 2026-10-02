@@ -100,20 +100,24 @@ SEARCH = "search"  # grounded search — REST only, see below
 #     on REST — see SEARCH.
 LIVE = "live"
 
-from core.model_config import get_live_model, get_text_model, get_text_fallback_model
+from core.model_config import (
+    get_cooldown_policy,
+    get_live_models,
+    get_text_models,
+)
 
+_TEXT_MODELS = get_text_models()
 _LADDERS = {
-    FAST: (get_text_fallback_model(), get_text_model()),
-    SMART: (get_text_model(), get_text_fallback_model()),
-    # Grounded search needs response.candidates[...].grounding_metadata, which a
-    # Live turn does not produce. REST only, and it says so rather than silently
-    # returning an answer with no sources behind it.
-    SEARCH: (get_text_model(), get_text_fallback_model()),
+    # One-shot helper calls remain REST-only so they cannot compete with the
+    # user's interactive Live conversation for a connection slot.
+    FAST: _TEXT_MODELS,
+    SMART: tuple(reversed(_TEXT_MODELS)),
+    SEARCH: _TEXT_MODELS,
 }
 
-# The Live model to use for one-shot calls. main.py owns the real one; this is
-# only the fallback for when this module is imported without it (tests).
-_LIVE_FALLBACK = get_live_model()
+# The conversation's Live model has a deliberately short, compatible fallback
+# list. Live models are not interchangeable with REST text models.
+LIVE_MODELS = get_live_models()
 
 # How many one-shot Live sessions may exist at once.
 #
@@ -156,20 +160,104 @@ MIN_TIMEOUT_MS = 10_000
 _key_lock = threading.Lock()
 _cached_key: str | None = None
 
-# A rung that answered 429 is out of quota, and on the free tier it will stay
-# that way for a while. Retrying it on every single call is a wasted round trip
-# in front of every request the assistant makes — measured on this key, the
-# lite rung was 429ing continuously, so every call was paying for it before
-# reaching the model that could actually answer. Remembering that for a few
-# minutes turns the ladder from a cost into a saving.
-_COOLDOWN_SECONDS = 300
+# Cooldowns are intentionally different: quota refills, outages need time to
+# clear, and unavailable models should not be retried for every request.
+_COOLDOWN_POLICY = get_cooldown_policy()
+_COOLDOWN_SECONDS = _COOLDOWN_POLICY["quota"]
+_UNAVAILABLE_SECONDS = _COOLDOWN_POLICY["unavailable"]
+_PERMISSION_SECONDS = _COOLDOWN_POLICY["permission"]
+_GONE_SECONDS = _COOLDOWN_POLICY["gone"]
 _cooldown: dict[str, float] = {}
 _cool_lock = threading.Lock()
 
 
-def _cool(model: str) -> None:
+def _cool(model: str, seconds: float = _COOLDOWN_SECONDS) -> None:
     with _cool_lock:
-        _cooldown[model] = time.monotonic() + _COOLDOWN_SECONDS
+        _cooldown[model] = time.monotonic() + seconds
+
+
+def is_quota_error(error: str) -> bool:
+    text = str(error)
+    return "429" in text or "RESOURCE_EXHAUSTED" in text.upper()
+
+
+def is_unavailable_error(error: str) -> bool:
+    text = str(error)
+    lower = text.lower()
+    return (
+        "503" in text
+        or "504" in text
+        or "unavailable" in lower
+        or "deadline_exceeded" in lower
+        or "deadline exceeded" in lower
+    )
+
+
+def is_permission_error(error: str) -> bool:
+    text = str(error)
+    lower = text.lower()
+    return (
+        "403" in text
+        or "permission_denied" in lower
+        or "permission denied" in lower
+    )
+
+
+def is_gone_error(error: str) -> bool:
+    text = str(error)
+    lower = text.lower()
+    return (
+        "404" in text
+        or "not found" in lower
+        or "is not supported" in lower
+    )
+
+
+def note_failure(model: str, error: str) -> bool:
+    """Cool a model only when retrying it soon would repeat a model failure.
+
+    Returns True when the caller should continue to the next model. Transport
+    errors deliberately return False: walking the entire ladder cannot repair a
+    broken network and only multiplies latency.
+    """
+    if is_quota_error(error):
+        _cool(model, _COOLDOWN_SECONDS)
+        return True
+    if is_unavailable_error(error):
+        _cool(model, _UNAVAILABLE_SECONDS)
+        return True
+    if is_permission_error(error):
+        _cool(model, _PERMISSION_SECONDS)
+        return True
+    if is_gone_error(error):
+        _cool(model, _GONE_SECONDS)
+        return True
+    return False
+
+
+def live_model() -> str:
+    """Return the first Live model that is not resting after a model failure."""
+    for model in LIVE_MODELS:
+        if not _cooling(model):
+            return model
+    return LIVE_MODELS[0]
+
+
+def note_live_failure(model: str, error: str) -> bool:
+    """Record a provider/model failure and report whether to try another Live model."""
+    if is_quota_error(error):
+        _cool(model, _COOLDOWN_SECONDS)
+        return True
+    if is_unavailable_error(error):
+        _cool(model, _UNAVAILABLE_SECONDS)
+        return True
+    if is_permission_error(error):
+        _cool(model, _PERMISSION_SECONDS)
+        return True
+    if is_gone_error(error):
+        _cool(model, _GONE_SECONDS)
+        return True
+    return False
 
 
 def _cooling(model: str) -> bool:
@@ -221,8 +309,8 @@ class _Reply:
 
 
 def _live_model() -> str:
-    """Whatever main.py is running, so upgrading the assistant upgrades this."""
-    return get_live_model()
+    """Use the configured primary Live model for one-shot compatibility calls."""
+    return LIVE_MODELS[0]
 
 
 def _to_live_parts(contents) -> list:
@@ -391,10 +479,14 @@ def call(contents, tier: str = FAST, config=None,
             return cl.models.generate_content(**kwargs)
         except Exception as e:
             msg = str(e)
-            if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                _cool(model)
-                print(f"[Gemini] {model}: out of quota — skipping it for "
-                      f"{_COOLDOWN_SECONDS // 60} minutes")
+            if note_failure(model, msg):
+                if is_quota_error(msg):
+                    reason = f"out of quota — skipping it for {_COOLDOWN_SECONDS // 60} minutes"
+                elif is_unavailable_error(msg):
+                    reason = f"unavailable — resting it for {_UNAVAILABLE_SECONDS // 60} minutes"
+                else:
+                    reason = f"not available — setting it aside for {_GONE_SECONDS // 3600} hours"
+                print(f"[Gemini] {model}: {reason}")
             else:
                 print(f"[Gemini] {model}: {type(e).__name__}: {msg[:140]}")
     return None

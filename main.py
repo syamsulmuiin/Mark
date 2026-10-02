@@ -1063,27 +1063,11 @@ class JarvisLive:
         """
         out: dict = {}
 
-        # How long the server waits through a pause before deciding your turn is
-        # over. This — not the size of the prompt — is what most of the delay
-        # before a reply actually is, and the default has to suit everybody, so
-        # it is necessarily cautious.
-        turn = get_turn_tuning()
-        if turn.get("enabled", True):
-            detect = types.AutomaticActivityDetection(
-                silence_duration_ms=turn["silence_ms"],
-                prefix_padding_ms=turn["prefix_ms"],
-            )
-            if turn["end_sensitivity"] == "high":
-                detect.end_of_speech_sensitivity = types.EndSensitivity.END_SENSITIVITY_HIGH
-            elif turn["end_sensitivity"] == "low":
-                detect.end_of_speech_sensitivity = types.EndSensitivity.END_SENSITIVITY_LOW
-            if turn["start_sensitivity"] == "high":
-                detect.start_of_speech_sensitivity = types.StartSensitivity.START_SENSITIVITY_HIGH
-            elif turn["start_sensitivity"] == "low":
-                detect.start_of_speech_sensitivity = types.StartSensitivity.START_SENSITIVITY_LOW
-            out["realtime_input_config"] = types.RealtimeInputConfig(
-                automatic_activity_detection=detect)
-
+        # Phone audio is bounded by the companion relay, which emits explicit
+        # ActivityStart/ActivityEnd events after measuring PCM. Do not also send
+        # Gemini automatic activity detection: mixing automatic and manual turn
+        # boundaries can leave a Live session receiving audio without producing a
+        # response. The relay's 650 ms silence boundary is the single owner.
         # Screenshots and camera frames are tokenised at this resolution and then
         # stay in the session's context. 'medium' keeps on-screen text legible
         # for a fraction of a full-resolution frame.

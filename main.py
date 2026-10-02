@@ -1876,11 +1876,28 @@ class JarvisLive:
                             if self._turn_done_event:
                                 self._turn_done_event.set()
 
-                            # If this turn_complete ends an interrupted response, clear the
-                            # flag and skip all further processing for that turn.
+                            # An interrupted response may still contain the user's
+                            # input transcription. Preserve that input in the local
+                            # conversation/session history; only the unfinished
+                            # assistant output is discarded. This keeps a follow-up
+                            # such as "make it at least 10 pages" attached to the
+                            # preceding request instead of turning it into contextless
+                            # audio after the interrupt.
                             if self._interrupted:
+                                interrupted_in = " ".join(in_buf).strip()
+                                if interrupted_in:
+                                    self._last_out_logged = ""
+                                    self.ui.write_log(f"You: {interrupted_in}")
+                                    self._session_log.append(f"User: {interrupted_in}")
+                                    if self._dashboard:
+                                        asyncio.create_task(self._dashboard.broadcast({
+                                            "type": "log", "speaker": "user",
+                                            "text": interrupted_in,
+                                            "ts": datetime.now().isoformat(),
+                                            "interrupted": True,
+                                        }))
                                 self._interrupted = False
-                                in_buf  = []
+                                in_buf = []
                                 out_buf = []
                                 self._visemes.reset()
                                 continue

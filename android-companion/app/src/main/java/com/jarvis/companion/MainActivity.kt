@@ -8,6 +8,8 @@ import android.content.pm.ApplicationInfo
 import android.media.*
 import android.hardware.camera2.*
 import android.media.ImageReader
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import android.util.Base64 as AndroidBase64
 import android.view.Surface
 import android.net.Uri

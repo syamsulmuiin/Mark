@@ -720,11 +720,6 @@ class JarvisLive:
         landed before this feature did."""
         self.request_reconnect(keep_context=True, reason="audio device")
 
-    async def _watch_provider_lifetime(self):
-        """Roll the Live provider before its hard lifetime close."""
-        await asyncio.sleep(120)
-        self.request_reconnect(keep_context=True, reason="provider lifetime")
-
     async def _watch_reconnect(self):
         """Session-scoped task: when a voluntary reconnect is requested, raise a
         signal that unwinds the TaskGroup so the run loop rebuilds the session."""
@@ -2501,7 +2496,6 @@ class JarvisLive:
 
                     self._reconnect_event.clear()  # ignore requests from before this session
                     tg.create_task(self._watch_reconnect())
-                    tg.create_task(self._watch_provider_lifetime())
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())

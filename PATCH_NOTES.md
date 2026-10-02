@@ -1,3 +1,10 @@
+## v60.40 - Remove artificial 120-second Live reconnect
+
+- Removed the client watchdog that forcibly rebuilt Gemini Live every 120 seconds.
+- A conversation turn is not limited to 120 seconds; the old timer was an application-side preemptive reconnect, which caused the repeated `live_connected` cadence seen in runtime logs.
+- Live rollover now waits for an actual provider GoAway/session-expiry/transport failure or an explicit user/device configuration change.
+- Provider session rollover still preserves bounded conversation context and resets stale audio queues through the existing recovery path.
+
 ## v60.39 - Pace bursty Live audio relay
 
 - Paces server-to-Companion PCM relay against 24 kHz mono playback time instead of forwarding provider bursts immediately.

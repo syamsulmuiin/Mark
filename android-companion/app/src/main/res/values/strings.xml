@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">JARVIS Companion</string>
+    <string name="app_name">Companion</string>
     <string name="accessibility_description">Allows JARVIS to inspect and operate Android UI only after you explicitly enable this service.</string>
     <string name="pair_device">PAIR DEVICE</string>
     <string name="pair_code_hint">6-character Pair Code</string>

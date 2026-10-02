@@ -51,9 +51,11 @@ Android Accessibility is opt-in. UI automation follows `inspect -> act -> verify
 
 There is no default morning briefing, news poll, or time announcement. News/time are fetched on demand. The scheduler exists to execute workflows explicitly created by the user. Recurring workflow state is stored under `~/.jarvis/scheduled_workflows.json`.
 
-## Read-only self repair
+## Diagnostic self-repair and guarded apply
 
-Diagnostic self-repair is user-initiated and conversational first: a vague error observation does not trigger it. JARVIS obtains a concrete symptom and explicit diagnostic/repair intent, announces the read-only diagnostic, and only then starts inspection. A code-level activation guard rejects accidental generic calls. Once authorized, diagnostic self-repair may traverse the complete relevant dependency path without a fixed total file limit. It cannot apply edits, delete source, install packages, restart services, or perform Git mutations. Architecture invariants above are part of its diagnostic safety boundary.
+Diagnostic self-repair is user-initiated and conversational first: a vague error observation does not trigger it. JARVIS obtains a concrete symptom and explicit diagnostic/repair intent, announces the read-only diagnostic, and only then starts inspection. A code-level activation guard rejects accidental generic calls. Diagnosis may traverse the complete relevant dependency path without a fixed total file limit.
+
+Direct repair is a separate guarded action. It requires explicit `APPLY_DIAGNOSTIC_REPAIR` authorization and a high-confidence diagnosis, then accepts only a small number of exact unique replacements in an allowlist of runtime/companion source and documentation files. Credentials, core/plugins, deployment/system files, and arbitrary paths are rejected. Candidate Python/XML is validated before atomic replacement; failed writes trigger rollback. The action never installs, restarts, builds, commits, or pushes. Architecture invariants above remain the repair safety boundary.
 
 
 ### v27 runtime stability

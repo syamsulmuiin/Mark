@@ -18,6 +18,13 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.28 - Safe audio ingress, Companion identity, and guarded diagnostic repair
+
+- Android audio ingress no longer blocks the OkHttp WebSocket callback thread when `AudioTrack` backpressure occurs; ingress and playback use separate bounded queues so ping/close processing remains live.
+- Launcher icon now uses a white `C` on the existing `#315DA8` background.
+- Android application label is now `Companion`.
+- Added a separate guarded diagnostic-apply action: explicit authorization, high-confidence diagnosis, exact allowlisted replacements, Python/XML validation, atomic writes, rollback on failure, and no restart/build/install/Git mutation.
+
 ## v60.27 - Ignore stale Android WebSocket callbacks
 
 - Ignore `onClosing` and `onFailure` callbacks from an old socket after a newer reconnect has taken ownership.

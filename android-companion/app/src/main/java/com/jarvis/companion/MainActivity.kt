@@ -87,8 +87,12 @@ class MainActivity : AppCompatActivity() {
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
     private val playbackQueue = LinkedBlockingQueue<ByteArray>(512)
+    // Never block OkHttp's WebSocket callback thread on AudioTrack backpressure.
+    // A blocked callback stops ping/close processing and can disconnect the device.
+    private val audioIngressQueue = LinkedBlockingQueue<ByteArray>(2048)
     @Volatile private var playbackRunning = false
     private var playbackThread: Thread? = null
+    private var audioIngressThread: Thread? = null
     @Volatile private var micRunning = false
     @Volatile private var voiceState = "DISCONNECTED"
     @Volatile private var reconnectScheduled = false
@@ -426,17 +430,24 @@ class MainActivity : AppCompatActivity() {
                     playAudio(next)
                 }
             }.apply { name="JarvisAudioPlayback"; isDaemon=true; start() }
+            audioIngressThread=Thread {
+                while(playbackRunning){
+                    val next=try{ audioIngressQueue.take() }catch(_:InterruptedException){ break }
+                    try{ playbackQueue.put(next) }catch(_:InterruptedException){ break }
+                }
+            }.apply { name="JarvisAudioIngress"; isDaemon=true; start() }
         }
-        try{
-            playbackQueue.put(pcm)
-        }catch(_:InterruptedException){
-            Thread.currentThread().interrupt()
+        if(!audioIngressQueue.offer(pcm)){
+            ui("Audio output backlog exceeded safe limit")
         }
     }
 
     private fun stopPlayback(){
         playbackRunning=false
+        audioIngressQueue.clear()
         playbackQueue.clear()
+        audioIngressThread?.interrupt()
+        audioIngressThread=null
         playbackThread?.interrupt()
         playbackThread=null
         releasePlayer()

@@ -101,6 +101,7 @@ SEARCH = "search"  # grounded search — REST only, see below
 LIVE = "live"
 
 from core.model_config import (
+    get_cooldown_policy,
     get_live_models,
     get_text_models,
 )
@@ -161,9 +162,11 @@ _cached_key: str | None = None
 
 # Cooldowns are intentionally different: quota refills, outages need time to
 # clear, and unavailable models should not be retried for every request.
-_COOLDOWN_SECONDS = 300
-_UNAVAILABLE_SECONDS = 30 * 60
-_GONE_SECONDS = 6 * 60 * 60
+_COOLDOWN_POLICY = get_cooldown_policy()
+_COOLDOWN_SECONDS = _COOLDOWN_POLICY["quota"]
+_UNAVAILABLE_SECONDS = _COOLDOWN_POLICY["unavailable"]
+_PERMISSION_SECONDS = _COOLDOWN_POLICY["permission"]
+_GONE_SECONDS = _COOLDOWN_POLICY["gone"]
 _cooldown: dict[str, float] = {}
 _cool_lock = threading.Lock()
 
@@ -190,15 +193,22 @@ def is_unavailable_error(error: str) -> bool:
     )
 
 
+def is_permission_error(error: str) -> bool:
+    text = str(error)
+    lower = text.lower()
+    return (
+        "403" in text
+        or "permission_denied" in lower
+        or "permission denied" in lower
+    )
+
+
 def is_gone_error(error: str) -> bool:
     text = str(error)
     lower = text.lower()
     return (
         "404" in text
-        or "403" in text
         or "not found" in lower
-        or "permission_denied" in lower
-        or "permission denied" in lower
         or "is not supported" in lower
     )
 
@@ -215,6 +225,9 @@ def note_failure(model: str, error: str) -> bool:
         return True
     if is_unavailable_error(error):
         _cool(model, _UNAVAILABLE_SECONDS)
+        return True
+    if is_permission_error(error):
+        _cool(model, _PERMISSION_SECONDS)
         return True
     if is_gone_error(error):
         _cool(model, _GONE_SECONDS)
@@ -237,6 +250,9 @@ def note_live_failure(model: str, error: str) -> bool:
         return True
     if is_unavailable_error(error):
         _cool(model, _UNAVAILABLE_SECONDS)
+        return True
+    if is_permission_error(error):
+        _cool(model, _PERMISSION_SECONDS)
         return True
     if is_gone_error(error):
         _cool(model, _GONE_SECONDS)

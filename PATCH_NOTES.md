@@ -1,4 +1,10 @@
-## v60.37 - Pairing rejection diagnostics
+## v60.38 - Smoother Companion audio and barge-in protection
+
+- Enabled Android Acoustic Echo Cancellation and Noise Suppression when available on the microphone session.
+- Raised the barge-in confirmation threshold and required a longer sustained voice window to prevent speaker echo/noise from repeatedly interrupting assistant audio.
+- Increased the Android streaming `AudioTrack` buffer headroom to reduce underruns during bursty network delivery.
+- Added a server `device_interrupt` boundary event so future choppy-response reports can distinguish real user interruption from transport or playback failure.
+
 
 - Pairing claim failures are now recorded as bounded operator diagnostics with the exact server reason, without storing pairing codes, signatures, or keys.
 - Android now displays the server's pairing error (`pairing_expired`, `pairing_code_invalid`, `peer_signature_invalid`, and similar) instead of only showing `HTTP 400`.

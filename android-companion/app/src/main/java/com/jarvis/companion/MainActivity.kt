@@ -85,6 +85,8 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var assistantTurnComplete = false
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
     private var player: AudioTrack? = null
     private val playbackQueue = LinkedBlockingQueue<ByteArray>(512)
     // Never block OkHttp's WebSocket callback thread on AudioTrack backpressure.
@@ -119,8 +121,8 @@ class MainActivity : AppCompatActivity() {
     }
     @Volatile private var lastInterruptAt = 0L
     private var voicedFrames = 0
-    private val interruptLevelThreshold = 0.08f
-    private val interruptFrameCount = 3
+    private val interruptLevelThreshold = 0.16f
+    private val interruptFrameCount = 6
     private val interruptCooldownMs = 800L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
@@ -437,6 +439,14 @@ class MainActivity : AppCompatActivity() {
         if(micRunning)return
         val min=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(2048)
         recorder=AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,min*2)
+        recorder?.let { input ->
+            if (AcousticEchoCanceler.isAvailable()) {
+                echoCanceler = AcousticEchoCanceler.create(input.audioSessionId)?.apply { enabled = true }
+            }
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(input.audioSessionId)?.apply { enabled = true }
+            }
+        }
         recorder?.startRecording(); micRunning=true
         Thread {
             val buf=ByteArray(1024)
@@ -461,7 +471,16 @@ class MainActivity : AppCompatActivity() {
             }
         }.apply { name="JarvisPhoneMic"; isDaemon=true; start() }
     }
-    private fun stopMic(){ micRunning=false; try{recorder?.stop()}catch(_:Exception){}; recorder?.release(); recorder=null }
+    private fun stopMic(){
+        micRunning=false
+        try{recorder?.stop()}catch(_:Exception){}
+        recorder?.release()
+        recorder=null
+        try{echoCanceler?.release()}catch(_:Exception){}
+        echoCanceler=null
+        try{noiseSuppressor?.release()}catch(_:Exception){}
+        noiseSuppressor=null
+    }
     private val audioLock=Any()
 
     private fun enqueueAudio(pcm:ByteArray){
@@ -539,7 +558,7 @@ class MainActivity : AppCompatActivity() {
                 val created=AudioTrack.Builder()
                     .setAudioAttributes(attrs)
                     .setAudioFormat(format)
-                    .setBufferSizeInBytes(min*4)
+                    .setBufferSizeInBytes(min*8)
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
                 if(created.state!=AudioTrack.STATE_INITIALIZED){

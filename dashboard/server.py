@@ -1204,6 +1204,7 @@ class DashboardServer:
                     elif msg.get("type") == "jarvis.interrupt":
                         # Same interruption path as the desktop keyboard/UI: stop
                         # the current answer immediately and reopen listening.
+                        _interaction_event("device_interrupt", device_id=device_id)
                         if self._interrupt_callback:
                             self._interrupt_callback()
                     elif msg.get("type") == "jarvis.heartbeat":

@@ -1,3 +1,10 @@
+## v60.39 - Pace bursty Live audio relay
+
+- Paces server-to-Companion PCM relay against 24 kHz mono playback time instead of forwarding provider bursts immediately.
+- Drops incomplete odd-byte PCM tails at the relay boundary to preserve sample alignment.
+- Resets relay pacing on interruption so a new response is not delayed by stale queued audio.
+- This addresses the observed pattern where `audio_out` frames were emitted in a tight burst and the Companion later sounded intermittent.
+
 ## v60.38 - Smoother Companion audio and barge-in protection
 
 - Enabled Android Acoustic Echo Cancellation and Noise Suppression when available on the microphone session.

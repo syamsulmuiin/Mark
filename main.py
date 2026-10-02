@@ -481,6 +481,10 @@ class JarvisLive:
         # handed to the device far faster than they play, so "now" ran the lips
         # ahead of the words and cut every schedule short. 0 = nothing playing.
         self._play_cursor          = 0.0
+        # Monotonic deadline used to pace PCM relay to the companion. Gemini can
+        # deliver many audio frames in one burst; forwarding them immediately
+        # overloads the client queue and sounds intermittent on mobile networks.
+        self._audio_relay_cursor   = 0.0
         self.ui.on_push_to_talk   = self.set_push_to_talk
         self.ui.ptt_hold          = self._on_ptt
         self.ui.on_text_command   = self._on_text_command
@@ -916,6 +920,7 @@ class JarvisLive:
         # The words we were about to mouth are never going to be spoken now.
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
+        self._audio_relay_cursor = 0.0
         if self._turn_done_event:
             self._turn_done_event.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
@@ -2055,7 +2060,19 @@ class JarvisLive:
                     break
             if self._dashboard:
                 try:
+                    # Keep relay cadence close to 24 kHz mono PCM real time. The
+                    # provider often returns a large burst; sending that burst
+                    # immediately makes the companion queue underrun later.
+                    if len(batch) & 1:
+                        batch = batch[:-1]
+                    if not batch:
+                        continue
+                    now = time.monotonic()
+                    if self._audio_relay_cursor < now:
+                        self._audio_relay_cursor = now
+                    await asyncio.sleep(max(0.0, self._audio_relay_cursor - now))
                     await self._dashboard.send_device_audio(bytes(batch))
+                    self._audio_relay_cursor += len(batch) / 48_000.0
                 except Exception as exc:
                     print(f"[SERVER] companion audio relay error: {exc}")
 

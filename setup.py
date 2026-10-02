@@ -51,8 +51,8 @@ def _venv_python() -> Path:
 
 def _ensure_browser_runtime() -> None:
     """Install the isolated Chromium runtime used by headless server browsing."""
-    if os.environ.get("MARK_LIV_SKIP_BROWSER_INSTALL") == "1":
-        print("[Setup] Skipping Playwright Chromium install (MARK_LIV_SKIP_BROWSER_INSTALL=1).")
+    if os.environ.get("SKIP_BROWSER_INSTALL") == "1":
+        print("[Setup] Skipping Playwright Chromium install (SKIP_BROWSER_INSTALL=1).")
         return
     if _normalized_arch() not in {"x86_64", "arm64"}:
         print(f"[Setup] Skipping Playwright Chromium on unsupported architecture {_normalized_arch()}; web_search remains available.")
@@ -131,7 +131,7 @@ def main() -> None:
     print(f'  Enable autostart: "{python_cmd}" main.py --enable')
     print("  Install a companion separately on the device that provides UI/audio/control.")
     print("  Server browser automation uses isolated Chromium in headless mode on display-less hosts.")
-    print("  Set MARK_LIV_SKIP_BROWSER_INSTALL=1 to skip that optional runtime install.")
+    print("  Set SKIP_BROWSER_INSTALL=1 to skip that optional runtime install.")
 
 
 if __name__ == "__main__":

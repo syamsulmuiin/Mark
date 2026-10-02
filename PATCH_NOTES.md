@@ -1,8 +1,12 @@
-## v60.34 - Single server browser setup dependency
+## v60.35 - Generic browser setup variable
+
+- Replaced the product-specific `MARK_LIV_SKIP_BROWSER_INSTALL` environment variable with generic `SKIP_BROWSER_INSTALL`.
+- Audited environment/configuration identifiers used by server, Android build, desktop companion, browser runtime, and CI. Existing `ASSISTANT_*` variables are retained as the established cross-component generic assistant configuration contract; no new product-specific variable remains in the browser setup path.
+
 
 - Kept `playwright` in the single root `requirements.txt`; removed the redundant `requirements-browser.txt` extra.
 - First-time `setup.py` now installs isolated Chromium on supported architectures for headless server browser automation.
-- Added `MARK_LIV_SKIP_BROWSER_INSTALL=1` for deployments that intentionally provide only server-side `web_search`.
+- Added `SKIP_BROWSER_INSTALL=1` for deployments that intentionally provide only server-side `web_search`.
 - Updated architecture, README, and browser workflow documentation to remove the obsolete separate-browser-install instructions.
 - Headless browser search falls back from Google's anti-automation interstitial to DuckDuckGo while preserving the encoded query and browser session.
 

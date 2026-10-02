@@ -171,7 +171,7 @@ Server file-transfer data uses a single-copy SHA-256 object store under project-
 
 The normal deployment configuration is `config/network.json`. Supported environment overrides include the public hostname, dashboard/transport ports, discovery port, and local host settings.
 
-Playwright and its isolated Chromium runtime are part of the normal headless server setup on supported architectures. Set `MARK_LIV_SKIP_BROWSER_INSTALL=1` only when the server should provide `web_search` without host browser automation.
+Playwright and its isolated Chromium runtime are part of the normal headless server setup on supported architectures. Set `SKIP_BROWSER_INSTALL=1` only when the server should provide `web_search` without host browser automation.
 
 ## Security model
 

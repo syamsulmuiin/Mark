@@ -110,6 +110,7 @@ def _trace_event(event: str, **fields) -> None:
         pass
 
 from core import gemini as _gemini
+from core.runtime_errors import Boundary, ErrorAction, classify_error
 from core.model_config import get_live_model
 LIVE_MODEL          = get_live_model()
 CHANNELS            = 1
@@ -2463,11 +2464,20 @@ class JarvisLive:
 
                 err_str = _flat_err
                 _err_lower = _flat_lower
+                decision = classify_error(Boundary.LIVE_SESSION, e)
+                _trace_event(
+                    "runtime_error",
+                    boundary=decision.boundary.value,
+                    category=decision.category,
+                    action=decision.action.value,
+                    retryable=decision.retryable,
+                )
 
                 # A provider/model failure should select the next compatible
                 # Live rung; transport failures must keep the current model and
                 # use normal reconnect backoff instead.
-                if _gemini.note_live_failure(live_model, err_str):
+                if (decision.action is ErrorAction.MODEL_FAILOVER
+                        and _gemini.note_live_failure(live_model, err_str)):
                     next_live_model = _gemini.live_model()
                     if next_live_model != live_model:
                         self.ui.write_log(

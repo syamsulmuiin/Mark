@@ -44,6 +44,7 @@ from core.device_mesh import DeviceMesh
 from core.file_store import ObjectStore
 from core.attachment_inbox import AttachmentInbox
 from core.cloudflare_tunnel import NamedTunnel, enabled as cloudflare_enabled, public_url as cloudflare_public_url
+from core.runtime_errors import Boundary, classify_error
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
 STATIC_DIR  = Path(__file__).parent / "static"
 PORT        = DASHBOARD_PORT
@@ -651,8 +652,15 @@ class DashboardServer:
         try:
             await ws.send_bytes(pcm)
             _interaction_event("audio_out", device_id=device_id, bytes=len(pcm))
-        except Exception:
-            _interaction_event("audio_out_failed", device_id=device_id, bytes=len(pcm))
+        except Exception as exc:
+            decision = classify_error(Boundary.COMPANION_SOCKET, exc)
+            _interaction_event(
+                "audio_out_failed",
+                device_id=device_id,
+                bytes=len(pcm),
+                category=decision.category,
+                action=decision.action.value,
+            )
             self._device_sockets.pop(device_id, None)
             if self._active_voice_device == device_id:
                 self._active_voice_device = None
@@ -680,6 +688,16 @@ class DashboardServer:
             _interaction_event("capability_call", device_id=device_id, capability=capability)
             await ws.send_json({"type":"capability.call", "call_id":call_id, "capability":capability, "args":args or {}})
             return await asyncio.wait_for(fut, timeout=timeout)
+        except Exception as exc:
+            decision = classify_error(Boundary.COMPANION_SOCKET, exc)
+            _interaction_event(
+                "capability_failed",
+                device_id=device_id,
+                capability=capability,
+                category=decision.category,
+                action=decision.action.value,
+            )
+            raise
         finally:
             self._device_pending_calls.pop(call_id, None)
 

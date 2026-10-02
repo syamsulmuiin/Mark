@@ -909,7 +909,7 @@ class DashboardServer:
         @app.middleware("http")
         async def native_companions_only(req: Request, call_next):
             path = req.url.path
-            allowed = (path.startswith("/api/pairing/offer/") or path == "/api/pairing/accept" or path in ("/api/local/pairing/new", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/") or path.startswith("/api/transfer/"))
+            allowed = (path in ("/api/pairing/request", "/api/pairing/claim", "/api/local/pairing/new", "/api/local/pairing/pending", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/") or path.startswith("/api/transfer/"))
             if not allowed:
                 return JSONResponse({"error": "Install a MARK LIV companion client to access this server."}, status_code=404)
             return await call_next(req)
@@ -940,12 +940,14 @@ class DashboardServer:
             rec = self._mesh.get(device_id)
             return JSONResponse({"known": bool(rec and not rec.get("revoked"))})
 
-        @app.get("/api/pairing/offer/{code}")
-        async def pairing_offer_public(code: str):
-            offer = self._mesh.pending_offer(code)
-            if not offer:
-                return JSONResponse({"error": "Pairing code invalid or expired"}, status_code=404)
-            return JSONResponse(offer)
+        @app.post("/api/pairing/request")
+        async def pairing_request(req: Request):
+            try:
+                body = await req.json()
+                result = self._mesh.create_pairing_request(body.get("peer") or {})
+                return JSONResponse(result)
+            except Exception as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
 
         @app.get("/api/local/health")
         async def local_health(req: Request):
@@ -954,13 +956,29 @@ class DashboardServer:
                 return JSONResponse({"error": "local access only"}, status_code=403)
             return JSONResponse({"service": "MARK-LIV", "status": "ready", "pid": os.getpid()})
 
+        @app.get("/api/local/pairing/pending")
+        async def local_pairing_pending(req: Request):
+            host = req.client.host if req.client else ""
+            if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
+                return JSONResponse({"error": "local access only"}, status_code=403)
+            return JSONResponse({"pending": self._mesh.pending_requests()})
+
         @app.post("/api/local/pairing/new")
         async def local_pairing_new(req: Request):
             host = req.client.host if req.client else ""
             if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
                 return JSONResponse({"error": "local access only"}, status_code=403)
-            offer = self.new_pairing_offer()
-            return JSONResponse({"code": offer["code"], "expires_at": offer["expires_at"], "url": self.get_pairing_url(offer)})
+            try:
+                body = await req.json()
+            except Exception:
+                body = {}
+            pairing_id = str(body.get("pairing_id") or "").strip()
+            if not pairing_id:
+                return JSONResponse({"error": "pairing_id is required; request pairing from the companion first"}, status_code=400)
+            try:
+                return JSONResponse(self._mesh.issue_pairing_code(pairing_id))
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
 
         @app.get("/", response_class=HTMLResponse)
         async def index():
@@ -1084,34 +1102,17 @@ class DashboardServer:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
             return JSONResponse(self._mesh.create_pairing_offer())
 
-        @app.post("/api/pairing/accept")
-        async def pairing_accept(req: Request):
+        @app.post("/api/pairing/claim")
+        async def pairing_claim(req: Request):
             try:
                 body = await req.json()
-                peer = body.get("peer") or {}
-                new_id = str(peer.get("device_id") or "").strip()
-                peer_name = str(peer.get("name") or new_id).strip()
-                # An explicit Pair Code authorizes replacement, but only when the
-                # stale target is unambiguous: exactly one non-revoked, offline peer
-                # has the same companion-reported name. Never guess between duplicates.
-                replacement_candidates = [
-                    d.get("device_id") for d in self._mesh.list_devices()
-                    if d.get("device_id") != new_id
-                    and not d.get("revoked")
-                    and str(d.get("name") or "").strip() == peer_name
-                    and d.get("device_id") not in self._device_sockets
-                ]
-                replace_ids = replacement_candidates if len(replacement_candidates) == 1 else []
-                rec = self._mesh.accept_pairing(
-                    body.get("code", ""), peer, body.get("signature", ""),
-                    body.get("capabilities"), replace_device_ids=replace_ids,
+                rec = self._mesh.claim_pairing_request(
+                    body.get("pairing_id", ""),
+                    body.get("code", ""),
+                    body.get("signature", ""),
+                    body.get("capabilities"),
                 )
-                replaced = list(rec.get("replaced_device_ids") or [])
-                if replaced and self._origin_device_id in replaced:
-                    self._origin_device_id = new_id
-                if replaced and self._active_voice_device in replaced:
-                    self._active_voice_device = new_id
-                return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k:v for k,v in rec.items() if k != "public_key"}})
+                return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k: v for k, v in rec.items() if k != "public_key"}})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 

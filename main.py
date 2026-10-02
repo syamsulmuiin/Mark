@@ -2616,7 +2616,7 @@ def main(argv=None):
     if mode=="stop": _stop_server(); return
     if mode=="enable": _autostart_enable(); return
     if mode=="disable": _autostart_disable(); return
-    if mode=="pair": _pair_device(); return
+    if mode.startswith("pair:"): _pair_device(mode.split(":", 1)[1] or None); return
     from core.runtime_log import configure_runtime_log
     _, logfile = _runtime_paths()
     configure_runtime_log(logfile)

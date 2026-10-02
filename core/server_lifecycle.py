@@ -144,18 +144,27 @@ def _spawn_server():
     return None
 
 
-def _pair_device():
-    """Create a short-lived pairing code on an already running headless server."""
+def _pair_device(pairing_id: str | None = None):
+    """Issue a one-time operator code for an existing companion request."""
     if not _server_pid() or not _local_server_ready():
         print("MARK LIV server is not running. Start it first with --start.")
         return
     try:
         import urllib.request as _ur, json as _json
-        req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/new", method="POST", headers={"X-Jarvis-Local": "1"})
+        if not pairing_id:
+            req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/pending", method="GET", headers={"X-Jarvis-Local": "1"})
+            with _ur.urlopen(req, timeout=3) as r:
+                data = _json.loads(r.read().decode("utf-8"))
+            print(_json.dumps(data, indent=2))
+            print("Use --pairing-id <id> to issue one code after reviewing the request.")
+            return
+        payload = _json.dumps({"pairing_id": pairing_id}).encode("utf-8")
+        req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/new", data=payload, method="POST", headers={"X-Jarvis-Local": "1", "Content-Type": "application/json"})
         with _ur.urlopen(req, timeout=3) as r:
             data = _json.loads(r.read().decode("utf-8"))
         print(f"MARK LIV Pair Code: {data['code']}")
-        print("Expires in: 10 minutes")
+        print(f"Pairing request: {data['pairing_id']}")
+        print("Code is one-time and expires with the pairing request.")
     except Exception as exc:
         print(f"Could not create Pair Code: {exc}")
 
@@ -234,13 +243,14 @@ def _runtime_mode(argv=None):
     g.add_argument("--enable",action="store_true",help="enable autostart and start server")
     g.add_argument("--stop",action="store_true",help="stop server")
     g.add_argument("--disable",action="store_true",help="disable autostart")
-    g.add_argument("--pair",action="store_true",help="create a Pair Code for a new companion")
+    g.add_argument("--pair",action="store_true",help="list pending companion pairing requests or issue a code")
+    parser.add_argument("--pairing-id", help="pending pairing request ID to approve")
     g.add_argument("--server-worker",action="store_true",help=argparse.SUPPRESS)
     a=parser.parse_args(argv)
     if a.start:return "start"
     if a.enable:return "enable"
     if a.stop:return "stop"
     if a.disable:return "disable"
-    if a.pair:return "pair"
+    if a.pair:return f"pair:{a.pairing_id or ''}"
     return "worker"
 

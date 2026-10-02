@@ -18,6 +18,11 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.25 - Hermes launcher icon parity
+
+- Set the Android Companion launcher and round launcher icon to the same blue square and white Hermes mark used by the Hermes Companion APK.
+- Keep the application label and pairing-only behavior unchanged.
+
 ## v60.24 - Android transcript speaker emphasis and camera permission recovery
 
 - Render `YOU:` and `JARVIS:` as explicit bold speaker labels in the streaming transcript while keeping cumulative deltas replaceable and deduplicated.

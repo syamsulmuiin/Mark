@@ -18,6 +18,11 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.27 - Ignore stale Android WebSocket callbacks
+
+- Ignore `onClosing` and `onFailure` callbacks from an old socket after a newer reconnect has taken ownership.
+- Prevent stale callbacks from stopping the active microphone/playback path or clearing the current WebSocket, which could leave the conversation connected on the server but silent on the device.
+
 ## v60.26 - Device socket ownership and end-conversation icon
 
 - Close a stale device WebSocket when a newer authenticated connection for the same paired device arrives, preventing audio/results from being routed to an old socket during reconnect.

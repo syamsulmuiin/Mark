@@ -353,8 +353,20 @@ class MainActivity : AppCompatActivity() {
                 setVoiceState("SPEAKING")
                 enqueueAudio(bytes.toByteArray())
             }
-            override fun onClosing(w:WebSocket,code:Int,reason:String){ stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
-            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
+            override fun onClosing(w:WebSocket,code:Int,reason:String){
+                // A stale socket may close after a newer reconnect has already
+                // taken ownership. Never let that old callback stop the active
+                // microphone/playback session or null the current socket.
+                if(ws !== w) return
+                stopMic(); stopPlayback(); ws=null
+                if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() }
+            }
+            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){
+                if(ws !== w) return
+                stopMic(); stopPlayback(); ws=null
+                runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
+                scheduleReconnect()
+            }
         })
     }
 

@@ -81,6 +81,12 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var playbackRunning = false
     private var playbackThread: Thread? = null
     @Volatile private var micRunning = false
+    @Volatile private var voiceState = "DISCONNECTED"
+    @Volatile private var lastInterruptAt = 0L
+    private var voicedFrames = 0
+    private val interruptLevelThreshold = 0.08f
+    private val interruptFrameCount = 3
+    private val interruptCooldownMs = 800L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
     private val serverBase: String get() = prefs.getString("server", BuildConfig.MARK_LIV_PUBLIC_URL) ?: BuildConfig.MARK_LIV_PUBLIC_URL
@@ -314,11 +320,16 @@ class MainActivity : AppCompatActivity() {
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
-                    "log"->{ appendTranscript(m.optString("speaker"),m.optString("text")); if(m.optString("speaker")=="jarvis") setVoiceState("LISTENING") }
+                    "log"->{
+                        if(!m.optBoolean("progress",false)) appendTranscript(m.optString("speaker"),m.optString("text"))
+                    }
                     "capability.call"->executeCapability(w,m)
                 }
             } catch(_:Exception){ ui("Invalid message from JARVIS") } }
-            override fun onMessage(w:WebSocket,bytes:ByteString){ setVoiceState("SPEAKING"); enqueueAudio(bytes.toByteArray()) }
+            override fun onMessage(w:WebSocket,bytes:ByteString){
+                setVoiceState("SPEAKING")
+                enqueueAudio(bytes.toByteArray())
+            }
             override fun onClosing(w:WebSocket,code:Int,reason:String){ stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
             override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
         })
@@ -352,7 +363,25 @@ class MainActivity : AppCompatActivity() {
         recorder?.startRecording(); micRunning=true
         Thread {
             val buf=ByteArray(1024)
-            while(micRunning){ val n=try{recorder?.read(buf,0,buf.size)?:-1}catch(_:Exception){-1}; if(n>0){ orb.audioLevel(pcmLevel(buf,n)); ws?.send(ByteString.of(*buf.copyOf(n))) } }
+            while(micRunning){
+                val n=try{recorder?.read(buf,0,buf.size)?:-1}catch(_:Exception){-1}
+                if(n>0){
+                    val level=pcmLevel(buf,n)
+                    orb.audioLevel(level)
+                    if(level >= interruptLevelThreshold) voicedFrames++ else voicedFrames=0
+                    val now=android.os.SystemClock.elapsedRealtime()
+                    if(voicedFrames >= interruptFrameCount &&
+                        (voiceState=="SPEAKING" || voiceState=="THINKING") &&
+                        now-lastInterruptAt >= interruptCooldownMs){
+                        lastInterruptAt=now
+                        voicedFrames=0
+                        ws?.send(JSONObject().put("type","jarvis.interrupt").toString())
+                        stopPlayback()
+                        setVoiceState("LISTENING")
+                    }
+                    ws?.send(ByteString.of(*buf.copyOf(n)))
+                }
+            }
         }.apply { name="JarvisPhoneMic"; isDaemon=true; start() }
     }
     private fun stopMic(){ micRunning=false; try{recorder?.stop()}catch(_:Exception){}; recorder?.release(); recorder=null }
@@ -460,7 +489,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){ super.onRequestPermissionsResult(requestCode,permissions,grantResults); if(requestCode==42){ if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startMic() else ui("Microphone permission is required for Live Voice") } }
 
-    private fun setVoiceState(s:String)=runOnUiThread { status.text=s.lowercase().replaceFirstChar { it.uppercase() }; orb.state=s }
+    private fun setVoiceState(s:String){
+        voiceState=s.uppercase()
+        runOnUiThread { status.text=s.lowercase().replaceFirstChar { it.uppercase() }; orb.state=s }
+    }
     private val transcriptTurns = ArrayDeque<String>()
     private fun appendTranscript(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"

@@ -43,6 +43,14 @@ def test_ladders_include_multiple_fallback_rungs(gemini):
     assert gemini.LIVE_MODELS[1]
 
 
+def test_live_model_failover_skips_cooled_model(gemini):
+    first, second = gemini.LIVE_MODELS[:2]
+    gemini._cool(first, seconds=300)
+    assert gemini.live_model() == second
+    assert gemini.note_live_failure(second, "503 UNAVAILABLE")
+    assert gemini.live_model() == first
+
+
 def test_call_skips_resting_model_and_uses_next(monkeypatch, gemini):
     gemini._LADDERS[gemini.FAST] = ("first", "second")
     gemini._cool("first", seconds=300)

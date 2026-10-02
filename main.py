@@ -109,6 +109,7 @@ def _trace_event(event: str, **fields) -> None:
     except Exception:
         pass
 
+from core import gemini as _gemini
 from core.model_config import get_live_model
 LIVE_MODEL          = get_live_model()
 CHANNELS            = 1
@@ -2320,6 +2321,7 @@ class JarvisLive:
             asyncio.create_task(self._process_dashboard_commands())
 
         while True:
+            live_model = _gemini.live_model()
             try:
                 if self._dashboard:
                     self._dashboard.set_phone_audio_enabled(False)
@@ -2337,7 +2339,7 @@ class JarvisLive:
                 )
 
                 async with (
-                    client.aio.live.connect(model=LIVE_MODEL, config=config) as session,
+                    client.aio.live.connect(model=live_model, config=config) as session,
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session          = session
@@ -2359,7 +2361,7 @@ class JarvisLive:
                     self._phone_last_voice     = 0.0
 
                     print("[JARVIS] Connected.")
-                    _trace_event("live_connected", model=LIVE_MODEL, session=self._session_generation)
+                    _trace_event("live_connected", model=live_model, session=self._session_generation)
                     if self._recovery_context_pending:
                         self.ui.write_log("SYS: Reconnected — conversation context recovered locally.")
                         self._recovery_context_pending = False
@@ -2461,6 +2463,19 @@ class JarvisLive:
 
                 err_str = _flat_err
                 _err_lower = _flat_lower
+
+                # A provider/model failure should select the next compatible
+                # Live rung; transport failures must keep the current model and
+                # use normal reconnect backoff instead.
+                if _gemini.note_live_failure(live_model, err_str):
+                    next_live_model = _gemini.live_model()
+                    if next_live_model != live_model:
+                        self.ui.write_log(
+                            f"SYS: Live model unavailable — switching to {next_live_model}."
+                        )
+                        self._conn_backoff = 0
+                        continue
+
                 # Gemini Live sends GoAway when a finite live session reaches its
                 # duration limit. Treat that as a normal rollover and reconnect
                 # with the latest session-resumption handle instead of dumping a

@@ -192,6 +192,8 @@ This mode is intentionally read-only: report the diagnosis and proposed change, 
 - Do not request mouse/cursor positioning on Android or other touch companions. Use accessibility/UI nodes and bounds through the companion instead.
 
 
+- BROWSER INTERACTION ON COMPANION: when the user explicitly asks to open or use a browser on the originating Android companion, call `call_current_device` with `browser.open` or `browser.search`, then use `android.ui.inspect` -> `android.ui.click`/`android.ui.text`/`android.ui.scroll` -> inspect again. Use the returned `view_id`; never use coordinates. Keep cookies/session and visible interaction on the phone. Do not call server-local `browser_control` for this origin-device request.
+
 - APPLICATION-AGNOSTIC DEVICE AUTOMATION: all companion applications are controlled through the same generic device capabilities. Application names, package names, websites, contacts, symbols, media titles, modes, document names, and other domain values are target data only; they must never select a special automation policy or an application-specific UI workflow.
 - Do not create or rely on per-application instructions or application-specific UI branches. Discover the current UI from the companion inspection capability and act on the controls that actually exist.
 - Generic device primitives are the automation interface: launch/close an application, inspect UI, click a discovered element or bounds, enter ordinary text into a discovered editable field, scroll, perform supported global navigation, inspect again, and verify the resulting state.

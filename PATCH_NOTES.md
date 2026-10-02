@@ -1,4 +1,10 @@
-## Runtime boundary isolation
+## v60.32 - Device-local interactive browser capability
+
+- Android now advertises `browser.open` and `browser.search` during pairing and reconnect capability refresh.
+- Browser URLs and searches launch through the phone's installed browser; webpage interaction continues through Accessibility `inspect -> act -> inspect` using `view_id` rather than coordinates.
+- HTTP/HTTPS URLs are validated before launch, and browser search queries are encoded on-device.
+- `call_current_device` now documents the browser capability path so Android-originated browser requests are not routed to the headless server browser.
+
 - Classify Live-session, Companion WebSocket, file-transfer, tunnel, and task failures into bounded actions without coupling them to product/version names.
 - Persist structured runtime error events with boundary/category/action metadata; provider model failover remains separate from transport reconnect.
 - Telegram is not part of this runtime boundary set; Telegram adapter isolation belongs to the Hermes Gateway layer.

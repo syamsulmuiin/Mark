@@ -329,7 +329,7 @@ class MainActivity : AppCompatActivity() {
         pairLoading("Memverifikasi pairing…")
         val ident = identity()
         val signature = sign("$pairingId:$code:$nonce".toByteArray())
-        val caps = org.json.JSONArray(listOf("jarvis.command", "notification", "vibration", "clipboard.write", "open_url", "app.launch", "app.close", "android.settings.open", "camera.capture", "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click", "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"))
+        val caps = org.json.JSONArray(listOf("jarvis.command", "notification", "vibration", "clipboard.write", "open_url", "browser.open", "browser.search", "app.launch", "app.close", "android.settings.open", "camera.capture", "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click", "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"))
         val body = JSONObject().put("pairing_id", pairingId).put("code", code).put("signature", signature).put("capabilities", caps)
         val request = Request.Builder().url("${serverBase}/api/pairing/claim")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
@@ -351,7 +351,7 @@ class MainActivity : AppCompatActivity() {
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
             override fun onMessage(w:WebSocket,text:String){ try {
                 val m=JSONObject(text); when(m.optString("type")){
-                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
+                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","browser.open","browser.search","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
                     "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
                     "attachment.sent"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(sentAttachmentItems){ sentAttachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); sentAttachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog() } }
                     "attachment.sent.new", "attachment.sent.update"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(sentAttachmentItems){ sentAttachmentItems[item.getString("id")]=item }; runOnUiThread { refreshAttachmentDialog() } } }
@@ -647,7 +647,25 @@ class MainActivity : AppCompatActivity() {
         "notification"->{ val nm=getSystemService(NotificationManager::class.java); val cid="jarvis"; if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(NotificationChannel(cid,"JARVIS",NotificationManager.IMPORTANCE_DEFAULT)); nm.notify((System.currentTimeMillis()%Int.MAX_VALUE).toInt(),Notification.Builder(this,cid).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("JARVIS").setContentText(a.optString("text")).build()) }
         "vibration"->{ val v=if(Build.VERSION.SDK_INT>=31)getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") getSystemService(VIBRATOR_SERVICE) as Vibrator; v.vibrate(VibrationEffect.createOneShot(a.optLong("ms",300),VibrationEffect.DEFAULT_AMPLITUDE)) }
         "clipboard.write"->{ (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("JARVIS",a.optString("text"))) }
-        "open_url"->{ startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(a.getString("url"))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        "open_url", "browser.open"->{
+            val rawUrl=a.optString("url").trim().ifBlank { error("URL is required") }
+            val parsed=Uri.parse(rawUrl)
+            if(parsed.scheme !in listOf("http","https")){ error("Only http/https browser URLs are supported") }
+            startActivity(Intent(Intent.ACTION_VIEW,parsed).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            result="opened browser: $rawUrl"
+        }
+        "browser.search"->{
+            val query=a.optString("query").trim().ifBlank { error("Search query is required") }
+            val engine=a.optString("engine","google").lowercase()
+            val base=when(engine){
+                "bing"->"https://www.bing.com/search?q="
+                "duckduckgo"->"https://duckduckgo.com/?q="
+                else->"https://www.google.com/search?q="
+            }
+            val searchUrl=base+Uri.encode(query)
+            startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(searchUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            result="opened browser search: $query"
+        }
         "app.launch"->{ val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }; val pkg=resolveAppPackage(query)?:error("App not found: $query"); val i=packageManager.getLaunchIntentForPackage(pkg)?:error("App has no launch activity: $pkg"); startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); result="opened $pkg" }
         "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("home") }
         "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page" }

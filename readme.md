@@ -102,6 +102,8 @@ inspect -> choose next generic action -> act -> inspect -> verify
 
 Generic companion primitives include application launch/close, UI inspection, click/tap, ordinary text entry, scrolling, supported global navigation, and verification.
 
+Android browser interaction is device-local: `browser.open` or `browser.search` launches the phone's installed browser, then `android.ui.inspect` -> `android.ui.click`/`android.ui.text`/`android.ui.scroll` -> inspect again controls the visible webpage. Browser cookies and sessions remain on the phone. Server `browser_control` must not replace an Android-originated browser request.
+
 The same mechanism applies to applications installed after MARK-LIV was built. A missing predefined application recipe is not a reason to hand normal UI work back to the user. When a requested target is not visible, JARVIS should inspect and use available navigation/search/scroll/text/select operations, then inspect again.
 
 Legacy server actions may still provide backend computation or content retrieval, but they must not become an application-specific substitute for companion UI control.

@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
     private var playbackThread: Thread? = null
     @Volatile private var micRunning = false
     @Volatile private var voiceState = "DISCONNECTED"
+    @Volatile private var reconnectScheduled = false
     @Volatile private var lastInterruptAt = 0L
     private var voicedFrames = 0
     private val interruptLevelThreshold = 0.08f
@@ -313,6 +314,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connect(){
+        if(ws != null) return
         intentionalVoiceEnd = false
         val server=prefs.getString("server",null)?:return; val id=identity().first
         val wsBase=server.replaceFirst("https://","wss://").replaceFirst("http://","ws://")
@@ -332,7 +334,7 @@ class MainActivity : AppCompatActivity() {
                     "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
-                    "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
+                    "ready"->{ reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
                     "transcript.delta"->{ updateTranscriptDelta(m.optString("speaker"),m.optString("text")) }
@@ -353,21 +355,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun scheduleReconnect(){
         if(intentionalVoiceEnd) return
-
-        if(!prefs.getBoolean("paired",false)) return
-
+        synchronized(this){ if(reconnectScheduled) return; reconnectScheduled=true }
+        if(!prefs.getBoolean("paired",false)){ reconnectScheduled=false; return }
         window.decorView.postDelayed({
-
+            reconnectScheduled=false
             if(!intentionalVoiceEnd && ws==null && prefs.getBoolean("paired",false)){
-
                 showVoice()
-
                 connect()
-
             }
-
         },1500)
-
     }
 
 

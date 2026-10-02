@@ -364,6 +364,7 @@ This file replaces the obsolete notes for the former GUI/CLI/background architec
 
 - Added provider rollover backoff to stop Gemini Live session-expiry reconnect storms while preserving the paired device WebSocket.
 - Added Android reconnect de-duplication so simultaneous `onClosing`/`onFailure` callbacks cannot create competing device sockets.
+- Increased Android PCM playback buffering and stopped dropping audio chunks when the queue briefly fills, preventing audible sentence gaps during bursty Gemini output.
 - Added parallel `transcript.delta` delivery for live input/output speech while audio is still streaming.
 - Preserved unfinished input/output as explicit partial transcript entries on provider rollover and disabled/drained phone audio immediately when the receive loop fails.
 - Updated Android transcript rendering to replace the current streaming turn with the final transcript instead of adding duplicate fragments.

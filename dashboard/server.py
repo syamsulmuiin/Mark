@@ -1127,6 +1127,16 @@ class DashboardServer:
                 live_caps = proof.get("capabilities")
                 if isinstance(live_caps, list) and live_caps:
                     rec = self._mesh.set_capabilities(device_id, [str(c) for c in live_caps if str(c).strip()])
+                # A reconnecting companion can arrive before the previous socket
+                # has completed its disconnect callback. Keep exactly one socket
+                # owner per paired device; otherwise audio/results can be routed
+                # to a stale connection while the new connection appears ready.
+                previous = self._device_sockets.get(device_id)
+                if previous is not None and previous is not websocket:
+                    try:
+                        await previous.close(code=4008, reason="replaced by newer device connection")
+                    except Exception:
+                        pass
                 self._device_sockets[device_id] = websocket
                 self._mesh.touch(device_id)
                 _interaction_event("device_ready", device_id=device_id)

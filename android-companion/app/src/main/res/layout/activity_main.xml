@@ -57,7 +57,7 @@
 
         <FrameLayout android:layout_width="match_parent" android:layout_height="72dp" android:layout_marginTop="6dp">
             <Button android:id="@+id/startConversation" android:visibility="gone" android:text="@string/start_conversation" android:textColor="#001417" android:textSize="15sp" android:textStyle="bold" android:drawableStart="@drawable/ic_voice_wave" android:drawablePadding="12dp" android:gravity="center" android:paddingLeft="24dp" android:paddingRight="24dp" android:background="@drawable/bg_start_conversation" android:layout_width="wrap_content" android:minWidth="230dp" android:layout_height="58dp" android:layout_gravity="center"/>
-            <ImageButton android:id="@+id/endConversation" android:src="@drawable/ic_close" android:tint="#FFFFFF" android:scaleType="center" android:padding="18dp" android:background="@drawable/bg_end_circle" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="@string/end_conversation"/>
+            <ImageButton android:id="@+id/endConversation" android:src="@drawable/ic_close" android:tint="#FFFFFF" android:scaleType="centerInside" android:padding="16dp" android:background="@drawable/bg_end_circle" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="@string/end_conversation"/>
         </FrameLayout>
     </LinearLayout>
 </FrameLayout>

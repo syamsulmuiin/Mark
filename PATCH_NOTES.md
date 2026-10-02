@@ -18,6 +18,11 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.26 - Device socket ownership and end-conversation icon
+
+- Close a stale device WebSocket when a newer authenticated connection for the same paired device arrives, preventing audio/results from being routed to an old socket during reconnect.
+- Strengthen the end-conversation control with a larger, thicker close mark inside the existing proportional circular button.
+
 ## v60.25 - Hermes launcher icon parity
 
 - Set the Android Companion launcher and round launcher icon to the same blue square and white Hermes mark used by the Hermes Companion APK.

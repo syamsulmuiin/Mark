@@ -18,6 +18,11 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.30 - Companion title and bounded thinking recovery
+
+- Manifest application label is explicitly `Companion`, overriding the previous hardcoded `JARVIS Companion` title.
+- Android exits an unproductive `THINKING` state after 60 seconds by closing only the current socket and using the guarded reconnect path; normal `LISTENING`/`SPEAKING` states cancel the watchdog.
+
 ## v60.29 - WebSocket keepalive and bounded reconnect backoff
 
 - Android WebSocket uses zero read/write timeouts, connection retry support, and a 15-second protocol ping interval.

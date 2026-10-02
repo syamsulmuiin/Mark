@@ -107,6 +107,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    private val thinkingWatchdog = Runnable {
+        if (voiceState == "THINKING" && !intentionalVoiceEnd) {
+            ui("Respons terlalu lama, menyambungkan ulang…")
+            val current = ws
+            ws = null
+            heartbeatHandler.removeCallbacks(heartbeatRunnable)
+            current?.close(1012, "thinking watchdog")
+            scheduleReconnect()
+        }
+    }
     @Volatile private var lastInterruptAt = 0L
     private var voicedFrames = 0
     private val interruptLevelThreshold = 0.08f
@@ -553,6 +563,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun setVoiceState(s:String){
         voiceState=s.uppercase()
+        heartbeatHandler.removeCallbacks(thinkingWatchdog)
+        if(voiceState=="THINKING") heartbeatHandler.postDelayed(thinkingWatchdog,60000L)
         runOnUiThread { status.text=s.lowercase().replaceFirstChar { it.uppercase() }; orb.state=s }
     }
     private val transcriptTurns = ArrayDeque<String>()

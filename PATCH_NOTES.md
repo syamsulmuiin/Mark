@@ -18,6 +18,12 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.31 - Transcript snapshot recovery after reconnect
+
+- Server replays the last bounded conversation entries when the companion reconnects.
+- Android replaces its transcript buffer from the snapshot instead of losing visible history after a socket close.
+- The visible transcript window increases from 4 to 20 entries while retaining bounded memory.
+
 ## v60.30 - Companion title and bounded thinking recovery
 
 - Manifest application label is explicitly `Companion`, overriding the previous hardcoded `JARVIS Companion` title.

@@ -367,6 +367,20 @@ class MainActivity : AppCompatActivity() {
                     "ready"->{ reconnectScheduled=false; reconnectDelayMs=1500L; heartbeatHandler.removeCallbacks(heartbeatRunnable); heartbeatHandler.postDelayed(heartbeatRunnable,15000L); runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
+                    "conversation.snapshot"->{
+                        val arr=m.optJSONArray("entries")?:JSONArray()
+                        runOnUiThread {
+                            transcriptTurns.clear()
+                            for(i in 0 until arr.length()){
+                                val item=arr.optJSONObject(i)?:continue
+                                val who=if(item.optString("speaker").equals("user",true)) "YOU" else "JARVIS"
+                                transcriptTurns.addLast("$who\u0000${item.optString("text")}")
+                            }
+                            streamingSpeaker=""; streamingText=""
+                            renderTranscript(transcriptTurns.map { it.substringBefore("\u0000") to it.substringAfter("\u0000") })
+                            transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
+                        }
+                    }
                     "transcript.delta"->{ updateTranscriptDelta(m.optString("speaker"),m.optString("text")) }
                     "log"->{
                         if(!m.optBoolean("progress",false)) appendTranscript(m.optString("speaker"),m.optString("text"))
@@ -572,7 +586,7 @@ class MainActivity : AppCompatActivity() {
     private var streamingText = ""
     private fun renderTranscript(lines:List<Pair<String,String>>){
         val out=SpannableStringBuilder()
-        lines.takeLast(4).forEachIndexed { index, item ->
+        lines.takeLast(20).forEachIndexed { index, item ->
             if(index>0) out.append("\n\n")
             val label="${item.first}:"
             val start=out.length

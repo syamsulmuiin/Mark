@@ -2225,6 +2225,21 @@ class JarvisLive:
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
         self.ui.notify_phone_connected()
+        if self._dashboard and self._session_log:
+            entries = []
+            for row in self._session_log[-20:]:
+                speaker, sep, text = row.partition(":")
+                if not sep or not text.strip():
+                    continue
+                entries.append({
+                    "speaker": "user" if speaker.strip().lower() in {"you", "user"} else "jarvis",
+                    "text": text.strip(),
+                })
+            if entries:
+                asyncio.create_task(self._dashboard.broadcast({
+                    "type": "conversation.snapshot",
+                    "entries": entries,
+                }))
 
     async def _run_scheduled_workflows(self) -> None:
         """Execute only schedules explicitly created by the user.

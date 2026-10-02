@@ -1,3 +1,10 @@
+## v60.41 - Reduce false barge-in during Companion playback
+
+- Increased the Android interrupt threshold from `0.16` to `0.22`.
+- Required 14 consecutive voiced frames instead of 6 before interrupting assistant speech, approximately 0.9 seconds at the configured microphone frame size.
+- Increased interrupt cooldown to 1.5 seconds.
+- This targets the observed repeated `activity_start`/`device_interrupt` pattern while assistant audio was still being relayed, which can make a valid response appear silent or incomplete when speaker echo is detected as user speech.
+
 ## v60.40 - Remove artificial 120-second Live reconnect
 
 - Removed the client watchdog that forcibly rebuilt Gemini Live every 120 seconds.

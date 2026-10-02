@@ -123,9 +123,9 @@ class MainActivity : AppCompatActivity() {
     }
     @Volatile private var lastInterruptAt = 0L
     private var voicedFrames = 0
-    private val interruptLevelThreshold = 0.16f
-    private val interruptFrameCount = 6
-    private val interruptCooldownMs = 800L
+    private val interruptLevelThreshold = 0.22f
+    private val interruptFrameCount = 14
+    private val interruptCooldownMs = 1500L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
     private val serverBase: String get() = prefs.getString("server", BuildConfig.ASSISTANT_PUBLIC_URL) ?: BuildConfig.ASSISTANT_PUBLIC_URL

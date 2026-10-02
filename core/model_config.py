@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
+DEFAULT_LIVE_MODEL = "models/gemini-3.8-live"
 DEFAULT_LIVE_FALLBACK_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 DEFAULT_TEXT_MODEL = "gemini-flash-latest"
 DEFAULT_TEXT_FALLBACK_MODEL = "gemini-flash-lite-latest"

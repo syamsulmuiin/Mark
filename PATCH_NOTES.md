@@ -1,3 +1,10 @@
+## v60.43 - Move Live default off unstable 3.1 preview
+
+- Changed the default Gemini Live model from the observed `gemini-3.1-flash-live-preview` path to the current `gemini-3.8-live` model identifier.
+- Kept `gemini-2.5-flash-native-audio-preview-12-2025` as the explicit fallback.
+- The previous runtime showed repeated provider `1011 Internal error` and `1008 The operation was aborted` closures after pairing; these were provider-session failures, not pairing failures.
+- Model failover remains bounded and preserves conversation context without exposing provider credentials.
+
 ## v60.42 - Add local speech-shape gate for barge-in
 
 - Kept Android Acoustic Echo Cancellation and Noise Suppression enabled when available.

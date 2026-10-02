@@ -527,19 +527,6 @@ class DashboardServer:
         self._pending_keys[key] = now + expiry_secs
         return key
 
-    def new_pairing_offer(self, expiry_secs: int = 600) -> dict:
-        return self._mesh.create_pairing_offer(ttl=expiry_secs)
-
-    def get_pairing_url(self, offer: dict) -> str:
-        # Carry the JARVIS public identity in the QR. Native companions use this
-        # as the out-of-band trust anchor when the LAN dashboard uses a locally
-        # generated/self-signed TLS certificate.
-        from urllib.parse import quote
-        base = self.get_remote_url()
-        return (f"{base}/pair?code={quote(offer['code'])}"
-                f"&server_id={quote(self._mesh.device_id)}"
-                f"&server_key={quote(self._mesh.public_key)}")
-
     @staticmethod
     def _ssl_enabled() -> bool:
         certs = BASE_DIR / "config" / "certs"
@@ -1095,12 +1082,6 @@ class DashboardServer:
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
             return JSONResponse({"local": self._mesh.public_identity(), "devices": self._mesh.list_devices()})
-
-        @app.post("/api/pairing/offer")
-        async def pairing_offer(req: Request):
-            if not _auth(req):
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            return JSONResponse(self._mesh.create_pairing_offer())
 
         @app.post("/api/pairing/claim")
         async def pairing_claim(req: Request):

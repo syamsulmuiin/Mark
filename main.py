@@ -715,13 +715,10 @@ class JarvisLive:
                 "Run: pip install fastapi \"uvicorn[standard]\" cryptography"
             )
             return None
-        offer  = self._dashboard.new_pairing_offer()
-        url    = self._dashboard.get_remote_url()
-        manual = self._dashboard.get_manual_url()
-        # Keep the existing overlay contract: its QR target is now the secure
-        # device-pairing page, while the displayed six-character value remains
-        # useful as a human-verifiable pairing code.
-        return url, offer["code"], self._dashboard.get_pairing_url(offer), manual
+        self.ui.write_log(
+            "SYS: Remote pairing now requires a companion-issued request and operator-approved one-time code."
+        )
+        return None
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:

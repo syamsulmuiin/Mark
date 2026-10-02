@@ -172,45 +172,6 @@ class DeviceMesh:
             self._pending.pop(pairing_id, None)
             return dict(rec)
 
-        now, nonce = int(time.time()), secrets.token_urlsafe(24)
-        code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
-        offer = {**self.public_identity(), "nonce": nonce, "code": code, "expires_at": now + int(ttl)}
-        canonical = json.dumps(offer, sort_keys=True, separators=(",", ":")).encode()
-        offer["signature"] = self.sign(canonical)
-        with self._lock: self._pending[code] = {"nonce": nonce, "expires_at": offer["expires_at"], "offer": dict(offer)}
-        return offer
-
-    def pending_offer(self, code):
-        code = str(code or "").upper()
-        with self._lock:
-            pending = self._pending.get(code)
-            if not pending or pending["expires_at"] < time.time():
-                self._pending.pop(code, None)
-                return None
-            return dict(pending.get("offer") or {})
-
-    def accept_pairing(self, code, peer, signature, capabilities=None, replace_device_ids=None):
-        with self._lock: pending = self._pending.pop(str(code).upper(), None)
-        if not pending or pending["expires_at"] < time.time(): raise ValueError("pairing code invalid or expired")
-        required = (pending["nonce"] + ":" + str(code).upper()).encode()
-        if not self.verify(peer.get("public_key", ""), required, signature): raise ValueError("peer signature verification failed")
-        did = str(peer.get("device_id", "")).strip()
-        if not did: raise ValueError("peer device_id missing")
-        caps = sorted(set(capabilities or DEFAULT_CAPABILITIES))
-        rec = {"device_id": did, "name": str(peer.get("name") or did), "public_key": peer["public_key"],
-               "capabilities": caps, "paired_at": int(time.time()), "last_seen": int(time.time()), "revoked": False}
-        replaced = []
-        with self._lock:
-            for old_id in sorted(set(map(str, replace_device_ids or []))):
-                if old_id != did and old_id in self._trusted:
-                    self._trusted.pop(old_id, None)
-                    replaced.append(old_id)
-            self._trusted[did] = rec
-            self._atomic(self.trust_path, self._trusted)
-        result = dict(rec)
-        result["replaced_device_ids"] = replaced
-        return result
-
     def list_devices(self):
         with self._lock: return [{k:v for k,v in r.items() if k != "public_key"} for r in self._trusted.values()]
     def get(self, device_id): return self._trusted.get(device_id)

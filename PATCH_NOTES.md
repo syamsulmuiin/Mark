@@ -362,7 +362,7 @@ This file replaces the obsolete notes for the former GUI/CLI/background architec
 
 ## v60.25 - Mark source capability synchronization
 
-- Added provider rollover backoff to stop Gemini Live session-expiry reconnect storms while preserving the paired device WebSocket.
+- Added proactive provider-session rollover at 120 seconds, before the observed ~155-second Gemini hard expiry, so conversations recover through a controlled context-preserving reconnect instead of an abrupt provider close.
 - Added Android reconnect de-duplication so simultaneous `onClosing`/`onFailure` callbacks cannot create competing device sockets.
 - Increased Android PCM playback buffering and stopped dropping audio chunks when the queue briefly fills, preventing audible sentence gaps during bursty Gemini output.
 - Added parallel `transcript.delta` delivery for live input/output speech while audio is still streaming.

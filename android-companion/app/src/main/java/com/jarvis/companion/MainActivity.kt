@@ -15,6 +15,8 @@ import android.os.*
 import android.provider.Settings
 import android.provider.MediaStore
 import android.view.View
+import android.text.Editable
+import android.text.TextWatcher
 import android.text.TextUtils
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -44,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var pairStatus: TextView
     private lateinit var pairCode: EditText
+    private lateinit var pairProgress: View
+    private lateinit var pairProgressText: TextView
     private lateinit var pairPanel: View
     private lateinit var voicePanel: View
     private lateinit var orb: JarvisOrbView
@@ -95,11 +99,22 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(state)
         setContentView(R.layout.activity_main)
         status=findViewById(R.id.status); pairStatus=findViewById(R.id.pairStatus); pairCode=findViewById(R.id.pairCode)
+        pairProgress=findViewById(R.id.pairProgress); pairProgressText=findViewById(R.id.pairProgressText)
         pairPanel=findViewById(R.id.pairPanel); voicePanel=findViewById(R.id.voicePanel)
         orb=findViewById(R.id.orb); transcript=findViewById(R.id.transcript); transcriptScroll=findViewById(R.id.transcriptScroll); endConversation=findViewById(R.id.endConversation)
         startConversation=findViewById(R.id.startConversation); phoneControl=findViewById(R.id.phoneControl); attachmentBadge=findViewById(R.id.attachmentBadge)
         findViewById<Button>(R.id.requestPairing).setOnClickListener { requestPairing() }
         findViewById<Button>(R.id.pair).setOnClickListener { pairWithCode(pairCode.text.toString()) }
+        findViewById<ImageButton>(R.id.pairMenu).setOnClickListener { showPhoneControlMenu(it) }
+        pairCode.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                findViewById<Button>(R.id.pair).isEnabled = s?.length == 8
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        findViewById<Button>(R.id.pair).isEnabled = pairCode.text.length == 8
+        findViewById<Button>(R.id.requestPairing).text = if (prefs.contains("pending_pairing_id")) "Minta kode baru" else "Minta kode pairing"
         endConversation.setOnClickListener { endVoice() }
         startConversation.setOnClickListener { connect() }
         phoneControl.setOnClickListener { showPhoneControlMenu(it) }
@@ -224,7 +239,8 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message; pairStatus.visibility=if(message.isBlank()) View.GONE else View.VISIBLE } }
+    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairProgress.visibility=View.GONE; pairStatus.text=message; pairStatus.visibility=if(message.isBlank()) View.GONE else View.VISIBLE } }
+    private fun pairLoading(message:String){ runOnUiThread { pairProgressText.text=message; pairProgress.visibility=View.VISIBLE; pairStatus.visibility=View.GONE; findViewById<Button>(R.id.pair).isEnabled=false; findViewById<Button>(R.id.requestPairing).isEnabled=false } }
 
     private fun identity(): Triple<String,ByteArray,ByteArray> {
         var id=prefs.getString("device_id",null); var priv=prefs.getString("private",null)
@@ -238,8 +254,7 @@ class MainActivity : AppCompatActivity() {
     private fun verify(pub:String,data:ByteArray,sig:String):Boolean = try { val v=Ed25519Signer(); v.init(false,Ed25519PublicKeyParameters(unb64(pub),0)); v.update(data,0,data.size); v.verifySignature(unb64(sig)) } catch(_:Exception){false}
 
     private fun requestPairing() {
-        pairStatus.text = "Meminta permintaan pairing…"
-        pairStatus.visibility = View.VISIBLE
+        pairLoading("Meminta permintaan pairing…")
         val ident = identity()
         val peer = JSONObject().put("device_id", ident.first).put("name", Build.MODEL).put("public_key", b64(ident.third))
         val request = Request.Builder()
@@ -261,6 +276,7 @@ class MainActivity : AppCompatActivity() {
                         .putString("server_id", o.getJSONObject("local").getString("device_id"))
                         .apply()
                     pairUi("Permintaan dibuat. Minta kode satu kali dari operator, lalu masukkan di bawah.")
+                    runOnUiThread { findViewById<Button>(R.id.requestPairing).text = "Minta kode baru" }
                 } catch (_: Exception) { pairUi("Respons pairing tidak valid") }
             }}
         })
@@ -279,8 +295,7 @@ class MainActivity : AppCompatActivity() {
             pairStatus.visibility = View.VISIBLE
             return
         }
-        pairStatus.text = "Memverifikasi pairing…"
-        pairStatus.visibility = View.VISIBLE
+        pairLoading("Memverifikasi pairing…")
         val ident = identity()
         val signature = sign("$pairingId:$code:$nonce".toByteArray())
         val caps = org.json.JSONArray(listOf("jarvis.command", "notification", "vibration", "clipboard.write", "open_url", "app.launch", "app.close", "android.settings.open", "camera.capture", "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click", "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"))
@@ -877,7 +892,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy(){ stopMic(); stopPlayback(); ws?.close(1000,"activity closed"); super.onDestroy() }
     private fun ui(s:String)=runOnUiThread{status.text=s}
-    private fun pairUi(s:String)=runOnUiThread{pairStatus.text=s; pairStatus.visibility=View.VISIBLE}
+    private fun pairUi(s:String)=runOnUiThread {
+        pairProgress.visibility=View.GONE
+        pairStatus.text=s
+        pairStatus.visibility=View.VISIBLE
+        findViewById<Button>(R.id.pair).isEnabled=pairCode.text.length==8
+        findViewById<Button>(R.id.requestPairing).isEnabled=true
+    }
     private fun b64(b:ByteArray)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b)
     private fun unb64(s:String)=java.util.Base64.getUrlDecoder().decode(s)
     private fun lanClient():OkHttpClient { val tm=object:X509TrustManager{override fun getAcceptedIssuers()=arrayOf<X509Certificate>();override fun checkClientTrusted(c:Array<X509Certificate>,a:String){};override fun checkServerTrusted(c:Array<X509Certificate>,a:String){}}; val sc=SSLContext.getInstance("TLS");sc.init(null,arrayOf<TrustManager>(tm),SecureRandom());return OkHttpClient.Builder().sslSocketFactory(sc.socketFactory,tm).hostnameVerifier{_,_->true}.pingInterval(20,TimeUnit.SECONDS).build() }

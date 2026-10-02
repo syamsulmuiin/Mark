@@ -1112,6 +1112,7 @@ class DashboardServer:
             if not rec or rec.get("revoked"):
                 await websocket.close(code=4001); return
             await websocket.accept()
+            disconnect_reason = "unknown"
             challenge = secrets.token_urlsafe(32)
             server_proof = self._mesh.sign((device_id + ":" + challenge).encode())
             await websocket.send_json({"type": "challenge", "challenge": challenge,
@@ -1288,10 +1289,17 @@ class DashboardServer:
                         _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
                         fut = self._device_pending_calls.pop(call_id, None)
                         if fut and not fut.done(): fut.set_result(msg)
-            except (WebSocketDisconnect, asyncio.TimeoutError, KeyError):
-                pass
+            except WebSocketDisconnect as exc:
+                disconnect_reason = f"websocket_disconnect:{getattr(exc, 'code', 'unknown')}"
+            except asyncio.TimeoutError:
+                disconnect_reason = "timeout"
+            except KeyError as exc:
+                disconnect_reason = f"key_error:{exc}"
+            except Exception as exc:
+                disconnect_reason = f"handler_error:{type(exc).__name__}"
+                print(f"[ERROR DeviceWebSocket] device={device_id} error={type(exc).__name__}: {exc}")
             finally:
-                _interaction_event("device_disconnect", device_id=device_id)
+                _interaction_event("device_disconnect", device_id=device_id, reason=disconnect_reason)
                 if self._device_sockets.get(device_id) is websocket:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:

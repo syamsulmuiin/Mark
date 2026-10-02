@@ -1,6 +1,6 @@
 # Desktop feature parity review
 
-This review compares the original `FatihMakes/Mark-LV` desktop UI and actions with the MARK LIV headless server and native desktop companion. The reference application ran the assistant and its GUI in one process. Server-owned controls now require a server interface, while hardware and desktop actions remain on the companion.
+This review compares the original `FatihMakes/Mark-LV` desktop UI and actions with the native desktop companion. The Mark UI has been moved to the Desktop Companion and extended with Mark-LIV pairing, device routing, recovery, and safety behavior. Server-owned operations use the headless server through the companion transport, while hardware and desktop actions remain device-local.
 
 | Original function | Current placement | Review result |
 |---|---|---|

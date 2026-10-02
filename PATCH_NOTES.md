@@ -23,7 +23,7 @@
 - Android audio ingress no longer blocks the OkHttp WebSocket callback thread when `AudioTrack` backpressure occurs; ingress and playback use separate bounded queues so ping/close processing remains live.
 - Launcher icon now uses a white `C` on the existing `#315DA8` background.
 - Android application label is now `Companion`.
-- Added a separate guarded diagnostic-apply action: explicit authorization, high-confidence diagnosis, exact allowlisted replacements, Python/XML validation, atomic writes, rollback on failure, and no restart/build/install/Git mutation.
+- Added a separate guarded diagnostic-apply action: explicit authorization, high-confidence diagnosis, exact allowlisted replacements, a total replacement-size budget instead of an arbitrary operation-count cap, Python/XML validation, atomic writes, rollback on failure, and an immutable self-repair implementation.
 
 ## v60.27 - Ignore stale Android WebSocket callbacks
 

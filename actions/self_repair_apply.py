@@ -16,8 +16,16 @@ from xml.etree import ElementTree
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 AUDIT_LOG = BASE_DIR / "runtime" / "repair_audit.log"
-MAX_OPERATIONS = 8
 MAX_REPLACEMENT_CHARS = 12000
+MAX_TOTAL_REPLACEMENT_CHARS = 60000
+
+# These files remain immutable through the guarded repair path, even if the
+# allowlist is expanded later. The repair mechanism must not repair itself.
+PROTECTED_SELF_REPAIR = {
+    "actions/self_repair_apply.py",
+    "actions/self_repair_diagnostic.py",
+    "core/self_healing.py",
+}
 
 ALLOWED_EXACT = {
     "main.py",
@@ -38,7 +46,10 @@ FORBIDDEN_TERMS = (
 
 
 def _allowed(rel: str) -> bool:
-    return rel in ALLOWED_EXACT or any(rel.startswith(p) and rel.endswith(".xml") for p in ALLOWED_PREFIXES)
+    return (
+        rel not in PROTECTED_SELF_REPAIR
+        and (rel in ALLOWED_EXACT or any(rel.startswith(p) and rel.endswith(".xml") for p in ALLOWED_PREFIXES))
+    )
 
 
 def _audit(message: str) -> None:
@@ -67,11 +78,12 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
         return "Repair rejected: only high-confidence diagnoses may be applied."
 
     operations = params.get("operations")
-    if not isinstance(operations, list) or not operations or len(operations) > MAX_OPERATIONS:
-        return f"Repair rejected: provide 1-{MAX_OPERATIONS} exact operations."
+    if not isinstance(operations, list) or not operations:
+        return "Repair rejected: provide at least one exact operation."
 
     prepared: list[tuple[Path, str, str, str]] = []
     seen: set[str] = set()
+    total_replacement_chars = 0
     for item in operations:
         if not isinstance(item, dict):
             return "Repair rejected: each operation must be an object."
@@ -82,6 +94,9 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
             return f"Repair rejected: file or operation is outside the allowlist: {rel or '<missing>'}."
         if not old or old == new or len(new) > MAX_REPLACEMENT_CHARS:
             return f"Repair rejected: invalid replacement for {rel}."
+        total_replacement_chars += len(new)
+        if total_replacement_chars > MAX_TOTAL_REPLACEMENT_CHARS:
+            return "Repair rejected: total replacement size exceeds the safety budget."
         if _contains_forbidden(rel + "\n" + old + "\n" + new):
             return f"Repair rejected: sensitive or lifecycle content is not editable: {rel}."
         path = BASE_DIR / rel

@@ -335,6 +335,7 @@ class MainActivity : AppCompatActivity() {
                     "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
+                    "transcript.delta"->{ updateTranscriptDelta(m.optString("speaker"),m.optString("text")) }
                     "log"->{
                         if(!m.optBoolean("progress",false)) appendTranscript(m.optString("speaker"),m.optString("text"))
                     }
@@ -509,7 +510,19 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread { status.text=s.lowercase().replaceFirstChar { it.uppercase() }; orb.state=s }
     }
     private val transcriptTurns = ArrayDeque<String>()
+    private var streamingSpeaker = ""
+    private var streamingText = ""
+    private fun updateTranscriptDelta(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
+        val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
+        if(streamingSpeaker != who){ streamingSpeaker=who; streamingText="" }
+        streamingText=text
+        val rendered=ArrayList(transcriptTurns)
+        rendered.add("$who  $streamingText")
+        transcript.text=rendered.takeLast(4).joinToString("\n\n")
+        transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
+    }}
     private fun appendTranscript(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
+        streamingSpeaker=""; streamingText=""
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
         transcriptTurns.addLast("$who  $text")
         while(transcriptTurns.size > 4) transcriptTurns.removeFirst()

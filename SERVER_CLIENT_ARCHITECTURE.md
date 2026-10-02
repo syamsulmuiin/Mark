@@ -142,7 +142,10 @@ Voice routing and command routing remain separate. `call_current_device` targets
 
 The recovery path is transport-generic and does not depend on the application currently open on the companion.
 
-## Runtime error logging boundary
+## Live transcript streaming and rollover recovery
+
+Live input/output transcription is broadcast as `transcript.delta` while audio is still flowing. Companion clients render the current cumulative turn and replace it with the final `log` entry at `turn_complete`; progress/status events remain outside the transcript. If the provider session expires or the receive task fails before `turn_complete`, the server records bounded `You [partial]`/`JARVIS [partial]` entries, disables phone audio immediately, drains the phone queue, and reconnects with the preserved context. This keeps provider rollover separate from the authenticated device WebSocket.
+
 
 `runtime/error.log` is reserved for actionable diagnostics rather than a complete runtime transcript. The detached headless worker filters normal stdout so routine INFO/debug events, successful device/tool operations, connection-state chatter, and user/assistant transcript lines are not persisted in the error file.
 

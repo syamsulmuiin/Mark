@@ -362,6 +362,9 @@ This file replaces the obsolete notes for the former GUI/CLI/background architec
 
 ## v60.25 - Mark source capability synchronization
 
+- Added parallel `transcript.delta` delivery for live input/output speech while audio is still streaming.
+- Preserved unfinished input/output as explicit partial transcript entries on provider rollover and disabled/drained phone audio immediately when the receive loop fails.
+- Updated Android transcript rendering to replace the current streaming turn with the final transcript instead of adding duplicate fragments.
 - Added desktop-companion-local `video_player` parity for local files, direct media URLs, YouTube links/searches, stop, mute, and unmute.
 - Kept video resolution and Qt Multimedia playback on the paired desktop companion; the headless server does not gain PyQt or `yt-dlp` dependencies.
 - Added cancellation tokens so stopping a YouTube resolution prevents a late video from opening.

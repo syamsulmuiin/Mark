@@ -330,10 +330,22 @@ def _is_repeat_chunk(txt: str, buf: list) -> bool:
     joined = " ".join(buf)
     return txt in joined
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
+
+
+def _partial_transcript_entries(input_chunks: list[str], output_chunks: list[str], assistant_name: str) -> list[tuple[str, str]]:
+    """Return unfinished turn text so a provider rollover cannot erase context."""
+    entries = []
+    incoming = " ".join(x for x in input_chunks if x).strip()
+    outgoing = " ".join(x for x in output_chunks if x).strip()
+    if incoming:
+        entries.append(("user", incoming))
+    if outgoing:
+        entries.append(("jarvis", outgoing))
+    return entries
 
 from core.live_tools import TOOL_DECLARATIONS
 
@@ -1797,6 +1809,34 @@ class JarvisLive:
             self._vision_busy = False
         return True
 
+    def _broadcast_transcript_delta(self, speaker: str, text: str) -> None:
+        text = _clean_transcript(text)
+        if not text or not self._dashboard:
+            return
+        asyncio.create_task(self._dashboard.broadcast({
+            "type": "transcript.delta",
+            "speaker": speaker,
+            "text": text,
+            "final": False,
+            "ts": datetime.now().isoformat(),
+        }))
+
+    def _record_transcript_entry(self, speaker: str, text: str, partial: bool = False) -> None:
+        text = _clean_transcript(text)
+        if not text:
+            return
+        label = f"{self._asst_name} [partial]" if speaker == "jarvis" and partial else ("You [partial]" if speaker == "user" and partial else (self._asst_name if speaker == "jarvis" else "You"))
+        self.ui.write_log(f"{label}: {text}")
+        self._session_log.append(f"{label}: {text}")
+        if self._dashboard:
+            asyncio.create_task(self._dashboard.broadcast({
+                "type": "log",
+                "speaker": speaker,
+                "text": text,
+                "partial": partial,
+                "ts": datetime.now().isoformat(),
+            }))
+
     async def _receive_audio(self):
         print("[JARVIS] 👂 Recv started")
         out_buf, in_buf = [], []
@@ -1856,6 +1896,7 @@ class JarvisLive:
                             # twice AND made the avatar mouth it twice.
                             if txt and not _is_repeat_chunk(txt, out_buf):
                                 out_buf.append(txt)
+                                self._broadcast_transcript_delta("jarvis", " ".join(out_buf))
                                 # Hand the words to the mouth as they arrive, so
                                 # the avatar can form the consonants the audio
                                 # alone cannot show. Pure string work — it adds
@@ -1870,6 +1911,7 @@ class JarvisLive:
                                     self._attachment_turn = None
                                     self._blocked_device_action = None
                                 in_buf.append(txt)
+                                self._broadcast_transcript_delta("user", " ".join(in_buf))
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
@@ -1957,6 +1999,13 @@ class JarvisLive:
                         )
                         await self._flush_pending_vision()
         except Exception as e:
+            # Preserve the visible/input text even when the provider closes before
+            # turn_complete. The next session can continue from an explicit partial
+            # entry instead of silently losing the current turn.
+            for speaker, text in _partial_transcript_entries(in_buf, out_buf, self._asst_name):
+                self._record_transcript_entry(speaker, text, partial=True)
+            if self._dashboard:
+                self._dashboard.set_phone_audio_enabled(False)
             # The receive task sees normal Gemini Live session rollover first.
             # Let run() classify/reconnect it, but do not dump a traceback here;
             # otherwise an expected 1008/GoAway/transport rollover is printed

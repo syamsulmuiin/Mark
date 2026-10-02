@@ -171,7 +171,7 @@ Server file-transfer data uses a single-copy SHA-256 object store under project-
 
 The normal deployment configuration is `config/network.json`. Supported environment overrides include the public hostname, dashboard/transport ports, discovery port, and local host settings.
 
-Playwright/browser binaries are not installed automatically on the headless server. If server-side browser automation is intentionally required, install `requirements-browser.txt` separately on a supported platform.
+Playwright and its isolated Chromium runtime are part of the normal headless server setup on supported architectures. Set `MARK_LIV_SKIP_BROWSER_INSTALL=1` only when the server should provide `web_search` without host browser automation.
 
 ## Security model
 
@@ -222,13 +222,11 @@ Ending a voice conversation is terminal for that voice session. The companion re
 
 ### Server browser runtime
 
-The server installs the Playwright Python package because `browser_control` is a discoverable server action. Setup installs Chromium on x86_64 Windows/Linux/macOS hosts. ARM and other architectures keep the Python runtime but do not receive a forced browser binary install. Companion-origin UI and vision work remains on the companion.
+The server installs the Playwright Python package and, on supported architectures, the isolated Chromium runtime during `python setup.py`. This provides headless browser automation on display-less VPS hosts without requiring a desktop. Companion-origin UI and vision work remains on the companion.
 
 ### Host browser policy
 
-The Playwright Python API is a server dependency because `browser_control` is discoverable at runtime. MARK LIV does not download a separate Playwright-managed Chromium browser. Native navigation and interactive automation use compatible browsers installed on the host. If the requested browser cannot be located, interactive automation reports it as unavailable instead of silently substituting another browser.
-
-On Linux, browser metadata uses the detected machine architecture rather than assuming x86_64.
+The server browser context is isolated from Companion cookies and sessions. Display-less Linux uses headless Chromium; visible desktop hosts prefer the explicitly selected installed browser. If first-time Chromium installation is skipped or fails, `web_search` remains available and `browser_control` reports a bounded browser-runtime error.
 
 ### Generic persistent task continuity
 

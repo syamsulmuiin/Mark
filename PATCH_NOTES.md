@@ -1,4 +1,11 @@
-## v60.33 - Dual-path browser/search workflow
+## v60.34 - Single server browser setup dependency
+
+- Kept `playwright` in the single root `requirements.txt`; removed the redundant `requirements-browser.txt` extra.
+- First-time `setup.py` now installs isolated Chromium on supported architectures for headless server browser automation.
+- Added `MARK_LIV_SKIP_BROWSER_INSTALL=1` for deployments that intentionally provide only server-side `web_search`.
+- Updated architecture, README, and browser workflow documentation to remove the obsolete separate-browser-install instructions.
+- Headless browser search falls back from Google's anti-automation interstitial to DuckDuckGo while preserving the encoded query and browser session.
+
 
 - Server `browser_control` now selects visible mode when a desktop display is present and headless mode on display-less Linux hosts; `BROWSER_HEADLESS` can explicitly override detection.
 - Browser search queries use URL encoding instead of replacing only spaces, so punctuation and non-ASCII terms are preserved.
@@ -538,7 +545,7 @@ Network endpoints and ports now use `core/network_config.py` as the server sourc
 - Linux setup now creates and uses a project-local `.venv` when needed, avoiding PEP 668 system-Python installation failures on Debian/Ubuntu/Armbian.
 - Reduced root `requirements.txt` to headless server dependencies.
 - Moved desktop input, screen, camera, and local-control dependencies to `desktop-companion/requirements.txt`.
-- Moved Playwright to the optional `requirements-browser.txt` server extra and stopped automatic browser-binary installation.
+- Server browser automation is now a normal first-time setup capability: Playwright remains in the single root `requirements.txt`, and setup installs isolated Chromium where supported.
 - Removed desktop/audio post-install instructions from the server installer.
 - No existing source file was removed.
 

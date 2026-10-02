@@ -550,9 +550,10 @@ class _BrowserSession:
 
         headless = _headless_mode()
 
-        # Interactive automation must control an installed browser. On a VPS,
-        # the same Playwright session becomes headless instead of requiring X11.
-        if not exe and not channel:
+        # Visible desktop automation must control a host-installed browser.
+        # A display-less server may use the Chromium runtime installed by
+        # `python -m playwright install chromium` during first-time setup.
+        if not exe and not channel and not headless:
             raise RuntimeError(
                 f"Browser '{self.browser_name}' is not installed or could not be located on this host."
             )
@@ -695,8 +696,16 @@ class _BrowserSession:
         query = query.strip()
         if not query:
             return "Search query is required."
-        base = _SEARCH_ENGINES.get(engine.lower(), _SEARCH_ENGINES["google"])
-        return await self.go_to(base + quote_plus(query))
+        selected = engine.lower().strip()
+        base = _SEARCH_ENGINES.get(selected, _SEARCH_ENGINES["google"])
+        result = await self.go_to(base + quote_plus(query))
+        page = await self._get_page()
+        # Google may return an anti-automation interstitial in headless mode.
+        # Keep the requested search useful by falling back to DuckDuckGo while
+        # preserving the same browser session and encoded query.
+        if selected == "google" and ("google.com/sorry" in page.url or "unusual traffic" in (await page.inner_text("body")).lower()):
+            return await self.go_to(_SEARCH_ENGINES["duckduckgo"] + quote_plus(query))
+        return result
 
     async def click(self, selector: str = None, text: str = None) -> str:
         page = await self._get_page()

@@ -18,9 +18,9 @@ This path works on a headless VPS and does not require a desktop or visible brow
 
 Use server `browser_control` only when the user explicitly targets the server/host or a headless browser is required for a webpage workflow.
 
-1. Resolve an installed browser executable.
+1. Resolve the isolated Chromium runtime from first-time setup, or an explicitly selected installed browser executable.
 2. Use visible mode when a desktop display is available; automatically use headless mode on a display-less Linux host.
-3. Open or search with a URL-encoded query.
+3. Open or search with a URL-encoded query; if Google presents an anti-automation interstitial in headless mode, retry the same query through DuckDuckGo in the same isolated session.
 4. Inspect/read the page.
 5. Use semantic locators and bounded auto-waiting for click/type actions.
 6. Verify the URL, visible result, page text, or requested state after each action.

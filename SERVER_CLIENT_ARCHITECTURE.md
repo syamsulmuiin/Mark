@@ -165,7 +165,7 @@ Voice recovery distinguishes intentional session end from unexpected transport f
 
 ## Host browser runtime policy
 
-Server-side `browser_control` depends on the Playwright Python API and an installed compatible browser executable. On a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser executables are reported as unavailable; MARK LIV does not silently copy Companion cookies/session state to the server.
+Server-side `browser_control` depends on the Playwright Python API. First-time setup installs an isolated Chromium runtime on supported architectures; on a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser runtime is reported as unavailable; MARK LIV does not copy Companion cookies/session state to the server.
 
 This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host. Android browser workflows use `browser.open`/`browser.search` followed by `android.ui.inspect` -> action -> inspect verification.
 

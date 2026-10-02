@@ -18,6 +18,12 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.24 - Android transcript speaker emphasis and camera permission recovery
+
+- Render `YOU:` and `JARVIS:` as explicit bold speaker labels in the streaming transcript while keeping cumulative deltas replaceable and deduplicated.
+- Keep a pending `camera.capture` request while Android presents the camera permission prompt; execute it after approval or return a bounded denial result instead of failing the first request before permission can be granted.
+- Preserve the existing device-local camera implementation and pairing-only security boundary. No camera bytes or permissions are handled by the headless server.
+
 ## v60.23
 - Remove the unused desktop holographic-face renderer, mesh, model asset, and viseme module. The standard animated reactor core remains the only desktop HUD visual; update its desktop prompt accordingly.
 - Replace Android Received/Sent tab fills with transparent tabs and a cyan selected underline; match text weight and contrast to the main voice surface.

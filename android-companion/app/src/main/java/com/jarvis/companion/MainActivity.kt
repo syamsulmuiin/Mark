@@ -18,6 +18,10 @@ import android.view.View
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.TextUtils
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.graphics.Typeface
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -77,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     private var sourcePickerLatch: CountDownLatch? = null
     private var pickedSourceUri: Uri? = null
     private var pendingPickerRequestId: String? = null
+    private var pendingCameraRequest: Pair<WebSocket, JSONObject>? = null
     @Volatile private var assistantTurnComplete = false
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
@@ -497,7 +502,16 @@ class MainActivity : AppCompatActivity() {
         if(written<0) releasePlayer()
     }
 
-    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){ super.onRequestPermissionsResult(requestCode,permissions,grantResults); if(requestCode==42){ if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startMic() else ui("Microphone permission is required for Live Voice") } }
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==42){ if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startMic() else ui("Microphone permission is required for Live Voice") }
+        if(requestCode==43){
+            val pending=pendingCameraRequest
+            pendingCameraRequest=null
+            if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED && pending!=null) executeCapability(pending.first,pending.second)
+            else if(pending!=null) pending.first.send(JSONObject().put("type","capability.result").put("call_id",pending.second.optString("call_id")).put("ok",false).put("result","Camera permission was denied on the companion").toString())
+        }
+    }
 
     private fun setVoiceState(s:String){
         voiceState=s.uppercase()
@@ -506,21 +520,34 @@ class MainActivity : AppCompatActivity() {
     private val transcriptTurns = ArrayDeque<String>()
     private var streamingSpeaker = ""
     private var streamingText = ""
+    private fun renderTranscript(lines:List<Pair<String,String>>){
+        val out=SpannableStringBuilder()
+        lines.takeLast(4).forEachIndexed { index, item ->
+            if(index>0) out.append("\n\n")
+            val label="${item.first}:"
+            val start=out.length
+            out.append(label)
+            out.setSpan(StyleSpan(Typeface.BOLD),start,out.length,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            out.append("  ").append(item.second)
+        }
+        transcript.text=out
+    }
     private fun updateTranscriptDelta(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
         if(streamingSpeaker != who){ streamingSpeaker=who; streamingText="" }
         streamingText=text
-        val rendered=ArrayList(transcriptTurns)
-        rendered.add("$who  $streamingText")
-        transcript.text=rendered.takeLast(4).joinToString("\n\n")
+        val rendered=ArrayList<Pair<String,String>>()
+        transcriptTurns.forEach { row -> rendered.add(row.substringBefore("\u0000") to row.substringAfter("\u0000")) }
+        rendered.add(who to streamingText)
+        renderTranscript(rendered)
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
     private fun appendTranscript(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
         streamingSpeaker=""; streamingText=""
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
-        transcriptTurns.addLast("$who  $text")
+        transcriptTurns.addLast("$who\u0000$text")
         while(transcriptTurns.size > 4) transcriptTurns.removeFirst()
-        transcript.text=transcriptTurns.joinToString("\n\n")
+        renderTranscript(transcriptTurns.map { it.substringBefore("\u0000") to it.substringAfter("\u0000") })
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
     private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
@@ -528,6 +555,11 @@ class MainActivity : AppCompatActivity() {
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
     private fun executeCapability(w:WebSocket,m:JSONObject){ val cap=m.optString("capability"); val a=m.optJSONObject("args")?:JSONObject()
+        if(cap=="camera.capture" && ActivityCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){
+            pendingCameraRequest=w to m
+            runOnUiThread { ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.CAMERA),43) }
+            return
+        }
         if(cap=="file.upload" && a.optString("source").isBlank()){
             val latch=CountDownLatch(1); sourcePickerLatch=latch; pickedSourceUri=null
             runOnUiThread { try {

@@ -68,7 +68,7 @@ Diagnostic self-repair is user-initiated and conversational first: a vague error
 `main.py` remains the Live conversation orchestrator. Headless process lifecycle is isolated in `core/server_lifecycle.py`; Live-bound tool schemas are isolated in `core/live_tools.py`; model selection is centralized in `core/model_config.py`; and bounded worker stdout/stderr rotation is handled by `core/runtime_log.py`. This separation is structural only and does not move voice or device execution back onto the server.
 
 ### v32 network configuration centralization
-Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `MARK_LIV_PUBLIC_HOSTNAME`, `MARK_LIV_DASHBOARD_PORT`, `MARK_LIV_LAN_HTTPS_PORT`, `MARK_LIV_DISCOVERY_PORT`, and `MARK_LIV_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.MARK_LIV_PUBLIC_URL`, set at APK build time from `MARK_LIV_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
+Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `ASSISTANT_PUBLIC_HOSTNAME`, `ASSISTANT_DASHBOARD_PORT`, `ASSISTANT_LAN_HTTPS_PORT`, `ASSISTANT_DISCOVERY_PORT`, and `ASSISTANT_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.ASSISTANT_PUBLIC_URL`, set at APK build time from `ASSISTANT_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
 
 
 ## Default network configuration

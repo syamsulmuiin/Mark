@@ -62,7 +62,7 @@ class App:
         error_log.error('%s: %s: %s',context,type(exc).__name__,str(exc).split('?',1)[0])
         self.note(f'{context}: {exc}')
     def discover(self, code, timeout=4.0):
-        msg=json.dumps({'magic':'MARKLIV_DISCOVER_V1','code':code}).encode()
+        msg=json.dumps({'magic':'ASSISTANT_DISCOVER_V1','code':code}).encode()
         sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1); sock.settimeout(0.5)
         try:
             deadline=time.time()+timeout
@@ -70,14 +70,14 @@ class App:
                 sock.sendto(msg,('255.255.255.255',DISCOVERY_PORT))
                 try:
                     data,_=sock.recvfrom(4096); r=json.loads(data.decode())
-                    if r.get('magic')=='MARKLIV_DISCOVER_V1' and r.get('code')==code:return r['server'].rstrip('/')
+                    if r.get('magic')=='ASSISTANT_DISCOVER_V1' and r.get('code')==code:return r['server'].rstrip('/')
                 except socket.timeout: pass
             raise RuntimeError('Server with this Pair Code was not found on the local network')
         finally:sock.close()
     def discover_paired(self, timeout=4.0):
         """Find a paired server on the same LAN using mutual signed identity."""
         device_id=self.st['device_id']; nonce=secrets.token_urlsafe(24)
-        request={'magic':'MARKLIV_DISCOVER_V1','device_id':device_id,'nonce':nonce,
+        request={'magic':'ASSISTANT_DISCOVER_V1','device_id':device_id,'nonce':nonce,
                  'signature':b64(priv(self.st).sign(f'discover:{device_id}:{nonce}'.encode()))}
         sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1);sock.settimeout(.5)
@@ -90,7 +90,7 @@ class App:
                 try:
                     reply=json.loads(data.decode())
                     base=str(reply['server']).rstrip('/')
-                    if (reply.get('magic')=='MARKLIV_DISCOVER_V1' and reply.get('nonce')==nonce
+                    if (reply.get('magic')=='ASSISTANT_DISCOVER_V1' and reply.get('nonce')==nonce
                             and reply.get('device_id')==self.st.get('server_id')
                             and reply.get('public_key')==self.st.get('server_key')
                             and base.startswith('http://')

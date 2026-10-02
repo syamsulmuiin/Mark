@@ -64,7 +64,7 @@ def _check_python() -> None:
 
 
 def _ensure_linux_venv() -> None:
-    if OS != "Linux" or _in_venv() or os.environ.get("MARK_LIV_SETUP_IN_VENV") == "1":
+    if OS != "Linux" or _in_venv() or os.environ.get("ASSISTANT_SETUP_IN_VENV") == "1":
         return
     python = _venv_python()
     if not python.exists():
@@ -78,7 +78,7 @@ def _ensure_linux_venv() -> None:
                 f"Details: {exc}"
             ) from exc
     env = os.environ.copy()
-    env["MARK_LIV_SETUP_IN_VENV"] = "1"
+    env["ASSISTANT_SETUP_IN_VENV"] = "1"
     print(f"[Setup] Continuing inside {python}")
     result = subprocess.run([str(python), str(HERE / "setup.py")], cwd=HERE, env=env)
     raise SystemExit(result.returncode)

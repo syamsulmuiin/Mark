@@ -414,9 +414,9 @@ At minimum, compile changed Python modules with `python -m py_compile` and run Z
 - Reduced `main.py` from 2,548 to about 2,063 lines without changing Live-session behavior.
 - Moved headless server lifecycle/admin CLI helpers to `core/server_lifecycle.py`.
 - Moved Live-bound tool schemas to `core/live_tools.py`; file-backed actions remain auto-discovered from `actions/*.py`.
-- Added `core/model_config.py` as the server-side source of truth for Gemini model identifiers. Optional environment overrides: `MARK_LIV_LIVE_MODEL`, `MARK_LIV_TEXT_MODEL`, `MARK_LIV_TEXT_FALLBACK_MODEL`.
+- Added `core/model_config.py` as the server-side source of truth for Gemini model identifiers. Optional environment overrides: `ASSISTANT_LIVE_MODEL`, `ASSISTANT_TEXT_MODEL`, `ASSISTANT_TEXT_FALLBACK_MODEL`.
 - Kept the desktop companion standalone by mirroring the same model-config module inside its packaged runtime; Android does not embed Gemini model identifiers.
-- Added `core/runtime_log.py`. The server worker now owns `runtime/error.log` and rotates it at 5 MiB with five backups by default instead of allowing one file to grow forever. Optional overrides: `MARK_LIV_LOG_MAX_BYTES` and `MARK_LIV_LOG_BACKUPS`.
+- Added `core/runtime_log.py`. The server worker now owns `runtime/error.log` and rotates it at 5 MiB with five backups by default instead of allowing one file to grow forever. Optional overrides: `ASSISTANT_LOG_MAX_BYTES` and `ASSISTANT_LOG_BACKUPS`.
 - The launcher no longer leaves an inherited Windows file handle on `error.log`, allowing atomic rollover while the worker is running.
 - No user-facing features, routing behavior, voice behavior, reconnect policy, or scheduling cadence were changed.
 
@@ -427,7 +427,7 @@ At minimum, compile changed Python modules with `python -m py_compile` and run Z
 - No companion protocol, voice routing, Gemini lifecycle, scheduling, or tool behavior was changed.
 
 ### v32 network configuration centralization
-Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `MARK_LIV_PUBLIC_HOSTNAME`, `MARK_LIV_DASHBOARD_PORT`, `MARK_LIV_LAN_HTTPS_PORT`, `MARK_LIV_DISCOVERY_PORT`, and `MARK_LIV_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.MARK_LIV_PUBLIC_URL`, set at APK build time from `MARK_LIV_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
+Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `ASSISTANT_PUBLIC_HOSTNAME`, `ASSISTANT_DASHBOARD_PORT`, `ASSISTANT_LAN_HTTPS_PORT`, `ASSISTANT_DISCOVERY_PORT`, and `ASSISTANT_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.ASSISTANT_PUBLIC_URL`, set at APK build time from `ASSISTANT_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
 
 ## v33 — explicit default network config
 

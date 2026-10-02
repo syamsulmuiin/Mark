@@ -14,12 +14,12 @@ DEFAULT_TEXT_FALLBACK_MODEL = "gemini-flash-lite-latest"
 
 
 def get_live_model() -> str:
-    return os.getenv("MARK_LIV_LIVE_MODEL", DEFAULT_LIVE_MODEL).strip() or DEFAULT_LIVE_MODEL
+    return os.getenv("ASSISTANT_LIVE_MODEL", DEFAULT_LIVE_MODEL).strip() or DEFAULT_LIVE_MODEL
 
 
 def get_text_model() -> str:
-    return os.getenv("MARK_LIV_TEXT_MODEL", DEFAULT_TEXT_MODEL).strip() or DEFAULT_TEXT_MODEL
+    return os.getenv("ASSISTANT_TEXT_MODEL", DEFAULT_TEXT_MODEL).strip() or DEFAULT_TEXT_MODEL
 
 
 def get_text_fallback_model() -> str:
-    return os.getenv("MARK_LIV_TEXT_FALLBACK_MODEL", DEFAULT_TEXT_FALLBACK_MODEL).strip() or DEFAULT_TEXT_FALLBACK_MODEL
+    return os.getenv("ASSISTANT_TEXT_FALLBACK_MODEL", DEFAULT_TEXT_FALLBACK_MODEL).strip() or DEFAULT_TEXT_FALLBACK_MODEL

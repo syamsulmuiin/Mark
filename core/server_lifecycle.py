@@ -1,4 +1,4 @@
-"""Headless MARK-LIV server process lifecycle and admin CLI.
+"""Headless assistant server process lifecycle and admin CLI.
 
 Kept separate from the Live conversation runtime so start/stop/autostart/pairing
 maintenance does not add coupling to main.py.
@@ -57,7 +57,7 @@ def _read_pidfile():
         return None
 
 def _local_server_identity(timeout=1.0):
-    """Return the PID reported by MARK-LIV itself, or None.
+    """Return the PID reported by the assistant server, or None.
 
     Process command-line inspection on Windows proved intermittent.  The local
     health endpoint is a stronger identity check because only this server exposes

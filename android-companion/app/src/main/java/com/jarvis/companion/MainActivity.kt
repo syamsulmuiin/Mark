@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
     private val interruptCooldownMs = 800L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
-    private val serverBase: String get() = prefs.getString("server", BuildConfig.MARK_LIV_PUBLIC_URL) ?: BuildConfig.MARK_LIV_PUBLIC_URL
+    private val serverBase: String get() = prefs.getString("server", BuildConfig.ASSISTANT_PUBLIC_URL) ?: BuildConfig.ASSISTANT_PUBLIC_URL
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -557,7 +557,7 @@ class MainActivity : AppCompatActivity() {
         deferredPickerRequest=null
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true)
-        intent.putExtra("markliv_attachment_request",req.optString("request_id"))
+        intent.putExtra("assistant_attachment_request",req.optString("request_id"))
         pendingPickerRequestId=req.optString("request_id")
         try {
             ws?.send(JSONObject().put("type","attachment.picker.opened").put("request_id",req.optString("request_id")).toString())

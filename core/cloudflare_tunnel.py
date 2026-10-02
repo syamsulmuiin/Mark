@@ -13,7 +13,7 @@ BIN_DIR = BASE_DIR / "runtime" / "cloudflared"
 STATE_FILE = BASE_DIR / "config" / "remote_access.json"
 DEFAULT_HOSTNAME = PUBLIC_HOSTNAME
 DEFAULT_LOCAL_URL = LOCAL_BASE_URL
-TOKEN_ENV = "JARVIS_CLOUDFLARE_TUNNEL_TOKEN"
+TOKEN_ENV = "ASSISTANT_CLOUDFLARE_TUNNEL_TOKEN"
 
 
 def _exe(): return BIN_DIR / ("cloudflared.exe" if platform.system() == "Windows" else "cloudflared")

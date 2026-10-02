@@ -544,7 +544,7 @@ class App:
                 from local_runtime import invoke
                 tool=str(a.get('tool') or '').strip()
                 if not tool:raise ValueError('Missing local tool name in legacy.action request')
-                result=invoke(tool, a.get('parameters') or {})
+                result=invoke(tool, a.get('parameters') or {}, player=self.root)
             else: ok=False; result='unsupported capability: '+str(cap)
         except Exception as e:ok=False; result=str(e); self.fault('Capability '+str(cap),e)
         self.ws.send(json.dumps({'type':'capability.result','call_id':m.get('call_id',''),'ok':ok,'result':result}))

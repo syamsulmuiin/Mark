@@ -1,12 +1,17 @@
 """MARK LV HUD layout around the MARK LIV companion transport and actions."""
 from __future__ import annotations
 import psutil
-from PyQt6.QtCore import QObject, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QRectF, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QRadialGradient, QKeySequence
 from PyQt6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QMainWindow, QMessageBox,
                              QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget, QDialog,
                              QMenu)
+try:
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+except Exception:
+    QAudioOutput = QMediaPlayer = QVideoWidget = None
 from hud import C, HudCanvas, LogWidget, MetricBar
 
 
@@ -48,6 +53,11 @@ class DesktopWindow(QMainWindow):
     def __init__(self, owner):
         super().__init__()
         self.owner = owner
+        self.video_window = None
+        self.video_player = None
+        self.video_audio = None
+        self.video_audio_player = None
+        self.video_audio_output = None
         self.dispatcher = Dispatcher(self)
         self.setWindowTitle('MARK LIV · Desktop Companion')
         self.resize(1040, 720)
@@ -178,6 +188,57 @@ class DesktopWindow(QMainWindow):
         outer.addWidget(card,0,Qt.AlignmentFlag.AlignHCenter)
         outer.addStretch(2)
         return page
+    def _ensure_video(self):
+        if QVideoWidget is None or QMediaPlayer is None or QAudioOutput is None:
+            raise RuntimeError('QtMultimedia is unavailable on this desktop companion')
+        if self.video_window is None:
+            self.video_window = QVideoWidget()
+            self.video_window.setWindowTitle('MARK LIV · Video')
+            self.video_window.resize(960, 540)
+            self.video_audio = QAudioOutput(self.video_window)
+            self.video_player = QMediaPlayer(self.video_window)
+            self.video_player.setAudioOutput(self.video_audio)
+            self.video_player.setVideoOutput(self.video_window)
+            self.video_audio_output = QAudioOutput(self.video_window)
+            self.video_audio_player = QMediaPlayer(self.video_window)
+            self.video_audio_player.setAudioOutput(self.video_audio_output)
+            self.video_player.errorOccurred.connect(lambda *_: self.set_status('Video playback error'))
+        return self.video_player
+
+    def show_video(self, source, title='', muted=True, audio_source=''):
+        def open_video():
+            player = self._ensure_video()
+            self.video_window.setWindowTitle(title or 'MARK LIV · Video')
+            self.video_audio.setMuted(bool(muted))
+            self.video_audio_output.setMuted(bool(muted))
+            player.setSource(QUrl.fromUserInput(str(source)))
+            player.play()
+            if audio_source:
+                self.video_audio_player.setSource(QUrl.fromUserInput(str(audio_source)))
+                self.video_audio_player.play()
+            self.video_window.show()
+            self.video_window.raise_()
+            self.video_window.activateWindow()
+        QTimer.singleShot(0, open_video)
+
+    def stop_video(self):
+        if self.video_player is not None:
+            self.video_player.stop()
+        if self.video_audio_player is not None:
+            self.video_audio_player.stop()
+        if self.video_window is not None:
+            self.video_window.hide()
+
+    def set_video_muted(self, muted):
+        if self.video_audio is None:
+            raise RuntimeError('no video is playing')
+        self.video_audio.setMuted(bool(muted))
+        if self.video_audio_output is not None:
+            self.video_audio_output.setMuted(bool(muted))
+
+    def video_is_playing(self):
+        return bool(self.video_player is not None and self.video_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState)
+
     def show_login(self,paired=False,message=''):
         self.pages.setCurrentWidget(self.login_page)
         self.gateway_title.setText(('Connecting to MARK LIV' if message=='Connecting to MARK LIV…' else 'Reconnect to MARK LIV') if paired else 'Connect to MARK LIV')

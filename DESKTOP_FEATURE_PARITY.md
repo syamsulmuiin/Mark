@@ -7,7 +7,7 @@ This review compares the original `FatihMakes/Mark-LV` desktop UI and actions wi
 | Text command and interactive voice | Companion, forwarded to headless server | Preserved; requires a connected device WebSocket. |
 | App, browser, file, screen and computer actions | Companion `legacy.action` bridge | Preserved in local runtime; actions are routed to the originating desktop. |
 | Visual analysis of the current screen | Companion `screen.capture` and server Live vision | Restored a real screen frame from the origin desktop, validated and attached to the active model exchange. |
-| YouTube play, transcript and trending | Companion local runtime | Reconnected the missing `youtube_video` dispatch entry. |
+| YouTube/video playback | Companion local runtime | `youtube_video` remains browser/transcript oriented; `video_player` now plays local files, direct media URLs, and resolved YouTube streams in a companion-local Qt Multimedia window, muted by default. |
 | Local microphone/speaker selection | Companion menu | Restored with the active stream restarted after a device change. |
 | Mute and interrupt | Companion menu | Restored; mute gates outbound audio, interrupt uses the existing server message. |
 | Full screen and attachments | Companion menu | Available from one grouped control menu. |
@@ -15,7 +15,7 @@ This review compares the original `FatihMakes/Mark-LV` desktop UI and actions wi
 | Memory, plugins, remote access, assistant customization | Headless server | These are server-owned controls. The previous in-process Qt dialogs cannot safely be copied to the companion as local configuration; a separate authenticated server settings protocol would be needed. |
 | Wake word and startup briefing | Companion/server policy | Server microphone and automatic briefing were intentionally disabled in the headless design. Do not silently restore them as server audio jobs. |
 | Holographic face and HUD style switch | Retired | The standard reactor remains, as requested. |
-| In-HUD video playback | Original GUI only | Original `video_player` depends on the removed Qt media surface; existing YouTube playback opens the device browser. An embedded player requires a separate companion UI/Qt Multimedia port. |
+| In-HUD video playback | Desktop Companion Qt Multimedia | Added a companion-local `video_player` action for local files, direct media URLs, YouTube links/searches, stop, mute, and unmute. Playback stays on the paired desktop; the headless server does not install or execute browser/media UI dependencies. |
 
 ## HTTP 502 from the attached desktop log
 

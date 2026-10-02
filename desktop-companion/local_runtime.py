@@ -21,6 +21,7 @@ TOOLS = {
     "send_message": ("actions.send_message", "send_message"),
     "system_monitor": ("actions.system_monitor", "system_monitor"),
     "youtube_video": ("actions.youtube_video", "youtube_video"),
+    "video_player": ("actions.video_player", "video_player"),
 }
 
 CREDENTIAL_TERMS = ("password", "passwd", "passcode", "pin", "credential", "unlock_code", "unlock code")
@@ -40,7 +41,7 @@ def _credential_target(parameters: dict) -> bool:
         return False
     return walk(parameters)
 
-def invoke(tool: str, parameters: dict | None = None):
+def invoke(tool: str, parameters: dict | None = None, player=None):
     if tool not in TOOLS:
         raise ValueError(f"unsupported local tool: {tool}")
     parameters = parameters or {}
@@ -49,9 +50,19 @@ def invoke(tool: str, parameters: dict | None = None):
     module_name, handler_name = TOOLS[tool]
     module = importlib.import_module(module_name)
     handler = getattr(module, handler_name)
-    if tool == "youtube_video":
+    if tool in {"youtube_video", "video_player"}:
         class LocalPlayer:
             def write_log(self, message):
                 logging.getLogger("mark_liv.companion").info("%s", message)
+            def show_video(self, source, title, muted=True, audio_source=""):
+                if player is None: raise RuntimeError("desktop video surface unavailable")
+                return player.show_video(source, title, muted=muted, audio_source=audio_source)
+            def stop_video(self):
+                if player is not None: return player.stop_video()
+            def set_video_muted(self, muted):
+                if player is None: raise RuntimeError("desktop video surface unavailable")
+                return player.set_video_muted(muted)
+            def video_is_playing(self):
+                return bool(player is not None and player.video_is_playing())
         return handler(parameters=parameters, response=None, player=LocalPlayer(), session_memory=None)
-    return handler(parameters=parameters, response=None, player=None, session_memory=None)
+    return handler(parameters=parameters, response=None, player=player, session_memory=None)

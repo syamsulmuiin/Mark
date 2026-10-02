@@ -70,6 +70,12 @@ def test_live_model_failover_skips_cooled_model(gemini):
     assert gemini.live_model() == first
 
 
+def test_one_shot_live_compatibility_uses_healthy_model(gemini):
+    first, second = gemini.LIVE_MODELS[:2]
+    gemini._cool(first, seconds=300)
+    assert gemini._live_model() == second
+
+
 def test_call_skips_resting_model_and_uses_next(monkeypatch, gemini):
     gemini._LADDERS[gemini.FAST] = ("first", "second")
     gemini._cool("first", seconds=300)

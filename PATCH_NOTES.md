@@ -360,6 +360,14 @@
 
 This file replaces the obsolete notes for the former GUI/CLI/background architecture.
 
+## v60.25 - Mark source capability synchronization
+
+- Added desktop-companion-local `video_player` parity for local files, direct media URLs, YouTube links/searches, stop, mute, and unmute.
+- Kept video resolution and Qt Multimedia playback on the paired desktop companion; the headless server does not gain PyQt or `yt-dlp` dependencies.
+- Added cancellation tokens so stopping a YouTube resolution prevents a late video from opening.
+- Fixed explicit one-shot Live compatibility calls to select the first healthy configured Live model instead of always forcing the primary model.
+- Deliberately did not copy Mark's monolithic GUI, avatar mesh, server-local microphone/audio, proactive briefing loops, insecure temporary-file changes, or server-host browser substitutions.
+
 ## Current baseline
 
 - Headless server lifecycle with `--start`, `--stop`, `--enable`, `--disable`, and `--pair`.

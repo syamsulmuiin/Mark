@@ -1147,6 +1147,7 @@ class DashboardServer:
                 while True:
                     packet = await websocket.receive()
                     if packet.get("type") == "websocket.disconnect":
+                        disconnect_reason = f"peer_closed:{packet.get('code', 'unknown')}"
                         break
                     audio = packet.get("bytes")
                     if audio is not None:

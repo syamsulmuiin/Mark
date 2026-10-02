@@ -2408,6 +2408,7 @@ class JarvisLive:
                 ):
                     self.session          = session
                     self._session_generation += 1
+                    self._last_live_connected_at = time.monotonic()
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
@@ -2575,7 +2576,15 @@ class JarvisLive:
                     self.out_queue = asyncio.Queue(maxsize=200)
                     self._phone_activity_active = False
                     _trace_event("live_reconnect", reason="session_expired", dropped_phone_frames=dropped)
-                    self._conn_backoff = 0
+                    connected_for = time.monotonic() - getattr(self, "_last_live_connected_at", time.monotonic())
+                    if connected_for >= 60:
+                        self._conn_backoff = 1
+                    else:
+                        self._conn_backoff = min(max(getattr(self, "_conn_backoff", 1) * 2, 2), 30)
+                    # Do not spin a reconnect storm when Gemini closes a session
+                    # immediately. The paired device remains connected; only the
+                    # provider session is delayed and rebuilt.
+                    await asyncio.sleep(self._conn_backoff)
                     continue
                 # Transient network loss is an availability state, not a code
                 # failure.  Keep retry/backoff active without flooding error.log

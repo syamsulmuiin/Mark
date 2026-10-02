@@ -161,13 +161,13 @@ Voice recovery distinguishes intentional session end from unexpected transport f
 
 ## Server browser capability and origin routing
 
-`browser_control` is a server action, so Playwright is installed with server requirements. Browser binaries are platform runtime dependencies: setup installs Chromium on x86_64 desktop-class hosts and does not force browser binaries onto ARM/headless hosts. Companion-origin UI/vision remains capability-driven and on the origin companion unless server/host is explicitly targeted.
+`browser_control` is a server action. It supports installed-browser automation in visible desktop mode and automatically switches to headless mode on a display-less Linux host. Ordinary information lookup still uses `web_search`; browser automation is reserved for an explicit host/browser workflow or a page interaction that requires a browser context.
 
 ## Host browser runtime policy
 
-Server-side `browser_control` depends on the Playwright Python API but not on Playwright-managed browser binaries. Browser executables are host capabilities. Interactive automation may start only when the requested browser resolves to a host executable or an explicit supported installed-browser channel. Missing browsers are reported as unavailable; MARK LIV does not silently substitute bundled Chromium.
+Server-side `browser_control` depends on the Playwright Python API and an installed compatible browser executable. On a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser executables are reported as unavailable; MARK LIV does not silently copy Companion cookies/session state to the server.
 
-This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host.
+This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host. Android browser workflows use `browser.open`/`browser.search` followed by `android.ui.inspect` -> action -> inspect verification.
 
 ## Generic task continuity
 

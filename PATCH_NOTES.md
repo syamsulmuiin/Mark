@@ -1,4 +1,10 @@
-## v60.32 - Device-local interactive browser capability
+## v60.33 - Dual-path browser/search workflow
+
+- Server `browser_control` now selects visible mode when a desktop display is present and headless mode on display-less Linux hosts; `BROWSER_HEADLESS` can explicitly override detection.
+- Browser search queries use URL encoding instead of replacing only spaces, so punctuation and non-ASCII terms are preserved.
+- Added `BROWSER_SEARCH_WORKFLOW.md` describing server `web_search`, server browser automation, Android browser control, and desktop browser control as separate execution paths.
+- Documented the inspect -> act -> inspect verification loop and credential boundary for both server and Companion workflows.
+
 
 - Android now advertises `browser.open` and `browser.search` during pairing and reconnect capability refresh.
 - Browser URLs and searches launch through the phone's installed browser; webpage interaction continues through Accessibility `inspect -> act -> inspect` using `view_id` rather than coordinates.

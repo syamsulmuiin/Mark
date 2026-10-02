@@ -11,6 +11,7 @@ import threading
 import webbrowser
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 
 from core.artifact_paths import artifact_path
 
@@ -22,6 +23,20 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeout,
 )
 _OS = platform.system()   # "Windows" | "Darwin" | "Linux"
+
+
+def _headless_mode() -> bool:
+    """Use visible windows when a desktop exists, headless on display-less hosts."""
+    forced = os.environ.get("BROWSER_HEADLESS", "").strip().lower()
+    if forced in {"1", "true", "yes", "on"}:
+        return True
+    if forced in {"0", "false", "no", "off"}:
+        return False
+    return _OS == "Linux" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+
+
+def _browser_viewport(headless: bool) -> dict | None:
+    return {"width": 1280, "height": 900} if headless else None
 
 def _normalize_url(url: str) -> str:
     """
@@ -533,8 +548,10 @@ class _BrowserSession:
         exe         = self._spec["exe"]
         channel     = self._spec["channel"]
 
-        # Interactive automation must control the browser the host actually has.
-        # Never fall back silently to a Playwright-managed bundled browser.
+        headless = _headless_mode()
+
+        # Interactive automation must control an installed browser. On a VPS,
+        # the same Playwright session becomes headless instead of requiring X11.
         if not exe and not channel:
             raise RuntimeError(
                 f"Browser '{self.browser_name}' is not installed or could not be located on this host."
@@ -547,10 +564,10 @@ class _BrowserSession:
                 Path.home() / ".jarvis_profiles" / "firefox"
             )
             kwargs: dict = {
-                "headless":    False,
+                "headless":    headless,
                 "slow_mo":     0,
-                "viewport":    None,
-                "no_viewport": True,
+                "viewport":    _browser_viewport(headless),
+                "no_viewport": not headless,
                 "timeout":     25_000,
             }
             if exe:
@@ -571,10 +588,10 @@ class _BrowserSession:
             safari_profile = str(Path.home() / ".jarvis_profiles" / "safari")
             Path(safari_profile).mkdir(parents=True, exist_ok=True)
             kwargs = {
-                "headless":    False,
+                "headless":    headless,
                 "slow_mo":     0,
-                "viewport":    None,
-                "no_viewport": True,
+                "viewport":    _browser_viewport(headless),
+                "no_viewport": not headless,
                 "timeout":     25_000,
             }
             self._context = await engine_obj.launch_persistent_context(safari_profile, **kwargs)
@@ -585,13 +602,12 @@ class _BrowserSession:
         profile = _real_profile_dir(self.browser_name)
 
         kwargs = {
-            "headless":    False,
+            "headless":    headless,
             "slow_mo":     0,
-            "viewport":    None,
-            "no_viewport": True,
+            "viewport":    _browser_viewport(headless),
+            "no_viewport": not headless,
             "timeout":     25_000,
-            "args": [
-                "--start-maximized",
+            "args": ([] if headless else ["--start-maximized"]) + [
                 "--disable-blink-features=AutomationControlled",
                 "--no-first-run",
                 "--disable-default-apps",
@@ -676,8 +692,11 @@ class _BrowserSession:
         return f"Could not open: {url}"
 
     async def search(self, query: str, engine: str = "google") -> str:
+        query = query.strip()
+        if not query:
+            return "Search query is required."
         base = _SEARCH_ENGINES.get(engine.lower(), _SEARCH_ENGINES["google"])
-        return await self.go_to(base + query.replace(" ", "+"))
+        return await self.go_to(base + quote_plus(query))
 
     async def click(self, selector: str = None, text: str = None) -> str:
         page = await self._get_page()
@@ -994,7 +1013,7 @@ def browser_control(
         if action == "search":
             base    = _SEARCH_ENGINES.get(params.get("engine", "google").lower(),
                                           _SEARCH_ENGINES["google"])
-            nav_url = base + params.get("query", "").replace(" ", "+")
+            nav_url = base + quote_plus(params.get("query", "").strip())
         else:
             nav_url = params.get("url", "").strip()
 

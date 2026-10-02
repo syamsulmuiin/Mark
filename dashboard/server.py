@@ -1196,6 +1196,8 @@ class DashboardServer:
                         # the current answer immediately and reopen listening.
                         if self._interrupt_callback:
                             self._interrupt_callback()
+                    elif msg.get("type") == "jarvis.heartbeat":
+                        await websocket.send_json({"type": "jarvis.heartbeat.ack", "ts": msg.get("ts")})
                     elif msg.get("type") == "attachment.picker.received":
                         request_id=str(msg.get("request_id") or "")
                         if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:

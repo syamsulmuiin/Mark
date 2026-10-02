@@ -18,6 +18,12 @@
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
 
+## v60.29 - WebSocket keepalive and bounded reconnect backoff
+
+- Android WebSocket uses zero read/write timeouts, connection retry support, and a 15-second protocol ping interval.
+- Added a lightweight application heartbeat/ack in addition to the transport ping so the public tunnel path remains observable and active.
+- Reconnects use bounded exponential backoff from 1.5 seconds to 30 seconds and reset only after a confirmed `ready` event.
+
 ## v60.28 - Safe audio ingress, Companion identity, and guarded diagnostic repair
 
 - Android audio ingress no longer blocks the OkHttp WebSocket callback thread when `AudioTrack` backpressure occurs; ingress and playback use separate bounded queues so ping/close processing remains live.

@@ -96,6 +96,17 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var micRunning = false
     @Volatile private var voiceState = "DISCONNECTED"
     @Volatile private var reconnectScheduled = false
+    @Volatile private var reconnectDelayMs = 1500L
+    private val heartbeatHandler = Handler(Looper.getMainLooper())
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            val current = ws
+            if (!intentionalVoiceEnd && current != null) {
+                current.send(JSONObject().put("type", "jarvis.heartbeat").put("ts", System.currentTimeMillis()).toString())
+                heartbeatHandler.postDelayed(this, 15000L)
+            }
+        }
+    }
     @Volatile private var lastInterruptAt = 0L
     private var voicedFrames = 0
     private val interruptLevelThreshold = 0.08f
@@ -343,7 +354,7 @@ class MainActivity : AppCompatActivity() {
                     "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
-                    "ready"->{ reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
+                    "ready"->{ reconnectScheduled=false; reconnectDelayMs=1500L; heartbeatHandler.removeCallbacks(heartbeatRunnable); heartbeatHandler.postDelayed(heartbeatRunnable,15000L); runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
                     "transcript.delta"->{ updateTranscriptDelta(m.optString("speaker"),m.optString("text")) }
@@ -362,11 +373,13 @@ class MainActivity : AppCompatActivity() {
                 // taken ownership. Never let that old callback stop the active
                 // microphone/playback session or null the current socket.
                 if(ws !== w) return
+                heartbeatHandler.removeCallbacks(heartbeatRunnable)
                 stopMic(); stopPlayback(); ws=null
                 if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() }
             }
             override fun onFailure(w:WebSocket,t:Throwable,r:Response?){
                 if(ws !== w) return
+                heartbeatHandler.removeCallbacks(heartbeatRunnable)
                 stopMic(); stopPlayback(); ws=null
                 runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
                 scheduleReconnect()
@@ -378,13 +391,15 @@ class MainActivity : AppCompatActivity() {
         if(intentionalVoiceEnd) return
         synchronized(this){ if(reconnectScheduled) return; reconnectScheduled=true }
         if(!prefs.getBoolean("paired",false)){ reconnectScheduled=false; return }
+        val delay = reconnectDelayMs
+        reconnectDelayMs = (reconnectDelayMs * 2L).coerceAtMost(30000L)
         window.decorView.postDelayed({
             reconnectScheduled=false
             if(!intentionalVoiceEnd && ws==null && prefs.getBoolean("paired",false)){
                 showVoice()
                 connect()
             }
-        },1500)
+        },delay)
     }
 
 
@@ -573,7 +588,7 @@ class MainActivity : AppCompatActivity() {
         renderTranscript(transcriptTurns.map { it.substringBefore("\u0000") to it.substringAfter("\u0000") })
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
-    private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
+    private fun endVoice(){ intentionalVoiceEnd=true; heartbeatHandler.removeCallbacks(heartbeatRunnable); stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
     private fun setEnded()=runOnUiThread { status.text=getString(R.string.conversation_ended); orb.state="SLEEPING"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
@@ -963,5 +978,5 @@ class MainActivity : AppCompatActivity() {
     }
     private fun b64(b:ByteArray)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b)
     private fun unb64(s:String)=java.util.Base64.getUrlDecoder().decode(s)
-    private fun lanClient():OkHttpClient { val tm=object:X509TrustManager{override fun getAcceptedIssuers()=arrayOf<X509Certificate>();override fun checkClientTrusted(c:Array<X509Certificate>,a:String){};override fun checkServerTrusted(c:Array<X509Certificate>,a:String){}}; val sc=SSLContext.getInstance("TLS");sc.init(null,arrayOf<TrustManager>(tm),SecureRandom());return OkHttpClient.Builder().sslSocketFactory(sc.socketFactory,tm).hostnameVerifier{_,_->true}.pingInterval(20,TimeUnit.SECONDS).build() }
+    private fun lanClient():OkHttpClient { val tm=object:X509TrustManager{override fun getAcceptedIssuers()=arrayOf<X509Certificate>();override fun checkClientTrusted(c:Array<X509Certificate>,a:String){};override fun checkServerTrusted(c:Array<X509Certificate>,a:String){}}; val sc=SSLContext.getInstance("TLS");sc.init(null,arrayOf<TrustManager>(tm),SecureRandom());return OkHttpClient.Builder().sslSocketFactory(sc.socketFactory,tm).hostnameVerifier{_,_->true}.retryOnConnectionFailure(true).readTimeout(0,TimeUnit.MILLISECONDS).writeTimeout(0,TimeUnit.MILLISECONDS).pingInterval(15,TimeUnit.SECONDS).build() }
 }

@@ -336,7 +336,12 @@ class MainActivity : AppCompatActivity() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(c: Call, e: java.io.IOException) = pairUi("Pairing gagal: ${e.message}")
             override fun onResponse(c: Call, r: Response) { r.use {
-                if (!it.isSuccessful) { pairUi("Pairing ditolak: HTTP ${it.code}"); return }
+                val body = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    val detail = try { JSONObject(body).optString("error").takeIf { value -> value.isNotBlank() } } catch(_: Exception) { null }
+                    pairUi("Pairing ditolak: ${detail ?: "HTTP ${it.code}"}")
+                    return
+                }
                 prefs.edit().remove("pending_pairing_id").remove("pending_pairing_nonce").putBoolean("paired", true).apply()
                 showVoice(); connect()
             }}

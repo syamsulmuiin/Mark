@@ -1093,8 +1093,18 @@ class DashboardServer:
                     body.get("signature", ""),
                     body.get("capabilities"),
                 )
+                _interaction_event(
+                    "pairing_claimed",
+                    device_id=rec.get("device_id"),
+                    capabilities=len(rec.get("capabilities", [])),
+                )
                 return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k: v for k, v in rec.items() if k != "public_key"}})
             except Exception as exc:
+                _interaction_event(
+                    "pairing_claim_failed",
+                    error=type(exc).__name__,
+                    reason=str(exc)[:120],
+                )
                 return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
         @app.post("/api/devices/{device_id}/revoke")

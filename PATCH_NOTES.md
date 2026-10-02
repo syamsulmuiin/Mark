@@ -1,4 +1,9 @@
-## v60.36 - Live-session clean recovery diagnostics
+## v60.37 - Pairing rejection diagnostics
+
+- Pairing claim failures are now recorded as bounded operator diagnostics with the exact server reason, without storing pairing codes, signatures, or keys.
+- Android now displays the server's pairing error (`pairing_expired`, `pairing_code_invalid`, `peer_signature_invalid`, and similar) instead of only showing `HTTP 400`.
+- This makes expired codes and stale pending requests distinguishable from cryptographic or transport failures.
+
 
 - Captured bounded, credential-redacted provider exception details in `runtime/interaction.log` for generic Live-session failures instead of recording only `isolated_failure`.
 - Generic non-retryable Live-session failures now clear the potentially stale resumption handle, preserve bounded local conversation context, notify the Companion of reconnecting state, and create a clean provider session with backoff.

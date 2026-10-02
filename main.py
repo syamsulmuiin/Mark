@@ -389,6 +389,17 @@ def _exception_text(exc: BaseException) -> str:
     return "\n".join(part for part in parts if part)
 
 
+def _bounded_exception_text(exc: BaseException, limit: int = 600) -> str:
+    """Return a short diagnostic without persisting credential-like values."""
+    text = " ".join(_exception_text(exc).split())
+    text = re.sub(
+        r"(?i)(api[_ -]?key|token|authorization|bearer|password|secret)\\s*[:=]\\s*[^\\s,;]+",
+        r"\\1=[REDACTED]",
+        text,
+    )
+    return text[:limit]
+
+
 def _is_transient_transport_error(exc: BaseException) -> bool:
     """Classify temporary network/WebSocket failures that should reconnect quietly.
 
@@ -2517,6 +2528,9 @@ class JarvisLive:
                 # once and let the next attempt start clean.
                 _flat_err = _exception_text(e)
                 _flat_lower = _flat_err.lower()
+                _error_detail = _bounded_exception_text(e)
+                if not _error_detail:
+                    _error_detail = type(e).__name__
                 if _resumed_with and not _is_transient_transport_error(e) and (
                     "resumption handle" in _flat_lower
                     or "session resumption" in _flat_lower
@@ -2540,6 +2554,8 @@ class JarvisLive:
                     category=decision.category,
                     action=decision.action.value,
                     retryable=decision.retryable,
+                    error_type=type(e).__name__,
+                    error=_error_detail,
                 )
 
                 # A provider/model failure should select the next compatible
@@ -2554,6 +2570,21 @@ class JarvisLive:
                         )
                         self._conn_backoff = 0
                         continue
+
+                # Unknown Live-session failures must start a clean provider
+                # session. Reusing a possibly-invalid handle can leave the
+                # Companion connected but permanently silent after recovery.
+                if decision.action is ErrorAction.BOUNDED_FAILURE:
+                    self._recovery_context_pending = bool(self._session_log)
+                    self._resume_handle = None
+                    self._conn_backoff = min(max(getattr(self, "_conn_backoff", 1) * 2, 2), 30)
+                    self.ui.write_log(
+                        "SYS: Live session failed — reconnecting with a clean session."
+                    )
+                    if self._dashboard:
+                        await self._dashboard.broadcast({"type": "status", "state": "reconnecting"})
+                    await asyncio.sleep(self._conn_backoff)
+                    continue
 
                 # Gemini Live sends GoAway when a finite live session reaches its
                 # duration limit. Treat that as a normal rollover and reconnect

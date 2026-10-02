@@ -1,4 +1,9 @@
-## v60.35 - Generic browser setup variable
+## v60.36 - Live-session clean recovery diagnostics
+
+- Captured bounded, credential-redacted provider exception details in `runtime/interaction.log` for generic Live-session failures instead of recording only `isolated_failure`.
+- Generic non-retryable Live-session failures now clear the potentially stale resumption handle, preserve bounded local conversation context, notify the Companion of reconnecting state, and create a clean provider session with backoff.
+- This keeps pairing/device trust intact while preventing a connected Companion from remaining silent after a failed Gemini Live session.
+
 
 - Replaced the product-specific `MARK_LIV_SKIP_BROWSER_INSTALL` environment variable with generic `SKIP_BROWSER_INSTALL`.
 - Audited environment/configuration identifiers used by server, Android build, desktop companion, browser runtime, and CI. Existing `ASSISTANT_*` variables are retained as the established cross-component generic assistant configuration contract; no new product-specific variable remains in the browser setup path.

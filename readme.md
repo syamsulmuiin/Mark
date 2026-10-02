@@ -181,7 +181,7 @@ For Android release signing, see `android-companion/SIGNING.md`.
 
 ## Runtime behavior
 
-Expected Live-session rollover and temporary transport/network loss use the reconnect/resumption path rather than being treated as a new user conversation. Unexpected application failures retain diagnostic logging.
+Expected Live-session rollover and temporary transport/network loss use the reconnect/resumption path rather than being treated as a new user conversation. Unknown provider/session failures clear a potentially stale resumption handle, preserve bounded local context, notify the Companion of reconnecting state, and start a clean provider session with bounded backoff. Unexpected application failures retain credential-redacted diagnostics.
 
 `runtime/error.log` is a severity-focused rotating diagnostic file. Normal INFO/debug output, successful tool activity, connection status, and conversation transcript are not persisted there. Warning/error-like diagnostics and Python stderr/tracebacks are retained. Rotation remains bounded by the configured size/backups. Runtime model identifiers are centralized in `core/model_config.py`; network settings are centralized in `core/network_config.py`.
 

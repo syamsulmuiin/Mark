@@ -1,12 +1,12 @@
 """MARK LV HUD layout around the MARK LIV companion transport and actions."""
 from __future__ import annotations
 import psutil
-from PyQt6.QtCore import QObject, QRectF, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QRadialGradient, QKeySequence
+from PyQt6.QtCore import QObject, QRectF, Qt, QTimer, QUrl, QPoint, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QRadialGradient, QKeySequence, QFont
 from PyQt6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QMainWindow, QMessageBox,
                              QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget, QDialog,
-                             QMenu)
+                             QMenu, QSizePolicy, QSplitter, QTextEdit)
 try:
     from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
     from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -91,60 +91,52 @@ class DesktopWindow(QMainWindow):
         self.pages.addWidget(self.login_page);self.pages.addWidget(self.dashboard_page)
         self.pages.setCurrentWidget(self.login_page)
         central=self.dashboard_page
-        main = QVBoxLayout(central); main.setContentsMargins(16, 15, 16, 14); main.setSpacing(12)
-        header = QHBoxLayout()
-        title = QLabel('MARK  /  LIV'); title.setObjectName('title'); header.addWidget(title)
-        header.addStretch()
-        self.status_label = QLabel('DISCONNECTED'); self.status_label.setStyleSheet(f'color: {C.ACC}; font-weight: bold;')
-        header.addWidget(self.status_label)
-        menu_button=QPushButton('⋮');menu_button.setToolTip('Companion controls')
-        menu_button.setFixedWidth(36)
-        menu=QMenu(self)
-        menu.setStyleSheet(f'''QMenu {{ background: {C.PANEL}; color: {C.TEXT}; border: 1px solid {C.BORDER_B}; padding: 7px; }}
-            QMenu::item {{ padding: 7px 22px; }}
-            QMenu::item:selected {{ background: {C.PRI_GHO}; color: {C.PRI}; }}
-            QMenu::separator {{ height: 1px; background: {C.BORDER}; margin: 6px; }}''')
-        menu.addSection('CONNECTION')
-        menu.addAction('Reconnect',owner.connect)
-        menu.addAction('Disconnect',owner.disconnect)
-        menu.addAction('Use a new Pair Code',owner.prepare_new_pair_code)
-        menu.addSeparator();menu.addSection('LOCAL CONTROLS')
-        self.mute_action=menu.addAction('Mute microphone',owner.toggle_mic)
-        menu.addAction('Interrupt response',owner.interrupt)
-        menu.addAction('Audio devices…',owner.choose_audio_devices)
-        menu.addAction('Attachments…',owner.show_attachments)
-        fullscreen=menu.addAction('Full screen',self.toggle_fullscreen)
-        fullscreen.setShortcut(QKeySequence('F11'));self.addAction(fullscreen)
-        menu_button.setMenu(menu);header.addWidget(menu_button)
-        main.addLayout(header)
-        row = QHBoxLayout(); row.setSpacing(12); main.addLayout(row, 1)
-        left = self._panel(row, 158)
-        self._label(left, 'DEVICE LINK')
-        self._button(left, 'CONNECT VOICE', owner.connect)
-        self._button(left, 'DISCONNECT', owner.disconnect)
-        left.addSpacing(16)
-        self._label(left, 'LOCAL FILES')
-        self._button(left, 'ATTACHMENTS', owner.show_attachments)
-        left.addStretch()
-        self._label(left, 'VOICE AND ACTIONS\nRUN ON THIS DEVICE')
-        center = self._panel(row, 350, 1)
-        self.hud = HudCanvas(assistant_name='J.A.R.V.I.S')
-        center.addWidget(self.hud, 1)
-        right = self._panel(row, 270)
-        self._label(right, 'SYSTEM TELEMETRY')
-        self.cpu = MetricBar('CPU'); self.mem = MetricBar('MEMORY'); self.disk = MetricBar('DISK')
-        for bar in (self.cpu, self.mem, self.disk): right.addWidget(bar)
-        self._label(right, 'COMPANION ACTIVITY')
-        self.log = LogWidget(); right.addWidget(self.log, 1)
-        self._label(right, 'COMMAND')
-        cmdrow = QHBoxLayout(); right.addLayout(cmdrow)
-        self.command_input = QLineEdit(); self.command_input.setPlaceholderText('Type a command')
-        self.command_input.returnPressed.connect(owner.send); cmdrow.addWidget(self.command_input, 1)
-        send = QPushButton('SEND'); send.clicked.connect(owner.send); cmdrow.addWidget(send)
-        self.metrics_timer = QTimer(self); self.metrics_timer.timeout.connect(self.update_metrics); self.metrics_timer.start(3500)
-        self.update_metrics()
-        self.show_login(paired=bool(owner.st.get('paired')),
-                        message='Connecting to MARK LIV…' if owner.st.get('paired') else '')
+        root=QVBoxLayout(central); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        header=QWidget(); header.setFixedHeight(54); header.setStyleSheet(f'background:{C.DARK}; border-bottom:1px solid {C.BORDER_B};')
+        h=QHBoxLayout(header); h.setContentsMargins(16,0,16,0); h.setSpacing(6)
+        version=QLabel('COMPANION'); version.setFont(QFont('Courier New',8)); version.setStyleSheet(f'color:{C.PRI_DIM}; background:transparent;'); h.addWidget(version)
+        self.setup_button=QPushButton('⚙'); self.setup_button.setFixedSize(28,28); self.setup_button.setToolTip('Settings and controls'); h.addWidget(self.setup_button)
+        setup_menu=QMenu(self); setup_menu.addAction('Reconnect',owner.connect); setup_menu.addAction('Disconnect',owner.disconnect); setup_menu.addAction('Use a new Pair Code',owner.prepare_new_pair_code); setup_menu.addAction('Audio devices…',owner.choose_audio_devices); self.setup_button.setMenu(setup_menu)
+        self.controls_button=QPushButton('🎛'); self.controls_button.setFixedSize(28,28); self.controls_button.setToolTip('Everyday controls'); h.addWidget(self.controls_button)
+        controls_menu=QMenu(self); controls_menu.addAction('Interrupt response',owner.interrupt); controls_menu.addAction('Attachments…',owner.show_attachments); full=controls_menu.addAction('Full screen'); full.triggered.connect(self.toggle_fullscreen); self.controls_button.setMenu(controls_menu)
+        h.addStretch()
+        mid=QVBoxLayout(); mid.setSpacing(1)
+        title=QLabel('J.A.R.V.I.S'); title.setAlignment(Qt.AlignmentFlag.AlignCenter); title.setFont(QFont('Courier New',17,QFont.Weight.Bold)); title.setStyleSheet(f'color:{C.PRI}; background:transparent;'); mid.addWidget(title)
+        subtitle=QLabel('A Friendly Assistant'); subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter); subtitle.setFont(QFont('Courier New',7)); subtitle.setStyleSheet(f'color:{C.PRI_DIM}; background:transparent;'); mid.addWidget(subtitle); h.addLayout(mid)
+        h.addStretch()
+        clock_col=QVBoxLayout(); clock_col.setSpacing(2)
+        self.status_label=QLabel('DISCONNECTED'); self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight); self.status_label.setFont(QFont('Courier New',7,QFont.Weight.Bold)); self.status_label.setStyleSheet(f'color:{C.ACC}; background:transparent;'); clock_col.addWidget(self.status_label)
+        self.clock_label=QLabel('00:00:00'); self.clock_label.setAlignment(Qt.AlignmentFlag.AlignRight); self.clock_label.setFont(QFont('Courier New',14,QFont.Weight.Bold)); self.clock_label.setStyleSheet(f'color:{C.PRI}; background:transparent;'); clock_col.addWidget(self.clock_label)
+        self.date_label=QLabel(''); self.date_label.setAlignment(Qt.AlignmentFlag.AlignRight); self.date_label.setFont(QFont('Courier New',7)); self.date_label.setStyleSheet(f'color:{C.TEXT_DIM}; background:transparent;'); clock_col.addWidget(self.date_label); h.addLayout(clock_col)
+        root.addWidget(header)
+        body=QHBoxLayout(); body.setContentsMargins(0,0,0,0); body.setSpacing(0); root.addLayout(body,1)
+        left=QWidget(); left.setFixedWidth(176); left.setStyleSheet(f'background:{C.DARK}; border-right:1px solid {C.BORDER};'); ll=QVBoxLayout(left); ll.setContentsMargins(8,10,8,10); ll.setSpacing(6)
+        sys_hdr=QLabel('◈ SYS MONITOR'); sys_hdr.setFont(QFont('Courier New',7,QFont.Weight.Bold)); sys_hdr.setStyleSheet(f'color:{C.PRI}; background:transparent; border-bottom:1px solid {C.BORDER}; padding-bottom:4px;'); ll.addWidget(sys_hdr)
+        self.cpu=MetricBar('CPU',C.PRI); self.mem=MetricBar('MEM',C.ACC2); self.disk=MetricBar('DISK',C.GREEN); self.net=MetricBar('NET',C.ACC); self.gpu=MetricBar('GPU','#ff6688')
+        self._metric_bars=(self.cpu,self.mem,self.disk,self.net,self.gpu)
+        for bar in self._metric_bars: ll.addWidget(bar)
+        info=QLabel('UP  ACTIVE\nOS  DESKTOP\nSEC  PAIRED'); info.setFont(QFont('Courier New',8,QFont.Weight.Bold)); info.setStyleSheet(f'color:{C.ACC2}; background:{C.PANEL2}; border:1px solid {C.BORDER}; border-radius:4px; padding:6px;'); ll.addWidget(info)
+        ll.addStretch()
+        for text,color in (('AI CORE\nACTIVE',C.GREEN),('SEC\nCLEARED',C.PRI),('PROTOCOL\nPAIRING',C.TEXT_DIM)):
+            badge=QLabel(text); badge.setAlignment(Qt.AlignmentFlag.AlignCenter); badge.setFont(QFont('Courier New',7,QFont.Weight.Bold)); badge.setStyleSheet(f'color:{color}; background:{C.PANEL2}; border:1px solid {C.BORDER_A}; border-radius:3px; padding:4px;'); ll.addWidget(badge)
+        body.addWidget(left)
+        center=QWidget(); cv=QVBoxLayout(center); cv.setContentsMargins(0,0,0,0); cv.setSpacing(0)
+        self.hud=HudCanvas(assistant_name='J.A.R.V.I.S'); self.hud.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding); cv.addWidget(self.hud,1)
+        body.addWidget(center,5)
+        right=QWidget(); right.setFixedWidth(272); right.setStyleSheet(f'background:{C.DARK}; border-left:1px solid {C.BORDER};'); rl=QVBoxLayout(right); rl.setContentsMargins(8,8,8,8); rl.setSpacing(6)
+        section=QLabel('▸ ACTIVITY LOG'); section.setFont(QFont('Courier New',7,QFont.Weight.Bold)); section.setStyleSheet(f'color:{C.TEXT_MED}; background:transparent;'); rl.addWidget(section)
+        self.log=LogWidget(); rl.addWidget(self.log,1)
+        sep=QFrame(); sep.setFrameShape(QFrame.Shape.HLine); sep.setStyleSheet(f'color:{C.BORDER};'); rl.addWidget(sep)
+        command=QLabel('▸ COMMAND INPUT'); command.setFont(QFont('Courier New',7,QFont.Weight.Bold)); command.setStyleSheet(f'color:{C.TEXT_MED}; background:transparent;'); rl.addWidget(command)
+        cmdrow=QHBoxLayout(); self.command_input=QLineEdit(); self.command_input.setPlaceholderText('Type a command or question…'); self.command_input.returnPressed.connect(owner.send); cmdrow.addWidget(self.command_input,1)
+        send=QPushButton('▸'); send.setFixedSize(30,30); send.clicked.connect(owner.send); cmdrow.addWidget(send); rl.addLayout(cmdrow)
+        interrupt=QPushButton('✋  INTERRUPT  [ESC]'); interrupt.clicked.connect(owner.interrupt); rl.addWidget(interrupt)
+        self.mic_button=QPushButton('🎙  MICROPHONE ACTIVE'); self.mic_button.clicked.connect(owner.toggle_mic); rl.addWidget(self.mic_button)
+        attach=QPushButton('▣  ATTACHMENTS'); attach.clicked.connect(owner.show_attachments); rl.addWidget(attach)
+        body.addWidget(right)
+        self.clock_timer=QTimer(self); self.clock_timer.timeout.connect(self.update_clock); self.clock_timer.start(1000); self.update_clock()
+        self.metrics_timer=QTimer(self); self.metrics_timer.timeout.connect(self.update_metrics); self.metrics_timer.start(3500); self.update_metrics()
+        self.show_login(paired=bool(owner.st.get('paired')), message='Connecting to MARK LIV…' if owner.st.get('paired') else '')
     def _make_login(self,owner):
         page=QWidget(self);page.setObjectName('loginPage')
         outer=QVBoxLayout(page);outer.setContentsMargins(32,22,32,32)
@@ -272,8 +264,14 @@ class DesktopWindow(QMainWindow):
         btn=QPushButton(label); btn.clicked.connect(callback); layout.addWidget(btn)
         return btn
     def after(self, delay, callback): self.dispatcher.call.emit(callback, delay)
+    def update_clock(self):
+        import time
+        self.clock_label.setText(time.strftime('%H:%M:%S'))
+        self.date_label.setText(time.strftime('%a %d %b %Y'))
+
     def update_metrics(self):
-        for bar, value in ((self.cpu, psutil.cpu_percent()), (self.mem, psutil.virtual_memory().percent), (self.disk, psutil.disk_usage(str(__import__('pathlib').Path.home())).percent)):
+        values=(psutil.cpu_percent(), psutil.virtual_memory().percent, psutil.disk_usage(str(__import__('pathlib').Path.home())).percent, 0.0, 0.0)
+        for bar, value in zip(self._metric_bars, values):
             bar.set_value(value, f'{value:.0f}%')
     def set_status(self, value):
         self.status_label.setText(value.upper())

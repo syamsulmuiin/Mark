@@ -366,7 +366,7 @@ This file replaces the obsolete notes for the former GUI/CLI/background architec
 - Kept video resolution and Qt Multimedia playback on the paired desktop companion; the headless server does not gain PyQt or `yt-dlp` dependencies.
 - Added cancellation tokens so stopping a YouTube resolution prevents a late video from opening.
 - Fixed explicit one-shot Live compatibility calls to select the first healthy configured Live model instead of always forcing the primary model.
-- Deliberately did not copy Mark's monolithic GUI, avatar mesh, server-local microphone/audio, proactive briefing loops, insecure temporary-file changes, or server-host browser substitutions.
+- Updated the Desktop Companion dashboard layout to match the Mark desktop UI structure more closely: canonical header with identity and clock, system-monitor rail, central HUD, activity rail, command input, interrupt/microphone/attachment controls, and wired settings/control menus.
 
 ## Current baseline
 

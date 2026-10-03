@@ -1,3 +1,9 @@
+## v60.46 - Scoped transcript correction and turn replay suppression
+
+- Added bounded display/history correction scoped to the current paired device/session. It learns only explicit corrections already present in the conversation and rejects credential-like or durable-PII values.
+- Provider input/output audio remains semantic authority: no unsupported vocabulary field is sent to Live.
+- Added per-turn assistant completion identity and exact/near-duplicate suppression so provider reconnect replay cannot log or speak a second equivalent answer; new user turns remain independent.
+
 ## v60.45 - Migrate stale Android server origin
 
 - Changed the Android Gradle fallback endpoint to `https://markliv-staging.kasirdigital.web.id`.

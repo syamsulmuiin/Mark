@@ -14,7 +14,7 @@ def test_partial_fragments_are_aggregated_before_learning_or_correction():
     memory = ScopedTranscriptCorrections("user-a/device-1")
     assert memory.aggregate("hala") == "hala"
     assert memory.aggregate("halaman") == "halaman"
-    assert memory.learn_from_conversation("yang benar halaman") is True
+    assert memory.learn_from_conversation("halaman, bukan elemen") is True
     assert memory.correct("halaman kedua") == "halaman kedua"
 
 

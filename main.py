@@ -82,6 +82,8 @@ from core                      import confirm as confirm_gate
 from core.action_loader        import discover_actions
 from core.echo                 import EchoGuard
 from core.viseme               import VisemeStream
+from core.transcript_corrections import ScopedTranscriptCorrections
+from core.turn_guard             import AssistantResponseGuard
 from core.wake_word            import (
     WakeWordDetector, is_ready as wake_is_ready, install_and_download as wake_install,
 )
@@ -463,6 +465,9 @@ class JarvisLive:
         # loop as words arrive, drained by the playback loop against the audio.
         self._visemes              = VisemeStream()
         self._last_out_logged      = ""      # de-dupes a re-sent transcript tail
+        self._active_turn_id       = 0
+        self._response_guard       = AssistantResponseGuard()
+        self._transcript_corrections = ScopedTranscriptCorrections("session")
         # Push-to-talk
         self._ptt_enabled          = False
         self._ptt_held             = False
@@ -1908,10 +1913,17 @@ class JarvisLive:
                             if txt:
                                 if not in_buf:
                                     # New voice input arrives before its tool calls.
+                                    self._active_turn_id += 1
+                                    self._response_guard.begin(str(self._active_turn_id))
                                     self._attachment_turn = None
                                     self._blocked_device_action = None
-                                in_buf.append(txt)
-                                self._broadcast_transcript_delta("user", " ".join(in_buf))
+                                # Provider fragments may be cumulative or partial;
+                                # keep one bounded display buffer instead of appending
+                                # the same prefix repeatedly. Corrections stay scoped
+                                # to this user/device and never enter provider setup.
+                                in_buf = [self._transcript_corrections.aggregate(txt)]
+                                self._transcript_corrections.learn_from_conversation(in_buf[0])
+                                self._broadcast_transcript_delta("user", self._transcript_corrections.correct(in_buf[0]))
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
@@ -1944,7 +1956,7 @@ class JarvisLive:
                                 self._visemes.reset()
                                 continue
 
-                            full_in = " ".join(in_buf).strip()
+                            full_in = self._transcript_corrections.correct(" ".join(in_buf).strip())
                             if full_in:
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
@@ -1957,10 +1969,12 @@ class JarvisLive:
                                     }))
                             in_buf = []
 
-                            full_out = " ".join(out_buf).strip()
-                            # Second line of defence: even if a repeat slips
-                            # into a *fresh* buffer after a flush, never log the
-                            # same answer (or a tail of it) twice in a row.
+                            full_out = self._transcript_corrections.correct(" ".join(out_buf).strip())
+                            # Source-level per-turn identity guard: provider replay,
+                            # reconnect tails, and semantically equivalent completions
+                            # are emitted once, while a new turn gets a fresh identity.
+                            if full_out and not self._response_guard.accept(full_out):
+                                full_out = ""
                             if full_out and len(full_out) >= _REPEAT_MIN and self._last_out_logged:
                                 if full_out in self._last_out_logged:
                                     full_out = ""
@@ -2443,6 +2457,11 @@ class JarvisLive:
                         self._dashboard.set_phone_audio_enabled(True)
 
                     # Reset transient state that must not carry over from a previous session
+                    self._transcript_corrections = ScopedTranscriptCorrections(
+                        str(getattr(self._dashboard, "origin_device_id", "") or "session")
+                    )
+                    self._response_guard.begin(None)
+                    self._active_turn_id = 0
                     self._pending_vision       = None
                     self._vision_cam_active    = False
                     self._vision_close_pending = False

@@ -12,7 +12,8 @@ def test_exact_and_semantic_duplicates_are_emitted_once_per_request():
 def test_new_request_and_reconnect_replay_do_not_suppress_legitimate_follow_up():
     guard = AssistantResponseGuard()
     guard.begin("request-1")
-    assert guard.accept("1 + 1 = 2") is True
+    assert guard.accept("The answer is 1 + 1 = 2.") is True
+    assert guard.accept("The answer is 1+1, which equals 2.") is False
     guard.begin("request-2")
     assert guard.accept("1 + 1 = 2") is True
     guard.begin("request-3")

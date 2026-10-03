@@ -51,9 +51,11 @@ Android Accessibility is opt-in. UI automation follows `inspect -> act -> verify
 
 There is no default morning briefing, news poll, or time announcement. News/time are fetched on demand. The scheduler exists to execute workflows explicitly created by the user. Recurring workflow state is stored under `~/.jarvis/scheduled_workflows.json`.
 
-## Read-only self repair
+## Diagnostic self-repair and guarded apply
 
-Diagnostic self-repair is user-initiated and conversational first: a vague error observation does not trigger it. JARVIS obtains a concrete symptom and explicit diagnostic/repair intent, announces the read-only diagnostic, and only then starts inspection. A code-level activation guard rejects accidental generic calls. Once authorized, diagnostic self-repair may traverse the complete relevant dependency path without a fixed total file limit. It cannot apply edits, delete source, install packages, restart services, or perform Git mutations. Architecture invariants above are part of its diagnostic safety boundary.
+Diagnostic self-repair is user-initiated and conversational first: a vague error observation does not trigger it. JARVIS obtains a concrete symptom and explicit diagnostic/repair intent, announces the read-only diagnostic, and only then starts inspection. A code-level activation guard rejects accidental generic calls. Diagnosis may traverse the complete relevant dependency path without a fixed total file limit.
+
+Direct repair is a separate guarded action. It requires explicit `APPLY_DIAGNOSTIC_REPAIR` authorization and a high-confidence diagnosis, then accepts exact unique replacements in an allowlist of runtime/companion source and documentation files. It has no arbitrary operation-count limit; a total replacement-size budget limits runaway changes. The diagnostic/apply/self-healing implementation itself is immutable through this path. Credentials, core/plugins, deployment/system files, and arbitrary paths are rejected. Candidate Python/XML is validated before atomic replacement; failed writes trigger rollback. The action never installs, restarts, builds, commits, or pushes. Architecture invariants above remain the repair safety boundary.
 
 
 ### v27 runtime stability
@@ -68,7 +70,7 @@ Diagnostic self-repair is user-initiated and conversational first: a vague error
 `main.py` remains the Live conversation orchestrator. Headless process lifecycle is isolated in `core/server_lifecycle.py`; Live-bound tool schemas are isolated in `core/live_tools.py`; model selection is centralized in `core/model_config.py`; and bounded worker stdout/stderr rotation is handled by `core/runtime_log.py`. This separation is structural only and does not move voice or device execution back onto the server.
 
 ### v32 network configuration centralization
-Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `MARK_LIV_PUBLIC_HOSTNAME`, `MARK_LIV_DASHBOARD_PORT`, `MARK_LIV_LAN_HTTPS_PORT`, `MARK_LIV_DISCOVERY_PORT`, and `MARK_LIV_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.MARK_LIV_PUBLIC_URL`, set at APK build time from `MARK_LIV_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
+Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `ASSISTANT_PUBLIC_HOSTNAME`, `ASSISTANT_DASHBOARD_PORT`, `ASSISTANT_LAN_HTTPS_PORT`, `ASSISTANT_DISCOVERY_PORT`, and `ASSISTANT_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.ASSISTANT_PUBLIC_URL`, set at APK build time from `ASSISTANT_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
 
 
 ## Default network configuration
@@ -142,7 +144,10 @@ Voice routing and command routing remain separate. `call_current_device` targets
 
 The recovery path is transport-generic and does not depend on the application currently open on the companion.
 
-## Runtime error logging boundary
+## Live transcript streaming and rollover recovery
+
+Live input/output transcription is broadcast as `transcript.delta` while audio is still flowing. Companion clients render the current cumulative turn and replace it with the final `log` entry at `turn_complete`; progress/status events remain outside the transcript. If the provider session expires or the receive task fails before `turn_complete`, the server records bounded `You [partial]`/`JARVIS [partial]` entries, disables phone audio immediately, drains the phone queue, and reconnects with the preserved context. This keeps provider rollover separate from the authenticated device WebSocket.
+
 
 `runtime/error.log` is reserved for actionable diagnostics rather than a complete runtime transcript. The detached headless worker filters normal stdout so routine INFO/debug events, successful device/tool operations, connection-state chatter, and user/assistant transcript lines are not persisted in the error file.
 
@@ -156,13 +161,13 @@ Voice recovery distinguishes intentional session end from unexpected transport f
 
 ## Server browser capability and origin routing
 
-`browser_control` is a server action, so Playwright is installed with server requirements. Browser binaries are platform runtime dependencies: setup installs Chromium on x86_64 desktop-class hosts and does not force browser binaries onto ARM/headless hosts. Companion-origin UI/vision remains capability-driven and on the origin companion unless server/host is explicitly targeted.
+`browser_control` is a server action. It supports installed-browser automation in visible desktop mode and automatically switches to headless mode on a display-less Linux host. Ordinary information lookup still uses `web_search`; browser automation is reserved for an explicit host/browser workflow or a page interaction that requires a browser context.
 
 ## Host browser runtime policy
 
-Server-side `browser_control` depends on the Playwright Python API but not on Playwright-managed browser binaries. Browser executables are host capabilities. Interactive automation may start only when the requested browser resolves to a host executable or an explicit supported installed-browser channel. Missing browsers are reported as unavailable; MARK LIV does not silently substitute bundled Chromium.
+Server-side `browser_control` depends on the Playwright Python API. First-time setup installs an isolated Chromium runtime on supported architectures; on a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser runtime is reported as unavailable; MARK LIV does not copy Companion cookies/session state to the server.
 
-This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host.
+This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host. Android browser workflows use `browser.open`/`browser.search` followed by `android.ui.inspect` -> action -> inspect verification.
 
 ## Generic task continuity
 

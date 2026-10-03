@@ -35,5 +35,6 @@ google-auth-oauthlib
 # Smart-home integration
 tinytuya
 
-# Server browser-control Python runtime; browser binaries are platform-gated by setup.py
+# Browser-control Python runtime is part of the single server install.
+# First-time setup also installs isolated Chromium when the architecture supports it.
 playwright>=1.40,<2

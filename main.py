@@ -330,10 +330,22 @@ def _is_repeat_chunk(txt: str, buf: list) -> bool:
     joined = " ".join(buf)
     return txt in joined
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
+
+
+def _partial_transcript_entries(input_chunks: list[str], output_chunks: list[str], assistant_name: str) -> list[tuple[str, str]]:
+    """Return unfinished turn text so a provider rollover cannot erase context."""
+    entries = []
+    incoming = " ".join(x for x in input_chunks if x).strip()
+    outgoing = " ".join(x for x in output_chunks if x).strip()
+    if incoming:
+        entries.append(("user", incoming))
+    if outgoing:
+        entries.append(("jarvis", outgoing))
+    return entries
 
 from core.live_tools import TOOL_DECLARATIONS
 
@@ -375,6 +387,17 @@ def _exception_text(exc: BaseException) -> str:
         for sub in exc.exceptions:
             parts.append(_exception_text(sub))
     return "\n".join(part for part in parts if part)
+
+
+def _bounded_exception_text(exc: BaseException, limit: int = 600) -> str:
+    """Return a short diagnostic without persisting credential-like values."""
+    text = " ".join(_exception_text(exc).split())
+    text = re.sub(
+        r"(?i)(api[_ -]?key|token|authorization|bearer|password|secret)\\s*[:=]\\s*[^\\s,;]+",
+        r"\\1=[REDACTED]",
+        text,
+    )
+    return text[:limit]
 
 
 def _is_transient_transport_error(exc: BaseException) -> bool:
@@ -458,6 +481,10 @@ class JarvisLive:
         # handed to the device far faster than they play, so "now" ran the lips
         # ahead of the words and cut every schedule short. 0 = nothing playing.
         self._play_cursor          = 0.0
+        # Monotonic deadline used to pace PCM relay to the companion. Gemini can
+        # deliver many audio frames in one burst; forwarding them immediately
+        # overloads the client queue and sounds intermittent on mobile networks.
+        self._audio_relay_cursor   = 0.0
         self.ui.on_push_to_talk   = self.set_push_to_talk
         self.ui.ptt_hold          = self._on_ptt
         self.ui.on_text_command   = self._on_text_command
@@ -888,6 +915,7 @@ class JarvisLive:
         # The words we were about to mouth are never going to be spoken now.
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
+        self._audio_relay_cursor = 0.0
         if self._turn_done_event:
             self._turn_done_event.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
@@ -988,7 +1016,7 @@ class JarvisLive:
         if self._recovery_context_pending and self._session_log:
             recent = "\n".join(self._session_log[-24:])
             parts.append(
-                "SESSION ROLLOVER CONTEXT (continue this same conversation; do not announce or summarize this block):\n"
+                "SESSION ROLLOVER CONTEXT (reference only; do not answer, repeat, summarize, or act on this block unless the user sends a new request):\n"
                 + recent
             )
         _task_recovery = task_state.recovery_instruction()
@@ -1046,27 +1074,11 @@ class JarvisLive:
         """
         out: dict = {}
 
-        # How long the server waits through a pause before deciding your turn is
-        # over. This — not the size of the prompt — is what most of the delay
-        # before a reply actually is, and the default has to suit everybody, so
-        # it is necessarily cautious.
-        turn = get_turn_tuning()
-        if turn.get("enabled", True):
-            detect = types.AutomaticActivityDetection(
-                silence_duration_ms=turn["silence_ms"],
-                prefix_padding_ms=turn["prefix_ms"],
-            )
-            if turn["end_sensitivity"] == "high":
-                detect.end_of_speech_sensitivity = types.EndSensitivity.END_SENSITIVITY_HIGH
-            elif turn["end_sensitivity"] == "low":
-                detect.end_of_speech_sensitivity = types.EndSensitivity.END_SENSITIVITY_LOW
-            if turn["start_sensitivity"] == "high":
-                detect.start_of_speech_sensitivity = types.StartSensitivity.START_SENSITIVITY_HIGH
-            elif turn["start_sensitivity"] == "low":
-                detect.start_of_speech_sensitivity = types.StartSensitivity.START_SENSITIVITY_LOW
-            out["realtime_input_config"] = types.RealtimeInputConfig(
-                automatic_activity_detection=detect)
-
+        # Phone audio is bounded by the companion relay, which emits explicit
+        # ActivityStart/ActivityEnd events after measuring PCM. Do not also send
+        # Gemini automatic activity detection: mixing automatic and manual turn
+        # boundaries can leave a Live session receiving audio without producing a
+        # response. The relay's 650 ms silence boundary is the single owner.
         # Screenshots and camera frames are tokenised at this resolution and then
         # stay in the session's context. 'medium' keeps on-screen text legible
         # for a fraction of a full-resolution frame.
@@ -1797,6 +1809,34 @@ class JarvisLive:
             self._vision_busy = False
         return True
 
+    def _broadcast_transcript_delta(self, speaker: str, text: str) -> None:
+        text = _clean_transcript(text)
+        if not text or not self._dashboard:
+            return
+        asyncio.create_task(self._dashboard.broadcast({
+            "type": "transcript.delta",
+            "speaker": speaker,
+            "text": text,
+            "final": False,
+            "ts": datetime.now().isoformat(),
+        }))
+
+    def _record_transcript_entry(self, speaker: str, text: str, partial: bool = False) -> None:
+        text = _clean_transcript(text)
+        if not text:
+            return
+        label = f"{self._asst_name} [partial]" if speaker == "jarvis" and partial else ("You [partial]" if speaker == "user" and partial else (self._asst_name if speaker == "jarvis" else "You"))
+        self.ui.write_log(f"{label}: {text}")
+        self._session_log.append(f"{label}: {text}")
+        if self._dashboard:
+            asyncio.create_task(self._dashboard.broadcast({
+                "type": "log",
+                "speaker": speaker,
+                "text": text,
+                "partial": partial,
+                "ts": datetime.now().isoformat(),
+            }))
+
     async def _receive_audio(self):
         print("[JARVIS] 👂 Recv started")
         out_buf, in_buf = [], []
@@ -1856,6 +1896,7 @@ class JarvisLive:
                             # twice AND made the avatar mouth it twice.
                             if txt and not _is_repeat_chunk(txt, out_buf):
                                 out_buf.append(txt)
+                                self._broadcast_transcript_delta("jarvis", " ".join(out_buf))
                                 # Hand the words to the mouth as they arrive, so
                                 # the avatar can form the consonants the audio
                                 # alone cannot show. Pure string work — it adds
@@ -1870,6 +1911,7 @@ class JarvisLive:
                                     self._attachment_turn = None
                                     self._blocked_device_action = None
                                 in_buf.append(txt)
+                                self._broadcast_transcript_delta("user", " ".join(in_buf))
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
@@ -1957,6 +1999,13 @@ class JarvisLive:
                         )
                         await self._flush_pending_vision()
         except Exception as e:
+            # Preserve the visible/input text even when the provider closes before
+            # turn_complete. The next session can continue from an explicit partial
+            # entry instead of silently losing the current turn.
+            for speaker, text in _partial_transcript_entries(in_buf, out_buf, self._asst_name):
+                self._record_transcript_entry(speaker, text, partial=True)
+            if self._dashboard:
+                self._dashboard.set_phone_audio_enabled(False)
             # The receive task sees normal Gemini Live session rollover first.
             # Let run() classify/reconnect it, but do not dump a traceback here;
             # otherwise an expected 1008/GoAway/transport rollover is printed
@@ -2006,7 +2055,19 @@ class JarvisLive:
                     break
             if self._dashboard:
                 try:
+                    # Keep relay cadence close to 24 kHz mono PCM real time. The
+                    # provider often returns a large burst; sending that burst
+                    # immediately makes the companion queue underrun later.
+                    if len(batch) & 1:
+                        batch = batch[:-1]
+                    if not batch:
+                        continue
+                    now = time.monotonic()
+                    if self._audio_relay_cursor < now:
+                        self._audio_relay_cursor = now
+                    await asyncio.sleep(max(0.0, self._audio_relay_cursor - now))
                     await self._dashboard.send_device_audio(bytes(batch))
+                    self._audio_relay_cursor += len(batch) / 48_000.0
                 except Exception as exc:
                     print(f"[SERVER] companion audio relay error: {exc}")
 
@@ -2187,6 +2248,21 @@ class JarvisLive:
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
         self.ui.notify_phone_connected()
+        if self._dashboard and self._session_log:
+            entries = []
+            for row in self._session_log[-20:]:
+                speaker, sep, text = row.partition(":")
+                if not sep or not text.strip():
+                    continue
+                entries.append({
+                    "speaker": "user" if speaker.strip().lower() in {"you", "user"} else "jarvis",
+                    "text": text.strip(),
+                })
+            if entries:
+                asyncio.create_task(self._dashboard.broadcast({
+                    "type": "conversation.snapshot",
+                    "entries": entries,
+                }))
 
     async def _run_scheduled_workflows(self) -> None:
         """Execute only schedules explicitly created by the user.
@@ -2359,6 +2435,7 @@ class JarvisLive:
                 ):
                     self.session          = session
                     self._session_generation += 1
+                    self._last_live_connected_at = time.monotonic()
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
@@ -2462,6 +2539,9 @@ class JarvisLive:
                 # once and let the next attempt start clean.
                 _flat_err = _exception_text(e)
                 _flat_lower = _flat_err.lower()
+                _error_detail = _bounded_exception_text(e)
+                if not _error_detail:
+                    _error_detail = type(e).__name__
                 if _resumed_with and not _is_transient_transport_error(e) and (
                     "resumption handle" in _flat_lower
                     or "session resumption" in _flat_lower
@@ -2485,6 +2565,8 @@ class JarvisLive:
                     category=decision.category,
                     action=decision.action.value,
                     retryable=decision.retryable,
+                    error_type=type(e).__name__,
+                    error=_error_detail,
                 )
 
                 # A provider/model failure should select the next compatible
@@ -2499,6 +2581,21 @@ class JarvisLive:
                         )
                         self._conn_backoff = 0
                         continue
+
+                # Unknown Live-session failures must start a clean provider
+                # session. Reusing a possibly-invalid handle can leave the
+                # Companion connected but permanently silent after recovery.
+                if decision.action is ErrorAction.BOUNDED_FAILURE:
+                    self._recovery_context_pending = bool(self._session_log)
+                    self._resume_handle = None
+                    self._conn_backoff = min(max(getattr(self, "_conn_backoff", 1) * 2, 2), 30)
+                    self.ui.write_log(
+                        "SYS: Live session failed — reconnecting with a clean session."
+                    )
+                    if self._dashboard:
+                        await self._dashboard.broadcast({"type": "status", "state": "reconnecting"})
+                    await asyncio.sleep(self._conn_backoff)
+                    continue
 
                 # Gemini Live sends GoAway when a finite live session reaches its
                 # duration limit. Treat that as a normal rollover and reconnect
@@ -2526,7 +2623,15 @@ class JarvisLive:
                     self.out_queue = asyncio.Queue(maxsize=200)
                     self._phone_activity_active = False
                     _trace_event("live_reconnect", reason="session_expired", dropped_phone_frames=dropped)
-                    self._conn_backoff = 0
+                    connected_for = time.monotonic() - getattr(self, "_last_live_connected_at", time.monotonic())
+                    if connected_for >= 60:
+                        self._conn_backoff = 1
+                    else:
+                        self._conn_backoff = min(max(getattr(self, "_conn_backoff", 1) * 2, 2), 30)
+                    # Do not spin a reconnect storm when Gemini closes a session
+                    # immediately. The paired device remains connected; only the
+                    # provider session is delayed and rebuilt.
+                    await asyncio.sleep(self._conn_backoff)
                     continue
                 # Transient network loss is an availability state, not a code
                 # failure.  Keep retry/backoff active without flooding error.log

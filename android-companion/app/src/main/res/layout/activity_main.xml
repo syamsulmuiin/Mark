@@ -1,22 +1,37 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/bg_app">
 
-    <LinearLayout android:id="@+id/pairPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="28dp">
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:orientation="horizontal">
-            <TextView android:text="JARVIS" android:textColor="#F7F8F8" android:textSize="17sp" android:textStyle="bold" android:letterSpacing="0.20" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-            <View android:layout_width="6dp" android:layout_height="6dp" android:layout_marginLeft="8dp" android:background="@drawable/bg_cyan_dot"/>
-        </LinearLayout>
-        <View android:layout_width="112dp" android:layout_height="112dp" android:layout_marginTop="54dp" android:background="@drawable/bg_pair_reactor" android:contentDescription="Companion reactor"/>
-        <TextView android:text="C O M P A N I O N" android:textColor="#9199AD" android:textSize="12sp" android:layout_marginBottom="32dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="22dp">
-            <TextView android:text="Connect to JARVIS" android:textColor="#F7F8F8" android:textStyle="bold" android:textSize="24sp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-            <TextView android:text="Masukkan kode pairing satu kali dari operator server." android:textColor="#9199AD" android:textSize="14sp" android:layout_marginTop="8dp" android:layout_marginBottom="20dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-            <EditText android:id="@+id/pairCode" android:hint="Kode pairing 8 karakter" android:inputType="textCapCharacters" android:maxLength="8" android:singleLine="true" android:gravity="center" android:letterSpacing="0.20" android:textColor="#F7F8F8" android:textColorHint="#9199AD" android:background="@drawable/bg_input" android:padding="14dp" android:layout_width="match_parent" android:layout_height="56dp"/>
-            <Button android:id="@+id/pair" android:text="Hubungkan perangkat" android:textColor="#001417" android:textStyle="bold" android:background="@drawable/bg_start_conversation" android:layout_marginTop="14dp" android:layout_width="match_parent" android:layout_height="52dp"/>
-            <Button android:id="@+id/requestPairing" android:text="Minta permintaan pairing" android:textColor="#A5E8EB" android:background="@android:color/transparent" android:layout_marginTop="4dp" android:layout_width="match_parent" android:layout_height="48dp"/>
-            <TextView android:id="@+id/pairStatus" android:visibility="gone" android:textColor="#91A4AA" android:gravity="center" android:textSize="12sp" android:layout_marginTop="12dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-        </LinearLayout>
-        <TextView android:text="Minta permintaan terlebih dahulu, lalu operator menerbitkan kode satu kali." android:textColor="#9199AD" android:textSize="12sp" android:layout_marginTop="24dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <LinearLayout android:id="@+id/pairPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:fitsSystemWindows="true">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="64dp" android:paddingLeft="12dp" android:paddingRight="12dp">
+            <Space android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="start|center_vertical"/>
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent" android:layout_gravity="center" android:gravity="center" android:orientation="horizontal">
+                <TextView android:text="HERMES" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.16" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <View android:layout_width="5dp" android:layout_height="5dp" android:layout_marginLeft="7dp" android:background="@drawable/bg_cyan_dot"/>
+            </LinearLayout>
+            <ImageButton android:id="@+id/pairMenu" android:visibility="gone" android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="end|center_vertical" android:background="@android:color/transparent" android:src="@drawable/ic_more_vertical" android:tint="#A5E8EB" android:contentDescription="Pengaturan" android:padding="14dp"/>
+        </FrameLayout>
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true" android:scrollbars="none">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_horizontal" android:paddingLeft="24dp" android:paddingRight="24dp" android:paddingTop="24dp" android:paddingBottom="24dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center_horizontal">
+                    <View android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/bg_pair_reactor" android:contentDescription="Companion reactor"/>
+                    <TextView android:text="COMPANION" android:textColor="#8A8F98" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.25" android:layout_marginTop="14dp" android:layout_marginBottom="26dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="22dp">
+                        <TextView android:text="Hubungkan ke Hermes" android:textColor="#F7F8F8" android:textStyle="bold" android:textSize="21sp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                        <TextView android:text="Masukkan kode pairing operator untuk menghubungkan perangkat." android:textColor="#8A8F98" android:textSize="14sp" android:layout_marginTop="6dp" android:layout_marginBottom="16dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                        <TextView android:text="Kode pairing operator (8 karakter)" android:textColor="#8A8F98" android:textSize="12sp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                        <EditText android:id="@+id/pairCode" android:hint="Masukkan kode" android:inputType="textCapCharacters" android:maxLength="8" android:singleLine="true" android:gravity="center" android:letterSpacing="0.20" android:textColor="#F7F8F8" android:textColorHint="#8A8F98" android:background="@drawable/bg_input" android:padding="14dp" android:layout_marginTop="4dp" android:layout_width="match_parent" android:layout_height="56dp"/>
+                        <Button android:id="@+id/pair" android:text="Hubungkan" android:textColor="#001417" android:textStyle="bold" android:background="@drawable/bg_start_conversation" android:layout_marginTop="10dp" android:layout_width="match_parent" android:layout_height="54dp"/>
+                        <Button android:id="@+id/requestPairing" android:text="Minta kode pairing" android:textColor="#F7F8F8" android:textStyle="bold" android:background="@drawable/bg_button_secondary" android:layout_marginTop="10dp" android:layout_width="match_parent" android:layout_height="50dp"/>
+                        <LinearLayout android:id="@+id/pairProgress" android:visibility="gone" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:orientation="horizontal" android:layout_marginTop="16dp">
+                            <ProgressBar android:layout_width="20dp" android:layout_height="20dp" android:indeterminateTint="#16D9F5"/>
+                            <TextView android:id="@+id/pairProgressText" android:textColor="#8A8F98" android:textSize="13sp" android:layout_marginLeft="10dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                        </LinearLayout>
+                        <TextView android:id="@+id/pairStatus" android:visibility="gone" android:textColor="#8A8F98" android:gravity="center" android:textSize="13sp" android:layout_marginTop="15dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                    </LinearLayout>
+                    <TextView android:text="Kode pairing diterbitkan sementara dan hanya dapat digunakan satu kali." android:textColor="#8A8F98" android:textSize="12sp" android:layout_marginTop="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
     </LinearLayout>
 
     <LinearLayout android:id="@+id/voicePanel" android:visibility="gone" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_horizontal" android:paddingBottom="12dp">
@@ -42,7 +57,7 @@
 
         <FrameLayout android:layout_width="match_parent" android:layout_height="72dp" android:layout_marginTop="6dp">
             <Button android:id="@+id/startConversation" android:visibility="gone" android:text="@string/start_conversation" android:textColor="#001417" android:textSize="15sp" android:textStyle="bold" android:drawableStart="@drawable/ic_voice_wave" android:drawablePadding="12dp" android:gravity="center" android:paddingLeft="24dp" android:paddingRight="24dp" android:background="@drawable/bg_start_conversation" android:layout_width="wrap_content" android:minWidth="230dp" android:layout_height="58dp" android:layout_gravity="center"/>
-            <ImageButton android:id="@+id/endConversation" android:src="@drawable/ic_end_call" android:tint="#FFFFFF" android:scaleType="center" android:padding="18dp" android:background="@drawable/bg_end_circle" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="@string/end_conversation"/>
+            <ImageButton android:id="@+id/endConversation" android:src="@drawable/ic_close" android:tint="#FFFFFF" android:scaleType="center" android:padding="18dp" android:background="@drawable/bg_end_circle" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="@string/end_conversation"/>
         </FrameLayout>
     </LinearLayout>
 </FrameLayout>

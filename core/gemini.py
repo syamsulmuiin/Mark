@@ -309,8 +309,8 @@ class _Reply:
 
 
 def _live_model() -> str:
-    """Use the configured primary Live model for one-shot compatibility calls."""
-    return LIVE_MODELS[0]
+    """Use the first currently healthy Live model for compatibility calls."""
+    return live_model()
 
 
 def _to_live_parts(contents) -> list:

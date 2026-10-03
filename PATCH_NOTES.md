@@ -1,4 +1,85 @@
-## Runtime boundary isolation
+## v60.44 - Model routing and recovery-context deduplication
+
+- Set Live routing to `gemini-3.8-live` with `gemini-3.1-flash-live-preview` as the requested fallback.
+- Set non-Live primary/fallback routing to `gemini-3.7-flash` and `gemini-3.5-flash-lite`.
+- Marked recovered transcript context as reference-only so a replacement Live session does not treat the replayed history as a new prompt and repeat the previous answer.
+- This addresses robotic/repetitive behavior caused by provider rollover context being interpreted as fresh conversational input.
+
+## v60.43 - Move Live default off unstable 3.1 preview
+
+- Changed the default Gemini Live model from the observed `gemini-3.1-flash-live-preview` path to the current `gemini-3.8-live` model identifier.
+- Kept `gemini-2.5-flash-native-audio-preview-12-2025` as the explicit fallback.
+- The previous runtime showed repeated provider `1011 Internal error` and `1008 The operation was aborted` closures after pairing; these were provider-session failures, not pairing failures.
+- Model failover remains bounded and preserves conversation context without exposing provider credentials.
+
+## v60.42 - Add local speech-shape gate for barge-in
+
+- Kept Android Acoustic Echo Cancellation and Noise Suppression enabled when available.
+- Added a lightweight local speech-shape gate using zero-crossing and frame-difference features before an interrupt can be sent.
+- Amplitude alone no longer qualifies as user speech, reducing false interrupts from steady noise, hiss, clicks, and residual speaker echo.
+- The gate remains bounded and local; microphone PCM and derived features are still streamed through the existing conversation path without storing audio.
+
+## v60.41 - Reduce false barge-in during Companion playback
+
+- Increased the Android interrupt threshold from `0.16` to `0.22`.
+- Required 14 consecutive voiced frames instead of 6 before interrupting assistant speech, approximately 0.9 seconds at the configured microphone frame size.
+- Increased interrupt cooldown to 1.5 seconds.
+- This targets the observed repeated `activity_start`/`device_interrupt` pattern while assistant audio was still being relayed, which can make a valid response appear silent or incomplete when speaker echo is detected as user speech.
+
+## v60.40 - Remove artificial 120-second Live reconnect
+
+- Removed the client watchdog that forcibly rebuilt Gemini Live every 120 seconds.
+- A conversation turn is not limited to 120 seconds; the old timer was an application-side preemptive reconnect, which caused the repeated `live_connected` cadence seen in runtime logs.
+- Live rollover now waits for an actual provider GoAway/session-expiry/transport failure or an explicit user/device configuration change.
+- Provider session rollover still preserves bounded conversation context and resets stale audio queues through the existing recovery path.
+
+## v60.39 - Pace bursty Live audio relay
+
+- Paces server-to-Companion PCM relay against 24 kHz mono playback time instead of forwarding provider bursts immediately.
+- Drops incomplete odd-byte PCM tails at the relay boundary to preserve sample alignment.
+- Resets relay pacing on interruption so a new response is not delayed by stale queued audio.
+- This addresses the observed pattern where `audio_out` frames were emitted in a tight burst and the Companion later sounded intermittent.
+
+## v60.38 - Smoother Companion audio and barge-in protection
+
+- Enabled Android Acoustic Echo Cancellation and Noise Suppression when available on the microphone session.
+- Raised the barge-in confirmation threshold and required a longer sustained voice window to prevent speaker echo/noise from repeatedly interrupting assistant audio.
+- Increased the Android streaming `AudioTrack` buffer headroom to reduce underruns during bursty network delivery.
+- Added a server `device_interrupt` boundary event so future choppy-response reports can distinguish real user interruption from transport or playback failure.
+
+
+- Pairing claim failures are now recorded as bounded operator diagnostics with the exact server reason, without storing pairing codes, signatures, or keys.
+- Android now displays the server's pairing error (`pairing_expired`, `pairing_code_invalid`, `peer_signature_invalid`, and similar) instead of only showing `HTTP 400`.
+- This makes expired codes and stale pending requests distinguishable from cryptographic or transport failures.
+
+
+- Captured bounded, credential-redacted provider exception details in `runtime/interaction.log` for generic Live-session failures instead of recording only `isolated_failure`.
+- Generic non-retryable Live-session failures now clear the potentially stale resumption handle, preserve bounded local conversation context, notify the Companion of reconnecting state, and create a clean provider session with backoff.
+- This keeps pairing/device trust intact while preventing a connected Companion from remaining silent after a failed Gemini Live session.
+
+
+- Replaced the product-specific `MARK_LIV_SKIP_BROWSER_INSTALL` environment variable with generic `SKIP_BROWSER_INSTALL`.
+- Audited environment/configuration identifiers used by server, Android build, desktop companion, browser runtime, and CI. Existing `ASSISTANT_*` variables are retained as the established cross-component generic assistant configuration contract; no new product-specific variable remains in the browser setup path.
+
+
+- Kept `playwright` in the single root `requirements.txt`; removed the redundant `requirements-browser.txt` extra.
+- First-time `setup.py` now installs isolated Chromium on supported architectures for headless server browser automation.
+- Added `SKIP_BROWSER_INSTALL=1` for deployments that intentionally provide only server-side `web_search`.
+- Updated architecture, README, and browser workflow documentation to remove the obsolete separate-browser-install instructions.
+- Headless browser search falls back from Google's anti-automation interstitial to DuckDuckGo while preserving the encoded query and browser session.
+
+
+- Server `browser_control` now selects visible mode when a desktop display is present and headless mode on display-less Linux hosts; `BROWSER_HEADLESS` can explicitly override detection.
+- Browser search queries use URL encoding instead of replacing only spaces, so punctuation and non-ASCII terms are preserved.
+- Added `BROWSER_SEARCH_WORKFLOW.md` describing server `web_search`, server browser automation, Android browser control, and desktop browser control as separate execution paths.
+- Documented the inspect -> act -> inspect verification loop and credential boundary for both server and Companion workflows.
+
+
+- Android now advertises `browser.open` and `browser.search` during pairing and reconnect capability refresh.
+- Browser URLs and searches launch through the phone's installed browser; webpage interaction continues through Accessibility `inspect -> act -> inspect` using `view_id` rather than coordinates.
+- HTTP/HTTPS URLs are validated before launch, and browser search queries are encoded on-device.
+- `call_current_device` now documents the browser capability path so Android-originated browser requests are not routed to the headless server browser.
+
 - Classify Live-session, Companion WebSocket, file-transfer, tunnel, and task failures into bounded actions without coupling them to product/version names.
 - Persist structured runtime error events with boundary/category/action metadata; provider model failover remains separate from transport reconnect.
 - Telegram is not part of this runtime boundary set; Telegram adapter isolation belongs to the Hermes Gateway layer.
@@ -17,6 +98,51 @@
 - Use system mono fonts for the desktop HUD and system UI fonts for controls. Minimize the Android pairing card and show its status line only during pairing or when attention is needed.
 - Keep successful attachment batches and zero-rejection plugin discovery out of the severity-filtered server error.log.
 - No additional source files removed since v60.23; its standalone clean-once script remains applicable to installations that still contain the old face assets and purple button resource.
+
+## v60.31 - Transcript snapshot recovery after reconnect
+
+- Server replays the last bounded conversation entries when the companion reconnects.
+- Android replaces its transcript buffer from the snapshot instead of losing visible history after a socket close.
+- The visible transcript window increases from 4 to 20 entries while retaining bounded memory.
+
+## v60.30 - Companion title and bounded thinking recovery
+
+- Manifest application label is explicitly `Companion`, overriding the previous hardcoded `JARVIS Companion` title.
+- Android exits an unproductive `THINKING` state after 60 seconds by closing only the current socket and using the guarded reconnect path; normal `LISTENING`/`SPEAKING` states cancel the watchdog.
+
+## v60.29 - WebSocket keepalive and bounded reconnect backoff
+
+- Android WebSocket uses zero read/write timeouts, connection retry support, and a 15-second protocol ping interval.
+- Added a lightweight application heartbeat/ack in addition to the transport ping so the public tunnel path remains observable and active.
+- Reconnects use bounded exponential backoff from 1.5 seconds to 30 seconds and reset only after a confirmed `ready` event.
+
+## v60.28 - Safe audio ingress, Companion identity, and guarded diagnostic repair
+
+- Android audio ingress no longer blocks the OkHttp WebSocket callback thread when `AudioTrack` backpressure occurs; ingress and playback use separate bounded queues so ping/close processing remains live.
+- Launcher icon now uses a white `C` on the existing `#315DA8` background.
+- Android application label is now `Companion`.
+- Added a separate guarded diagnostic-apply action: explicit authorization, high-confidence diagnosis, exact allowlisted replacements, a total replacement-size budget instead of an arbitrary operation-count cap, Python/XML validation, atomic writes, rollback on failure, and an immutable self-repair implementation.
+
+## v60.27 - Ignore stale Android WebSocket callbacks
+
+- Ignore `onClosing` and `onFailure` callbacks from an old socket after a newer reconnect has taken ownership.
+- Prevent stale callbacks from stopping the active microphone/playback path or clearing the current WebSocket, which could leave the conversation connected on the server but silent on the device.
+
+## v60.26 - Device socket ownership and end-conversation icon
+
+- Close a stale device WebSocket when a newer authenticated connection for the same paired device arrives, preventing audio/results from being routed to an old socket during reconnect.
+- Strengthen the end-conversation control with a larger, thicker close mark inside the existing proportional circular button.
+
+## v60.25 - Hermes launcher icon parity
+
+- Set the Android Companion launcher and round launcher icon to the same blue square and white Hermes mark used by the Hermes Companion APK.
+- Keep the application label and pairing-only behavior unchanged.
+
+## v60.24 - Android transcript speaker emphasis and camera permission recovery
+
+- Render `YOU:` and `JARVIS:` as explicit bold speaker labels in the streaming transcript while keeping cumulative deltas replaceable and deduplicated.
+- Keep a pending `camera.capture` request while Android presents the camera permission prompt; execute it after approval or return a bounded denial result instead of failing the first request before permission can be granted.
+- Preserve the existing device-local camera implementation and pairing-only security boundary. No camera bytes or permissions are handled by the headless server.
 
 ## v60.23
 - Remove the unused desktop holographic-face renderer, mesh, model asset, and viseme module. The standard animated reactor core remains the only desktop HUD visual; update its desktop prompt accordingly.
@@ -360,6 +486,23 @@
 
 This file replaces the obsolete notes for the former GUI/CLI/background architecture.
 
+## v60.25 - Mark source capability synchronization
+
+- Added proactive provider-session rollover at 120 seconds, before the observed ~155-second Gemini hard expiry, so conversations recover through a controlled context-preserving reconnect instead of an abrupt provider close.
+- Fixed silent voice turns by making the companion relay's explicit `ActivityStart`/`ActivityEnd` boundaries the sole turn detector; Gemini automatic activity detection is no longer mixed with manual boundaries.
+- Removed the pairing-page overflow menu so transfer/file controls are unavailable before pairing.
+- Replaced the conversation end phone icon with an X close icon.
+- Added Android reconnect de-duplication so simultaneous `onClosing`/`onFailure` callbacks cannot create competing device sockets.
+- Increased Android PCM playback buffering and stopped dropping audio chunks when the queue briefly fills, preventing audible sentence gaps during bursty Gemini output.
+- Added parallel `transcript.delta` delivery for live input/output speech while audio is still streaming.
+- Preserved unfinished input/output as explicit partial transcript entries on provider rollover and disabled/drained phone audio immediately when the receive loop fails.
+- Updated Android transcript rendering to replace the current streaming turn with the final transcript instead of adding duplicate fragments.
+- Added desktop-companion-local `video_player` parity for local files, direct media URLs, YouTube links/searches, stop, mute, and unmute.
+- Kept video resolution and Qt Multimedia playback on the paired desktop companion; the headless server does not gain PyQt or `yt-dlp` dependencies.
+- Added cancellation tokens so stopping a YouTube resolution prevents a late video from opening.
+- Fixed explicit one-shot Live compatibility calls to select the first healthy configured Live model instead of always forcing the primary model.
+- Updated the Desktop Companion dashboard layout to match the Mark desktop UI structure more closely: canonical header with identity and clock, system-monitor rail, central HUD, activity rail, command input, interrupt/microphone/attachment controls, and wired settings/control menus.
+
 ## Current baseline
 
 - Headless server lifecycle with `--start`, `--stop`, `--enable`, `--disable`, and `--pair`.
@@ -414,9 +557,9 @@ At minimum, compile changed Python modules with `python -m py_compile` and run Z
 - Reduced `main.py` from 2,548 to about 2,063 lines without changing Live-session behavior.
 - Moved headless server lifecycle/admin CLI helpers to `core/server_lifecycle.py`.
 - Moved Live-bound tool schemas to `core/live_tools.py`; file-backed actions remain auto-discovered from `actions/*.py`.
-- Added `core/model_config.py` as the server-side source of truth for Gemini model identifiers. Optional environment overrides: `MARK_LIV_LIVE_MODEL`, `MARK_LIV_TEXT_MODEL`, `MARK_LIV_TEXT_FALLBACK_MODEL`.
+- Added `core/model_config.py` as the server-side source of truth for Gemini model identifiers. Optional environment overrides: `ASSISTANT_LIVE_MODEL`, `ASSISTANT_TEXT_MODEL`, `ASSISTANT_TEXT_FALLBACK_MODEL`.
 - Kept the desktop companion standalone by mirroring the same model-config module inside its packaged runtime; Android does not embed Gemini model identifiers.
-- Added `core/runtime_log.py`. The server worker now owns `runtime/error.log` and rotates it at 5 MiB with five backups by default instead of allowing one file to grow forever. Optional overrides: `MARK_LIV_LOG_MAX_BYTES` and `MARK_LIV_LOG_BACKUPS`.
+- Added `core/runtime_log.py`. The server worker now owns `runtime/error.log` and rotates it at 5 MiB with five backups by default instead of allowing one file to grow forever. Optional overrides: `ASSISTANT_LOG_MAX_BYTES` and `ASSISTANT_LOG_BACKUPS`.
 - The launcher no longer leaves an inherited Windows file handle on `error.log`, allowing atomic rollover while the worker is running.
 - No user-facing features, routing behavior, voice behavior, reconnect policy, or scheduling cadence were changed.
 
@@ -427,7 +570,7 @@ At minimum, compile changed Python modules with `python -m py_compile` and run Z
 - No companion protocol, voice routing, Gemini lifecycle, scheduling, or tool behavior was changed.
 
 ### v32 network configuration centralization
-Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `MARK_LIV_PUBLIC_HOSTNAME`, `MARK_LIV_DASHBOARD_PORT`, `MARK_LIV_LAN_HTTPS_PORT`, `MARK_LIV_DISCOVERY_PORT`, and `MARK_LIV_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.MARK_LIV_PUBLIC_URL`, set at APK build time from `MARK_LIV_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
+Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `ASSISTANT_PUBLIC_HOSTNAME`, `ASSISTANT_DASHBOARD_PORT`, `ASSISTANT_LAN_HTTPS_PORT`, `ASSISTANT_DISCOVERY_PORT`, and `ASSISTANT_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.ASSISTANT_PUBLIC_URL`, set at APK build time from `ASSISTANT_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
 
 ## v33 — explicit default network config
 
@@ -464,7 +607,7 @@ Network endpoints and ports now use `core/network_config.py` as the server sourc
 - Linux setup now creates and uses a project-local `.venv` when needed, avoiding PEP 668 system-Python installation failures on Debian/Ubuntu/Armbian.
 - Reduced root `requirements.txt` to headless server dependencies.
 - Moved desktop input, screen, camera, and local-control dependencies to `desktop-companion/requirements.txt`.
-- Moved Playwright to the optional `requirements-browser.txt` server extra and stopped automatic browser-binary installation.
+- Server browser automation is now a normal first-time setup capability: Playwright remains in the single root `requirements.txt`, and setup installs isolated Chromium where supported.
 - Removed desktop/audio post-install instructions from the server installer.
 - No existing source file was removed.
 

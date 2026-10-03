@@ -1,5 +1,5 @@
 {
-  "public_hostname": "auth.kasirdigital.web.id",
+  "public_hostname": "markliv-staging.kasirdigital.web.id",
   "dashboard_port": 8000,
   "lan_https_port": 8001,
   "discovery_port": 37991,

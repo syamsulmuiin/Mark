@@ -11,6 +11,7 @@ import threading
 import webbrowser
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 
 from core.artifact_paths import artifact_path
 
@@ -22,6 +23,20 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeout,
 )
 _OS = platform.system()   # "Windows" | "Darwin" | "Linux"
+
+
+def _headless_mode() -> bool:
+    """Use visible windows when a desktop exists, headless on display-less hosts."""
+    forced = os.environ.get("BROWSER_HEADLESS", "").strip().lower()
+    if forced in {"1", "true", "yes", "on"}:
+        return True
+    if forced in {"0", "false", "no", "off"}:
+        return False
+    return _OS == "Linux" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+
+
+def _browser_viewport(headless: bool) -> dict | None:
+    return {"width": 1280, "height": 900} if headless else None
 
 def _normalize_url(url: str) -> str:
     """
@@ -533,9 +548,12 @@ class _BrowserSession:
         exe         = self._spec["exe"]
         channel     = self._spec["channel"]
 
-        # Interactive automation must control the browser the host actually has.
-        # Never fall back silently to a Playwright-managed bundled browser.
-        if not exe and not channel:
+        headless = _headless_mode()
+
+        # Visible desktop automation must control a host-installed browser.
+        # A display-less server may use the Chromium runtime installed by
+        # `python -m playwright install chromium` during first-time setup.
+        if not exe and not channel and not headless:
             raise RuntimeError(
                 f"Browser '{self.browser_name}' is not installed or could not be located on this host."
             )
@@ -547,10 +565,10 @@ class _BrowserSession:
                 Path.home() / ".jarvis_profiles" / "firefox"
             )
             kwargs: dict = {
-                "headless":    False,
+                "headless":    headless,
                 "slow_mo":     0,
-                "viewport":    None,
-                "no_viewport": True,
+                "viewport":    _browser_viewport(headless),
+                "no_viewport": not headless,
                 "timeout":     25_000,
             }
             if exe:
@@ -571,10 +589,10 @@ class _BrowserSession:
             safari_profile = str(Path.home() / ".jarvis_profiles" / "safari")
             Path(safari_profile).mkdir(parents=True, exist_ok=True)
             kwargs = {
-                "headless":    False,
+                "headless":    headless,
                 "slow_mo":     0,
-                "viewport":    None,
-                "no_viewport": True,
+                "viewport":    _browser_viewport(headless),
+                "no_viewport": not headless,
                 "timeout":     25_000,
             }
             self._context = await engine_obj.launch_persistent_context(safari_profile, **kwargs)
@@ -585,13 +603,12 @@ class _BrowserSession:
         profile = _real_profile_dir(self.browser_name)
 
         kwargs = {
-            "headless":    False,
+            "headless":    headless,
             "slow_mo":     0,
-            "viewport":    None,
-            "no_viewport": True,
+            "viewport":    _browser_viewport(headless),
+            "no_viewport": not headless,
             "timeout":     25_000,
-            "args": [
-                "--start-maximized",
+            "args": ([] if headless else ["--start-maximized"]) + [
                 "--disable-blink-features=AutomationControlled",
                 "--no-first-run",
                 "--disable-default-apps",
@@ -676,8 +693,19 @@ class _BrowserSession:
         return f"Could not open: {url}"
 
     async def search(self, query: str, engine: str = "google") -> str:
-        base = _SEARCH_ENGINES.get(engine.lower(), _SEARCH_ENGINES["google"])
-        return await self.go_to(base + query.replace(" ", "+"))
+        query = query.strip()
+        if not query:
+            return "Search query is required."
+        selected = engine.lower().strip()
+        base = _SEARCH_ENGINES.get(selected, _SEARCH_ENGINES["google"])
+        result = await self.go_to(base + quote_plus(query))
+        page = await self._get_page()
+        # Google may return an anti-automation interstitial in headless mode.
+        # Keep the requested search useful by falling back to DuckDuckGo while
+        # preserving the same browser session and encoded query.
+        if selected == "google" and ("google.com/sorry" in page.url or "unusual traffic" in (await page.inner_text("body")).lower()):
+            return await self.go_to(_SEARCH_ENGINES["duckduckgo"] + quote_plus(query))
+        return result
 
     async def click(self, selector: str = None, text: str = None) -> str:
         page = await self._get_page()
@@ -994,7 +1022,7 @@ def browser_control(
         if action == "search":
             base    = _SEARCH_ENGINES.get(params.get("engine", "google").lower(),
                                           _SEARCH_ENGINES["google"])
-            nav_url = base + params.get("query", "").replace(" ", "+")
+            nav_url = base + quote_plus(params.get("query", "").strip())
         else:
             nav_url = params.get("url", "").strip()
 
@@ -1074,7 +1102,7 @@ def _log(player, text: str):
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "browser_control",
-    "description": "Controls any web browser. Use for: opening websites, searching the web, clicking elements, filling forms, scrolling, screenshots, navigation, any web-based task. Simple open/search requests launch the user's own browser normally (their real profile and logged-in accounts); interactive actions (click, type, fill_form...) attach an automation browser. Always pass the 'browser' parameter when the user specifies a browser (e.g. 'open in Edge', 'use Firefox', 'open Chrome'). Multiple browsers can run simultaneously.",
+    "description": "Controls a visible web browser. Use only when the user explicitly asks to open/use a browser, interact with a webpage, preserve browser cookies/session state, complete a login-required website workflow, or search inside a browser/device-local app. For ordinary current-fact or web lookup, use the server-side web_search action instead; do not open a browser merely to retrieve search results. Simple open/search requests launch the user's own browser normally (their real profile and logged-in accounts); interactive actions (click, type, fill_form...) attach an automation browser. Always pass the 'browser' parameter when the user specifies a browser (e.g. 'open in Edge', 'use Firefox', 'open Chrome'). Multiple browsers can run simultaneously.",
     "parameters": {
         "type": "OBJECT",
         "properties": {

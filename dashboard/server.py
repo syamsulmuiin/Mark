@@ -48,7 +48,7 @@ from core.runtime_errors import Boundary, classify_error
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
 STATIC_DIR  = Path(__file__).parent / "static"
 PORT        = DASHBOARD_PORT
-DISCOVERY_MAGIC = "MARKLIV_DISCOVER_V1"
+DISCOVERY_MAGIC = "ASSISTANT_DISCOVER_V1"
 MAX_UPLOAD_MB = 500
 
 def _safe_filename(raw: str) -> str:
@@ -546,7 +546,7 @@ class DashboardServer:
         alive even when the local remote_access flag is disabled. Prefer the
         explicit public URL in that setup; otherwise preserve the local fallback.
         """
-        configured = os.environ.get("MARK_LIV_PUBLIC_URL", "").strip().rstrip("/")
+        configured = os.environ.get("ASSISTANT_PUBLIC_URL", "").strip().rstrip("/")
         if configured:
             return configured
         if cloudflare_enabled():
@@ -1093,8 +1093,18 @@ class DashboardServer:
                     body.get("signature", ""),
                     body.get("capabilities"),
                 )
+                _interaction_event(
+                    "pairing_claimed",
+                    device_id=rec.get("device_id"),
+                    capabilities=len(rec.get("capabilities", [])),
+                )
                 return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k: v for k, v in rec.items() if k != "public_key"}})
             except Exception as exc:
+                _interaction_event(
+                    "pairing_claim_failed",
+                    error=type(exc).__name__,
+                    reason=str(exc)[:120],
+                )
                 return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
         @app.post("/api/devices/{device_id}/revoke")
@@ -1112,6 +1122,7 @@ class DashboardServer:
             if not rec or rec.get("revoked"):
                 await websocket.close(code=4001); return
             await websocket.accept()
+            disconnect_reason = "unknown"
             challenge = secrets.token_urlsafe(32)
             server_proof = self._mesh.sign((device_id + ":" + challenge).encode())
             await websocket.send_json({"type": "challenge", "challenge": challenge,
@@ -1127,6 +1138,16 @@ class DashboardServer:
                 live_caps = proof.get("capabilities")
                 if isinstance(live_caps, list) and live_caps:
                     rec = self._mesh.set_capabilities(device_id, [str(c) for c in live_caps if str(c).strip()])
+                # A reconnecting companion can arrive before the previous socket
+                # has completed its disconnect callback. Keep exactly one socket
+                # owner per paired device; otherwise audio/results can be routed
+                # to a stale connection while the new connection appears ready.
+                previous = self._device_sockets.get(device_id)
+                if previous is not None and previous is not websocket:
+                    try:
+                        await previous.close(code=4008, reason="replaced by newer device connection")
+                    except Exception:
+                        pass
                 self._device_sockets[device_id] = websocket
                 self._mesh.touch(device_id)
                 _interaction_event("device_ready", device_id=device_id)
@@ -1136,6 +1157,7 @@ class DashboardServer:
                 while True:
                     packet = await websocket.receive()
                     if packet.get("type") == "websocket.disconnect":
+                        disconnect_reason = f"peer_closed:{packet.get('code', 'unknown')}"
                         break
                     audio = packet.get("bytes")
                     if audio is not None:
@@ -1182,8 +1204,11 @@ class DashboardServer:
                     elif msg.get("type") == "jarvis.interrupt":
                         # Same interruption path as the desktop keyboard/UI: stop
                         # the current answer immediately and reopen listening.
+                        _interaction_event("device_interrupt", device_id=device_id)
                         if self._interrupt_callback:
                             self._interrupt_callback()
+                    elif msg.get("type") == "jarvis.heartbeat":
+                        await websocket.send_json({"type": "jarvis.heartbeat.ack", "ts": msg.get("ts")})
                     elif msg.get("type") == "attachment.picker.received":
                         request_id=str(msg.get("request_id") or "")
                         if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
@@ -1278,10 +1303,17 @@ class DashboardServer:
                         _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
                         fut = self._device_pending_calls.pop(call_id, None)
                         if fut and not fut.done(): fut.set_result(msg)
-            except (WebSocketDisconnect, asyncio.TimeoutError, KeyError):
-                pass
+            except WebSocketDisconnect as exc:
+                disconnect_reason = f"websocket_disconnect:{getattr(exc, 'code', 'unknown')}"
+            except asyncio.TimeoutError:
+                disconnect_reason = "timeout"
+            except KeyError as exc:
+                disconnect_reason = f"key_error:{exc}"
+            except Exception as exc:
+                disconnect_reason = f"handler_error:{type(exc).__name__}"
+                print(f"[ERROR DeviceWebSocket] device={device_id} error={type(exc).__name__}: {exc}")
             finally:
-                _interaction_event("device_disconnect", device_id=device_id)
+                _interaction_event("device_disconnect", device_id=device_id, reason=disconnect_reason)
                 if self._device_sockets.get(device_id) is websocket:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:

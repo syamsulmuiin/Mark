@@ -15,6 +15,8 @@ import android.os.*
 import android.provider.Settings
 import android.provider.MediaStore
 import android.view.View
+import android.text.Editable
+import android.text.TextWatcher
 import android.text.TextUtils
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -44,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var pairStatus: TextView
     private lateinit var pairCode: EditText
+    private lateinit var pairProgress: View
+    private lateinit var pairProgressText: TextView
     private lateinit var pairPanel: View
     private lateinit var voicePanel: View
     private lateinit var orb: JarvisOrbView
@@ -77,11 +81,12 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
     private var player: AudioTrack? = null
-    private val playbackQueue = LinkedBlockingQueue<ByteArray>(256)
+    private val playbackQueue = LinkedBlockingQueue<ByteArray>(512)
     @Volatile private var playbackRunning = false
     private var playbackThread: Thread? = null
     @Volatile private var micRunning = false
     @Volatile private var voiceState = "DISCONNECTED"
+    @Volatile private var reconnectScheduled = false
     @Volatile private var lastInterruptAt = 0L
     private var voicedFrames = 0
     private val interruptLevelThreshold = 0.08f
@@ -89,17 +94,28 @@ class MainActivity : AppCompatActivity() {
     private val interruptCooldownMs = 800L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
-    private val serverBase: String get() = prefs.getString("server", BuildConfig.MARK_LIV_PUBLIC_URL) ?: BuildConfig.MARK_LIV_PUBLIC_URL
+    private val serverBase: String get() = prefs.getString("server", BuildConfig.ASSISTANT_PUBLIC_URL) ?: BuildConfig.ASSISTANT_PUBLIC_URL
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         setContentView(R.layout.activity_main)
         status=findViewById(R.id.status); pairStatus=findViewById(R.id.pairStatus); pairCode=findViewById(R.id.pairCode)
+        pairProgress=findViewById(R.id.pairProgress); pairProgressText=findViewById(R.id.pairProgressText)
         pairPanel=findViewById(R.id.pairPanel); voicePanel=findViewById(R.id.voicePanel)
         orb=findViewById(R.id.orb); transcript=findViewById(R.id.transcript); transcriptScroll=findViewById(R.id.transcriptScroll); endConversation=findViewById(R.id.endConversation)
         startConversation=findViewById(R.id.startConversation); phoneControl=findViewById(R.id.phoneControl); attachmentBadge=findViewById(R.id.attachmentBadge)
         findViewById<Button>(R.id.requestPairing).setOnClickListener { requestPairing() }
         findViewById<Button>(R.id.pair).setOnClickListener { pairWithCode(pairCode.text.toString()) }
+        findViewById<ImageButton>(R.id.pairMenu).setOnClickListener { showPhoneControlMenu(it) }
+        pairCode.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                findViewById<Button>(R.id.pair).isEnabled = s?.length == 8
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        findViewById<Button>(R.id.pair).isEnabled = pairCode.text.length == 8
+        findViewById<Button>(R.id.requestPairing).text = if (prefs.contains("pending_pairing_id")) "Minta kode baru" else "Minta kode pairing"
         endConversation.setOnClickListener { endVoice() }
         startConversation.setOnClickListener { connect() }
         phoneControl.setOnClickListener { showPhoneControlMenu(it) }
@@ -224,7 +240,8 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairStatus.text=message; pairStatus.visibility=if(message.isBlank()) View.GONE else View.VISIBLE } }
+    private fun showPair(message:String){ stopMic(); runOnUiThread { voicePanel.visibility=View.GONE; pairPanel.visibility=View.VISIBLE; pairProgress.visibility=View.GONE; pairStatus.text=message; pairStatus.visibility=if(message.isBlank()) View.GONE else View.VISIBLE } }
+    private fun pairLoading(message:String){ runOnUiThread { pairProgressText.text=message; pairProgress.visibility=View.VISIBLE; pairStatus.visibility=View.GONE; findViewById<Button>(R.id.pair).isEnabled=false; findViewById<Button>(R.id.requestPairing).isEnabled=false } }
 
     private fun identity(): Triple<String,ByteArray,ByteArray> {
         var id=prefs.getString("device_id",null); var priv=prefs.getString("private",null)
@@ -238,8 +255,7 @@ class MainActivity : AppCompatActivity() {
     private fun verify(pub:String,data:ByteArray,sig:String):Boolean = try { val v=Ed25519Signer(); v.init(false,Ed25519PublicKeyParameters(unb64(pub),0)); v.update(data,0,data.size); v.verifySignature(unb64(sig)) } catch(_:Exception){false}
 
     private fun requestPairing() {
-        pairStatus.text = "Meminta permintaan pairing…"
-        pairStatus.visibility = View.VISIBLE
+        pairLoading("Meminta permintaan pairing…")
         val ident = identity()
         val peer = JSONObject().put("device_id", ident.first).put("name", Build.MODEL).put("public_key", b64(ident.third))
         val request = Request.Builder()
@@ -261,6 +277,7 @@ class MainActivity : AppCompatActivity() {
                         .putString("server_id", o.getJSONObject("local").getString("device_id"))
                         .apply()
                     pairUi("Permintaan dibuat. Minta kode satu kali dari operator, lalu masukkan di bawah.")
+                    runOnUiThread { findViewById<Button>(R.id.requestPairing).text = "Minta kode baru" }
                 } catch (_: Exception) { pairUi("Respons pairing tidak valid") }
             }}
         })
@@ -279,8 +296,7 @@ class MainActivity : AppCompatActivity() {
             pairStatus.visibility = View.VISIBLE
             return
         }
-        pairStatus.text = "Memverifikasi pairing…"
-        pairStatus.visibility = View.VISIBLE
+        pairLoading("Memverifikasi pairing…")
         val ident = identity()
         val signature = sign("$pairingId:$code:$nonce".toByteArray())
         val caps = org.json.JSONArray(listOf("jarvis.command", "notification", "vibration", "clipboard.write", "open_url", "app.launch", "app.close", "android.settings.open", "camera.capture", "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click", "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"))
@@ -298,6 +314,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connect(){
+        if(ws != null) return
         intentionalVoiceEnd = false
         val server=prefs.getString("server",null)?:return; val id=identity().first
         val wsBase=server.replaceFirst("https://","wss://").replaceFirst("http://","ws://")
@@ -317,9 +334,10 @@ class MainActivity : AppCompatActivity() {
                     "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
-                    "ready"->{ runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
+                    "ready"->{ reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
+                    "transcript.delta"->{ updateTranscriptDelta(m.optString("speaker"),m.optString("text")) }
                     "log"->{
                         if(!m.optBoolean("progress",false)) appendTranscript(m.optString("speaker"),m.optString("text"))
                     }
@@ -337,21 +355,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun scheduleReconnect(){
         if(intentionalVoiceEnd) return
-
-        if(!prefs.getBoolean("paired",false)) return
-
+        synchronized(this){ if(reconnectScheduled) return; reconnectScheduled=true }
+        if(!prefs.getBoolean("paired",false)){ reconnectScheduled=false; return }
         window.decorView.postDelayed({
-
+            reconnectScheduled=false
             if(!intentionalVoiceEnd && ws==null && prefs.getBoolean("paired",false)){
-
                 showVoice()
-
                 connect()
-
             }
-
         },1500)
-
     }
 
 
@@ -399,9 +411,7 @@ class MainActivity : AppCompatActivity() {
             }.apply { name="JarvisAudioPlayback"; isDaemon=true; start() }
         }
         try{
-            if(!playbackQueue.offer(pcm, 500, TimeUnit.MILLISECONDS)){
-                runOnUiThread { ui("Audio playback buffer full") }
-            }
+            playbackQueue.put(pcm)
         }catch(_:InterruptedException){
             Thread.currentThread().interrupt()
         }
@@ -494,7 +504,19 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread { status.text=s.lowercase().replaceFirstChar { it.uppercase() }; orb.state=s }
     }
     private val transcriptTurns = ArrayDeque<String>()
+    private var streamingSpeaker = ""
+    private var streamingText = ""
+    private fun updateTranscriptDelta(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
+        val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
+        if(streamingSpeaker != who){ streamingSpeaker=who; streamingText="" }
+        streamingText=text
+        val rendered=ArrayList(transcriptTurns)
+        rendered.add("$who  $streamingText")
+        transcript.text=rendered.takeLast(4).joinToString("\n\n")
+        transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
+    }}
     private fun appendTranscript(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
+        streamingSpeaker=""; streamingText=""
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
         transcriptTurns.addLast("$who  $text")
         while(transcriptTurns.size > 4) transcriptTurns.removeFirst()
@@ -557,7 +579,7 @@ class MainActivity : AppCompatActivity() {
         deferredPickerRequest=null
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true)
-        intent.putExtra("markliv_attachment_request",req.optString("request_id"))
+        intent.putExtra("assistant_attachment_request",req.optString("request_id"))
         pendingPickerRequestId=req.optString("request_id")
         try {
             ws?.send(JSONObject().put("type","attachment.picker.opened").put("request_id",req.optString("request_id")).toString())
@@ -877,7 +899,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy(){ stopMic(); stopPlayback(); ws?.close(1000,"activity closed"); super.onDestroy() }
     private fun ui(s:String)=runOnUiThread{status.text=s}
-    private fun pairUi(s:String)=runOnUiThread{pairStatus.text=s; pairStatus.visibility=View.VISIBLE}
+    private fun pairUi(s:String)=runOnUiThread {
+        pairProgress.visibility=View.GONE
+        pairStatus.text=s
+        pairStatus.visibility=View.VISIBLE
+        findViewById<Button>(R.id.pair).isEnabled=pairCode.text.length==8
+        findViewById<Button>(R.id.requestPairing).isEnabled=true
+    }
     private fun b64(b:ByteArray)=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b)
     private fun unb64(s:String)=java.util.Base64.getUrlDecoder().decode(s)
     private fun lanClient():OkHttpClient { val tm=object:X509TrustManager{override fun getAcceptedIssuers()=arrayOf<X509Certificate>();override fun checkClientTrusted(c:Array<X509Certificate>,a:String){};override fun checkServerTrusted(c:Array<X509Certificate>,a:String){}}; val sc=SSLContext.getInstance("TLS");sc.init(null,arrayOf<TrustManager>(tm),SecureRandom());return OkHttpClient.Builder().sslSocketFactory(sc.socketFactory,tm).hostnameVerifier{_,_->true}.pingInterval(20,TimeUnit.SECONDS).build() }

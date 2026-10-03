@@ -128,7 +128,15 @@ class MainActivity : AppCompatActivity() {
     private val interruptCooldownMs = 1500L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
-    private val serverBase: String get() = prefs.getString("server", BuildConfig.ASSISTANT_PUBLIC_URL) ?: BuildConfig.ASSISTANT_PUBLIC_URL
+    private val serverBase: String get() {
+        val configured = prefs.getString("server", null)?.trimEnd('/')
+        // Migrate APKs built with the retired dashboard origin. Keeping this
+        // fallback prevents a stale persisted endpoint from producing an
+        // Android UnknownHost/connection failure after the staging route moved.
+        return if (configured.isNullOrBlank() || configured == "https://auth.kasirdigital.web.id") {
+            BuildConfig.ASSISTANT_PUBLIC_URL.trimEnd('/')
+        } else configured
+    }
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)

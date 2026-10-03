@@ -1,6 +1,6 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
-val assistantPublicUrl = (System.getenv("ASSISTANT_PUBLIC_URL") ?: "https://auth.kasirdigital.web.id").trimEnd('/')
+val assistantPublicUrl = (System.getenv("ASSISTANT_PUBLIC_URL") ?: "https://markliv-staging.kasirdigital.web.id").trimEnd('/')
 val releaseStorePath = System.getenv("ASSISTANT_KEYSTORE_PATH")
 val releaseStorePassword = System.getenv("ASSISTANT_KEYSTORE_PASSWORD")
 val releaseKeyAlias = System.getenv("ASSISTANT_KEY_ALIAS")

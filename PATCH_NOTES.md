@@ -1,3 +1,10 @@
+## v60.45 - Migrate stale Android server origin
+
+- Changed the Android Gradle fallback endpoint to `https://markliv-staging.kasirdigital.web.id`.
+- Added client-side migration for the retired `https://auth.kasirdigital.web.id` value stored in older app preferences.
+- This addresses Android `Unable to resolve host`/connection failures caused by an old persisted endpoint, while keeping explicit user-configured non-legacy endpoints unchanged.
+- Current staging checks: local health is `ready`; the staging hostname resolves and returns the expected protected server response over HTTPS.
+
 ## v60.44 - Model routing and recovery-context deduplication
 
 - Set Live routing to `gemini-3.8-live` with `gemini-3.1-flash-live-preview` as the requested fallback.

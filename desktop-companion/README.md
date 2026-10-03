@@ -23,6 +23,10 @@ A command originating from this companion defaults to this computer unless the u
 
 `local_runtime.py` and `runtime/` preserve desktop-side action support. Android-only `android.ui.*` behavior is not copied to desktop. Platform-specific actions remain subject to OS capabilities and permissions.
 
+## Video playback
+
+The desktop companion exposes the device-local `video_player` action for local files, direct media URLs, and YouTube links/searches. Playback uses optional Qt Multimedia and `yt-dlp` dependencies on the companion only, starts muted, supports stop/mute/unmute, and cancels an in-flight YouTube resolution when stopped. The headless server never opens a host video window.
+
 ## Current MARK-LIV control model
 
 The desktop companion is a device endpoint for the headless MARK-LIV server. Device UI work is origin-first and application-agnostic: application names are target data and generic local capabilities perform the operation.

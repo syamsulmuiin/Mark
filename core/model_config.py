@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_LIVE_MODEL = "models/gemini-3.1-flash-live-preview"
-DEFAULT_LIVE_FALLBACK_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
-DEFAULT_TEXT_MODEL = "gemini-flash-latest"
-DEFAULT_TEXT_FALLBACK_MODEL = "gemini-flash-lite-latest"
+DEFAULT_LIVE_MODEL = "models/gemini-3.8-live"
+DEFAULT_LIVE_FALLBACK_MODEL = "models/gemini-3.1-flash-live-preview"
+DEFAULT_TEXT_MODEL = "gemini-3.7-flash"
+DEFAULT_TEXT_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 
 # Ordered from the measured fast/stable models toward rolling or historically
 # unavailable aliases. The ladder is intentionally configurable without changing
 # call sites or placing credentials in source control.
 DEFAULT_TEXT_MODELS = (
-    "gemini-2.5-flash-lite",
+    "gemini-3.7-flash",
     "gemini-3.5-flash-lite",
+    "gemini-2.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-flash-lite-latest",
     "gemini-2.5-flash",

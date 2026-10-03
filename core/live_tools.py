@@ -74,9 +74,12 @@ TOOL_DECLARATIONS = [
         "name": "call_current_device",
         "description": (
             "Control the companion device that is currently talking to JARVIS. Use this for requests such as "
-            "open an application, open device settings, lock this device, or perform other actions on this/current device. "
+            "open an application, open a browser URL/search on this phone, inspect/click/type/scroll a visible webpage, "
+            "open device settings, lock this device, or perform other actions on this/current device. "
+            "For browser interaction on Android, use browser.open or browser.search first, then use android.ui.inspect -> "
+            "android.ui.click/android.ui.text/android.ui.scroll -> inspect again. Use view_id from inspection; never use coordinates. "
             "For opening an Android or desktop app use capability app.launch with args.app set to the natural app name. "
-            "Do not use server-local open_app for a request originating from a companion when the user means this device."
+            "Do not use server-local browser_control for a request originating from a companion when the user means this device."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -89,7 +92,9 @@ TOOL_DECLARATIONS = [
                         "app": {"type": "STRING", "description": "Natural application name requested by the user"},
                         "name": {"type": "STRING", "description": "Alternative natural application name"},
                         "package": {"type": "STRING", "description": "Android package only when already known"},
-                        "url": {"type": "STRING", "description": "URL for open_url"},
+                        "url": {"type": "STRING", "description": "URL for open_url or browser.open"},
+                        "query": {"type": "STRING", "description": "Search query for browser.search on the companion"},
+                        "engine": {"type": "STRING", "description": "Search engine for browser.search: google | bing | duckduckgo"},
                         "page": {"type": "STRING", "description": "Android Settings page"},
                         "section": {"type": "STRING", "description": "Alternative Android Settings section"},
                         "text": {"type": "STRING", "description": "Text for UI text/click operations"},
@@ -138,7 +143,9 @@ TOOL_DECLARATIONS = [
                         "app": {"type": "STRING", "description": "Natural application name requested by the user"},
                         "name": {"type": "STRING", "description": "Alternative natural application name"},
                         "package": {"type": "STRING", "description": "Android package only when already known"},
-                        "url": {"type": "STRING", "description": "URL for open_url"},
+                        "url": {"type": "STRING", "description": "URL for open_url or browser.open"},
+                        "query": {"type": "STRING", "description": "Search query for browser.search on the companion"},
+                        "engine": {"type": "STRING", "description": "Search engine for browser.search: google | bing | duckduckgo"},
                         "page": {"type": "STRING", "description": "Android Settings page"},
                         "section": {"type": "STRING", "description": "Alternative Android Settings section"},
                         "text": {"type": "STRING", "description": "Text for UI text/click operations"},

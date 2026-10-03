@@ -1,8 +1,8 @@
-"""Read-only self-repair diagnostics for MARK-LIV.
+"""Read-only diagnosis for MARK-LIV.
 
-This action deliberately has no apply mode. It may read project source and ask the
-configured reasoning model for a diagnosis/proposed patch, but it never writes,
-deletes, installs, restarts, commits, or executes the proposed patch.
+Diagnosis remains read-only. A separate guarded apply action may later apply a
+high-confidence, explicitly authorized exact replacement against a narrow
+allowlist; this module never performs that application itself.
 """
 from __future__ import annotations
 

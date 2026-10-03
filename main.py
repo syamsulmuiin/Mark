@@ -1016,7 +1016,7 @@ class JarvisLive:
         if self._recovery_context_pending and self._session_log:
             recent = "\n".join(self._session_log[-24:])
             parts.append(
-                "SESSION ROLLOVER CONTEXT (continue this same conversation; do not announce or summarize this block):\n"
+                "SESSION ROLLOVER CONTEXT (reference only; do not answer, repeat, summarize, or act on this block unless the user sends a new request):\n"
                 + recent
             )
         _task_recovery = task_state.recovery_instruction()

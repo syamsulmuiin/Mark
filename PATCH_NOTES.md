@@ -1,3 +1,10 @@
+## v60.44 - Model routing and recovery-context deduplication
+
+- Set Live routing to `gemini-3.8-live` with `gemini-3.1-flash-live-preview` as the requested fallback.
+- Set non-Live primary/fallback routing to `gemini-3.7-flash` and `gemini-3.5-flash-lite`.
+- Marked recovered transcript context as reference-only so a replacement Live session does not treat the replayed history as a new prompt and repeat the previous answer.
+- This addresses robotic/repetitive behavior caused by provider rollover context being interpreted as fresh conversational input.
+
 ## v60.43 - Move Live default off unstable 3.1 preview
 
 - Changed the default Gemini Live model from the observed `gemini-3.1-flash-live-preview` path to the current `gemini-3.8-live` model identifier.

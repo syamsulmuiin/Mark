@@ -48,6 +48,14 @@ import kotlin.math.sqrt
 import javax.net.ssl.*
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        private val DEVICE_CAPABILITIES = listOf(
+            "jarvis.command", "notification", "vibration", "clipboard.write", "open_url",
+            "app.launch", "app.close", "android.settings.open", "audio.volume", "camera.capture",
+            "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click",
+            "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"
+        )
+    }
     private lateinit var status: TextView
     private lateinit var pairStatus: TextView
     private lateinit var pairCode: EditText
@@ -299,7 +307,7 @@ class MainActivity : AppCompatActivity() {
         pairLoading("Memverifikasi pairing…")
         val ident = identity()
         val signature = sign("$pairingId:$code:$nonce".toByteArray())
-        val caps = org.json.JSONArray(listOf("jarvis.command", "notification", "vibration", "clipboard.write", "open_url", "app.launch", "app.close", "android.settings.open", "camera.capture", "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click", "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"))
+        val caps = org.json.JSONArray(DEVICE_CAPABILITIES)
         val body = JSONObject().put("pairing_id", pairingId).put("code", code).put("signature", signature).put("capabilities", caps)
         val request = Request.Builder().url("${serverBase}/api/pairing/claim")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
@@ -321,7 +329,7 @@ class MainActivity : AppCompatActivity() {
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
             override fun onMessage(w:WebSocket,text:String){ try {
                 val m=JSONObject(text); when(m.optString("type")){
-                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(listOf("jarvis.command","notification","vibration","clipboard.write","open_url","app.launch","app.close","android.settings.open","camera.capture","file.upload","file.receive","attachment.inbox","android.ui.inspect","android.ui.click","android.ui.text","android.ui.scroll","android.ui.global","android.screen.lock","android.screen.wake"))).toString()) }
+                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(DEVICE_CAPABILITIES)).toString()) }
                     "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
                     "attachment.sent"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(sentAttachmentItems){ sentAttachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); sentAttachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog() } }
                     "attachment.sent.new", "attachment.sent.update"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(sentAttachmentItems){ sentAttachmentItems[item.getString("id")]=item }; runOnUiThread { refreshAttachmentDialog() } } }
@@ -557,6 +565,19 @@ class MainActivity : AppCompatActivity() {
         "app.launch"->{ val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }; val pkg=resolveAppPackage(query)?:error("App not found: $query"); val i=packageManager.getLaunchIntentForPackage(pkg)?:error("App has no launch activity: $pkg"); startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); result="opened $pkg" }
         "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("home") }
         "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page" }
+        "audio.volume"->{
+            val am=getSystemService(AUDIO_SERVICE) as AudioManager
+            val stream=AudioManager.STREAM_MUSIC
+            when(a.optString("action","up").lowercase()){
+                "up","increase"->am.adjustStreamVolume(stream,AudioManager.ADJUST_RAISE,AudioManager.FLAG_SHOW_UI)
+                "down","decrease"->am.adjustStreamVolume(stream,AudioManager.ADJUST_LOWER,AudioManager.FLAG_SHOW_UI)
+                "mute"->am.adjustStreamVolume(stream,AudioManager.ADJUST_MUTE,AudioManager.FLAG_SHOW_UI)
+                "unmute"->am.adjustStreamVolume(stream,AudioManager.ADJUST_UNMUTE,AudioManager.FLAG_SHOW_UI)
+                "set"->{ val max=am.getStreamMaxVolume(stream); val value=a.optInt("value",a.optInt("percent",50)).coerceIn(0,100); am.setStreamVolume(stream,(max*value/100.0).toInt().coerceIn(0,max),AudioManager.FLAG_SHOW_UI) }
+                else->error("Unsupported audio.volume action")
+            }
+            result="media volume ${am.getStreamVolume(stream)}/${am.getStreamMaxVolume(stream)}"
+        }
         "camera.capture"->{ result=captureCameraFrame(a.optString("facing","back")) }
         "file.upload"->{ result=AttachmentTransfer.upload(this,client,a) }
         "file.receive"->{ result=AttachmentTransfer.receive(this,client,a) }

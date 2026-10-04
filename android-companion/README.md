@@ -23,9 +23,9 @@ Microphone capture and JARVIS audio playback run on the companion, not on the se
 
 ## Native capabilities
 
-The companion advertises supported capabilities such as command submission, notifications, vibration, clipboard, URL opening, app launching, and Android Accessibility UI actions. The server must route only capabilities currently advertised by the connected companion.
+The companion advertises supported capabilities such as command submission, notifications, vibration, clipboard, URL opening, app launching, native media-volume control, and Android Accessibility UI actions. The server must route only capabilities currently advertised by the connected companion.
 
-Android UI capabilities include inspection, click, text entry, scrolling, and global navigation. App resolution accepts natural app names where supported by the companion/server resolver.
+Android UI capabilities include inspection, click, text entry, scrolling, and global navigation. `audio.volume` provides generic media-volume `up`, `down`, `set`, `mute`, and `unmute` actions through Android AudioManager; it is advertised during both pairing and reconnect proof. App resolution accepts natural app names where supported by the companion/server resolver.
 
 ## Accessibility UI control
 
@@ -107,3 +107,7 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 The compact pairing screen uses the same dark card, cyan primary action, and JARVIS header as the voice screen. Its status line appears only during pairing or when input needs attention. Received and Sent attachment tabs have transparent backgrounds with a cyan underline for the selected tab; file history and recipient-only actions are unchanged.
 
 The Pair Code screen uses a compact reactor emblem, centered brand, and one clear pairing action. Already paired Android devices connect with their saved signed identity; no account form is required.
+
+### Capability contract
+
+The Android companion keeps one `DEVICE_CAPABILITIES` source of truth for both pairing and reconnect proof. Every advertised control capability is backed by a local handler. Device control remains bounded by Android platform permissions: Accessibility must be enabled by the user, arbitrary third-party apps cannot be force-stopped by an ordinary companion, and authentication credentials are never entered automatically.

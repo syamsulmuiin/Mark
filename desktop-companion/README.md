@@ -99,3 +99,7 @@ Enter a current six-character code created by `python main.py --pair`. Invalid o
 The desktop starts on a dedicated dark Pair Code screen with a compact reactor emblem. Paired devices reconnect with their saved identity. The main HUD appears only after the server sends `ready`; no account username or password is required.
 
 The grouped desktop menu provides reconnect, new Pair Code, microphone mute, response interrupt, input/output audio device selection, attachments, and full screen. A remote gateway 502 triggers signed LAN discovery for an already paired device.
+
+### Capability contract
+
+The desktop companion advertises only capabilities it dispatches locally. `audio.volume` is shared with Android as a generic device capability, while desktop-specific mouse, keyboard, window, browser, file, settings, messaging, screen and system operations remain available through the local runtime bridge. Credential input remains blocked before local execution.

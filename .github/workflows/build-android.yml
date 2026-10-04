@@ -43,7 +43,7 @@ jobs:
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.8.0'
       - name: Build debug APK
         working-directory: android-companion
         run: gradle --no-daemon assembleDebug
@@ -77,7 +77,7 @@ jobs:
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.8.0'
           cache-read-only: true
       - name: Validate signing secrets
         env:

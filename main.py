@@ -453,6 +453,7 @@ class JarvisLive:
         self._pending_vision       = None    # (session_generation, img_bytes, mime_type, question, angle)
         self._session_generation    = 0       # increments for every Live connection; stale vision is never replayed
         self._blocked_device_action = None    # exact rejected device action; requires re-inspect/replan before retry
+        self._tool_turn_cache = {}          # idempotency: one identical tool+args execution per user turn
         self._attachment_turn = None          # one logical attachment transaction per user turn
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
@@ -1624,7 +1625,7 @@ class JarvisLive:
                 _device_local_actions = {
                     "open_app", "computer_control", "computer_settings", "desktop_control",
                     "file_controller", "browser_control", "screen_processor", "send_message",
-                    "system_monitor", "youtube_video",
+                    "system_monitor", "youtube_video", "video_player",
                 }
                 # These actions are server-side work. Never reinterpret them as
                 # Android/Desktop UI operations merely because the request arrived
@@ -1781,6 +1782,9 @@ class JarvisLive:
         # A fresh user utterance is a new turn. Do not let an interrupted prior
         # answer poison all future response audio if Gemini omitted turn_complete.
         self._interrupted = False
+        # Provider/tool replay inside one turn must never repeat side effects.
+        # A genuinely new user turn may legitimately request the same action again.
+        self._tool_turn_cache.clear()
         self._voice_turn_seq += 1
 
     def _note_voice_activity_end(self) -> None:
@@ -2124,7 +2128,20 @@ class JarvisLive:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
                             print(f"[JARVIS] 📞 {fc.name}")
-                            fr = await self._execute_tool(fc)
+                            try:
+                                _tool_payload = json.dumps(dict(fc.args or {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                            except Exception:
+                                _tool_payload = repr(dict(fc.args or {}))
+                            _tool_sig = (str(fc.name), _tool_payload)
+                            _cached = self._tool_turn_cache.get(_tool_sig)
+                            if _cached is not None:
+                                _trace_event("tool_duplicate_suppressed", tool=str(fc.name))
+                                fr = types.FunctionResponse(id=fc.id, name=fc.name, response=_cached)
+                            else:
+                                fr = await self._execute_tool(fc)
+                                _response_payload = getattr(fr, "response", None)
+                                if isinstance(_response_payload, dict):
+                                    self._tool_turn_cache[_tool_sig] = dict(_response_payload)
                             fn_responses.append(fr)
                         await self.session.send_tool_response(
                             function_responses=fn_responses

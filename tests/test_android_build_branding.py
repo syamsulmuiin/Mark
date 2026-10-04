@@ -21,9 +21,9 @@ def test_android_build_stack_is_single_and_current():
     assert 'com.android.application") version "9.0.1"' in top
     assert 'org.jetbrains.kotlin.android' not in top
     assert 'org.jetbrains.kotlin.android' not in app
-    assert workflow.count("gradle-version: '9.1.0'") == 2
+    assert workflow.count("gradle-version: '9.8.0'") == 2
     assert "gradle-version: '8.10.2'" not in workflow
-    assert "        with:\n          gradle-version: '9.1.0'\n          cache-read-only: true" in workflow
+    assert "        with:\n          gradle-version: '9.8.0'\n          cache-read-only: true" in workflow
 
 def test_android_artifact_names_use_companion():
     workflow=(ROOT/".github/workflows/build-android.yml").read_text()

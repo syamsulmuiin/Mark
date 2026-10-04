@@ -114,7 +114,7 @@ Automation pauses only at the credential boundary (PIN/password/passcode/authent
 
 ## Application-agnostic device automation
 
-Device automation is capability-driven rather than application-driven. Application/package names and domain values are target data only. The companion exposes generic primitives for launch/close, UI inspection, click/tap, ordinary text entry, scrolling, supported global navigation, and verification.
+Device automation is capability-driven rather than application-driven. Application/package names and domain values are target data only. The companion exposes generic primitives for launch/close, UI inspection, click/tap, ordinary text entry, scrolling, supported global navigation, and verification. Android additionally advertises native `audio.volume` control for generic media-volume adjustment; this is a device capability, not an app-specific recipe.
 
 The same inspect -> act -> verify loop applies to every application, including applications installed after MARK-LIV was built. Legacy actions may perform backend computation but do not define companion UI behavior. Credential/authentication input remains the intentional user-intervention boundary apart from a genuinely unavailable capability.
 
@@ -201,7 +201,7 @@ A normal disconnect never deletes trust. An explicit Pair Code may replace a sta
 
 
 ### Live vision session binding and action rejection guard
-Captured vision bytes are scoped to the Live connection generation that produced the tool result. A reconnect invalidates pending bytes from the previous generation; the task may continue, but rejected/stale media payloads are not replayed blindly. Device automation also records an exact rejected `(device, capability, arguments)` signature. The same rejected action cannot execute unchanged again until the device is re-inspected, the plan changes through a different successful action/arguments, or a new user turn begins. This rule is shared across Android and Desktop companion routing.
+Captured vision bytes are scoped to the Live connection generation that produced the tool result. A reconnect invalidates pending bytes from the previous generation; the task may continue, but rejected/stale media payloads are not replayed blindly. Device automation also records an exact rejected `(device, capability, arguments)` signature. The same rejected action cannot execute unchanged again until the device is re-inspected, the plan changes through a different successful action/arguments, or a new user turn begins. Tool execution also keeps a per-user-turn idempotency cache keyed by tool name plus normalized arguments, so provider replay cannot repeat the same side effect inside one turn; a new user turn clears that cache. This rule is shared across Android and Desktop companion routing.
 
 
 ### Deferred attachment selection and companion controls (v60.10)

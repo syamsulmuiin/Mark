@@ -28,7 +28,7 @@ def log_unhandled(kind, value, traceback):
     error_log.error('Unhandled desktop exception', exc_info=(kind, value, traceback))
     sys.__excepthook__(kind, value, traceback)
 sys.excepthook=log_unhandled
-NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','camera.capture','screen.capture','file.upload','file.receive','attachment.inbox','legacy.action']
+NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','audio.volume','camera.capture','screen.capture','file.upload','file.receive','attachment.inbox','legacy.action']
 def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
 def unb64(s): return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
 def load():
@@ -540,6 +540,17 @@ class App:
             elif cap=='app.launch': result=self._launch_app(a.get('app') or a.get('name'))
             elif cap=='app.close': result=self._close_app(a.get('app') or a.get('name'))
             elif cap=='desktop.command': result=self._desktop_command(a)
+            elif cap=='audio.volume':
+                from local_runtime import invoke
+                action=str(a.get('action') or 'up').strip().lower()
+                mapped={'up':'volume_up','increase':'volume_up','down':'volume_down','decrease':'volume_down','mute':'mute','unmute':'unmute'}
+                if action=='set':
+                    value=max(0,min(100,int(a.get('value',a.get('percent',50)))))
+                    result=invoke('computer_settings', {'action':'volume_set','value':value}, player=self.root)
+                elif action in mapped:
+                    result=invoke('computer_settings', {'action':mapped[action]}, player=self.root)
+                else:
+                    raise ValueError('Unsupported audio.volume action')
             elif cap=='legacy.action':
                 from local_runtime import invoke
                 tool=str(a.get('tool') or '').strip()

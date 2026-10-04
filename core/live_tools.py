@@ -101,7 +101,9 @@ TOOL_DECLARATIONS = [
                         "target_text": {"type": "STRING", "description": "Target field label for android.ui.text"},
                         "view_id": {"type": "STRING", "description": "Android accessibility view id"},
                         "direction": {"type": "STRING", "description": "Scroll direction"},
-                        "action": {"type": "STRING", "description": "Action for android.ui.global or desktop.command"},
+                        "action": {"type": "STRING", "description": "Action for android.ui.global, desktop.command, or audio.volume (up/down/set/mute/unmute)"},
+                        "value": {"type": "INTEGER", "description": "Target 0-100 level for audio.volume action=set"},
+                        "percent": {"type": "INTEGER", "description": "Alternative target 0-100 level for audio.volume action=set"},
                         "max_nodes": {"type": "INTEGER", "description": "Maximum accessibility nodes to inspect"},
                         "tool": {"type": "STRING", "description": "Legacy desktop action tool name"},
                         "parameters": {"type": "OBJECT", "description": "Arguments passed to a legacy desktop action", "properties": {}}
@@ -118,7 +120,7 @@ TOOL_DECLARATIONS = [
             "in args.app. The companion resolves the installed application using its generic application resolver. "
             "For Android Settings use android.settings.open with optional args.page such as bluetooth, wifi, "
             "apps, accessibility, display, sound, location, security, battery, date/time, or keyboard. "
-            "For any installed app, app.launch opens it by natural app name. On desktop companions app.close closes the named local application; on Android it leaves the current app and returns that device to Home because ordinary Android companions cannot force-stop arbitrary apps. Use desktop.command with args.action=lock to lock a desktop companion. On Windows/Linux/macOS companions, use capability legacy.action to run the established local MARK LIV tools without losing pre-refactor functionality. Pass args.tool as one of open_app, computer_control, computer_settings, desktop_control, file_controller, browser_control, screen_processor, send_message, or system_monitor, and put the original tool arguments in args.parameters. Use this for mouse/keyboard/window/settings/file/browser/screen/message/system operations on the target desktop. To reach a main menu, submenu, conversation, "
+            "For any installed app, app.launch opens it by natural app name. On desktop companions app.close closes the named local application; on Android it leaves the current app and returns that device to Home because ordinary Android companions cannot force-stop arbitrary apps. Use desktop.command with args.action=lock to lock a desktop companion. On Windows/Linux/macOS companions, use capability legacy.action to run the established local MARK LIV tools without losing pre-refactor functionality. Pass args.tool as one of open_app, computer_control, computer_settings, desktop_control, file_controller, browser_control, screen_processor, send_message, system_monitor, youtube_video, or video_player, and put the original tool arguments in args.parameters. Use this for mouse/keyboard/window/settings/file/browser/screen/message/system operations on the target desktop. To reach a main menu, submenu, conversation, "
             "button, field, contact, or other in-app destination, use a generic inspect-reason-act-verify loop: "
             "after app.launch call android.ui.inspect BEFORE choosing the next UI action; prefer visible search controls/fields over blind scrolling. "
             "After every android.ui.click/android.ui.scroll/android.ui.text, inspect again to verify the expected screen change. "
@@ -152,7 +154,9 @@ TOOL_DECLARATIONS = [
                         "target_text": {"type": "STRING", "description": "Target field label for android.ui.text"},
                         "view_id": {"type": "STRING", "description": "Android accessibility view id"},
                         "direction": {"type": "STRING", "description": "Scroll direction"},
-                        "action": {"type": "STRING", "description": "Action for android.ui.global or desktop.command"},
+                        "action": {"type": "STRING", "description": "Action for android.ui.global, desktop.command, or audio.volume (up/down/set/mute/unmute)"},
+                        "value": {"type": "INTEGER", "description": "Target 0-100 level for audio.volume action=set"},
+                        "percent": {"type": "INTEGER", "description": "Alternative target 0-100 level for audio.volume action=set"},
                         "max_nodes": {"type": "INTEGER", "description": "Maximum accessibility nodes to inspect"},
                         "tool": {"type": "STRING", "description": "Legacy desktop action tool name"},
                         "parameters": {"type": "OBJECT", "description": "Arguments passed to a legacy desktop action", "properties": {}}

@@ -1,4 +1,4 @@
-# MARK LIV headless server dependencies.
+# Mark headless server dependencies.
 # Desktop GUI, local audio, screen/camera capture, and keyboard/mouse control
 # belong to companions. Server-side headless browser automation is an explicit
 # server capability and uses Playwright plus an isolated Chromium runtime.

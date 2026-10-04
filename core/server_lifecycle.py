@@ -32,7 +32,7 @@ def _pid_alive(pid):
     except Exception:
         return False
 
-def _is_markliv_worker(pid):
+def _is_mark_worker(pid):
     """Never terminate an unrelated process just because a stale PID file exists.
 
     Prefer psutil because it is already a server dependency and is more reliable
@@ -81,7 +81,7 @@ def _local_server_identity(timeout=1.0):
         req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/health", headers={"X-Jarvis-Local": "1"})
         with _ur.urlopen(req, timeout=timeout) as r:
             data = _json.loads(r.read().decode("utf-8"))
-        if data.get("service") == "MARK-LIV" and data.get("status") == "ready":
+        if data.get("service") == "Mark" and data.get("status") == "ready":
             return int(data.get("pid"))
     except Exception:
         return None
@@ -97,14 +97,14 @@ def _server_pid():
         # false "server is not running" result.
         service_pid = _local_server_identity(timeout=2.0)
     if service_pid and _pid_alive(service_pid):
-        # Self-heal a missing/stale PID file from the running MARK-LIV server.
+        # Self-heal a missing/stale PID file from the running Mark server.
         if file_pid != service_pid:
             try: pidfile.write_text(str(service_pid), encoding="utf-8")
             except Exception: pass
         return service_pid
     # During early startup the HTTP endpoint may not exist yet.  Accept the PID
     # file only when the worker command line can positively identify it.
-    if file_pid and _pid_alive(file_pid) and _is_markliv_worker(file_pid):
+    if file_pid and _pid_alive(file_pid) and _is_mark_worker(file_pid):
         return file_pid
     if file_pid and not _pid_alive(file_pid):
         pidfile.unlink(missing_ok=True)
@@ -131,16 +131,16 @@ def _spawn_server():
     pidfile, logfile = _runtime_paths()
     if (pid := _server_pid()):
         if _local_server_identity(timeout=2.0) == pid:
-            print(f"MARK LIV server already running (PID {pid}).")
+            print(f"Mark server already running (PID {pid}).")
         else:
             print(
-                f"MARK LIV worker is running (PID {pid}), but the local API is not ready "
+                f"Mark worker is running (PID {pid}), but the local API is not ready "
                 f"on {LOCAL_BASE_URL}. Check runtime/error.log and port {DASHBOARD_PORT}."
             )
         return pid
     # Do not overwrite lifecycle state if the configured dashboard port belongs to another process.
     if _local_server_ready():
-        print(f"MARK LIV cannot start: port {DASHBOARD_PORT} is already in use. Stop the existing service first.")
+        print(f"Mark cannot start: port {DASHBOARD_PORT} is already in use. Stop the existing service first.")
         return None
     pidfile.unlink(missing_ok=True)
     # The worker owns severity-filtered runtime/error.log through a rotating sink.
@@ -158,12 +158,12 @@ def _spawn_server():
     deadline = _time.monotonic() + 15.0
     while _time.monotonic() < deadline:
         if p.poll() is not None:
-            print(f"MARK LIV server failed to start (exit code {p.returncode}). Check runtime/error.log.")
+            print(f"Mark server failed to start (exit code {p.returncode}). Check runtime/error.log.")
             return None
         file_pid = _read_pidfile()
         if file_pid == p.pid and _pid_alive(p.pid):
             if _local_server_identity(timeout=0.8) == p.pid:
-                print(f"MARK LIV server started (PID {p.pid}).")
+                print(f"Mark server started (PID {p.pid}).")
                 return p.pid
         _time.sleep(0.2)
     if p.poll() is None and _pid_alive(p.pid):
@@ -172,11 +172,11 @@ def _spawn_server():
         except Exception:
             pass
         print(
-            f"MARK LIV worker started (PID {p.pid}), but the local API did not become ready "
+            f"Mark worker started (PID {p.pid}), but the local API did not become ready "
             f"within 15 seconds on {LOCAL_BASE_URL}. Check runtime/error.log and port {DASHBOARD_PORT}."
         )
         return p.pid
-    print("MARK LIV server failed to start. Check runtime/error.log.")
+    print("Mark server failed to start. Check runtime/error.log.")
     return None
 
 
@@ -184,11 +184,11 @@ def _pair_device(pairing_id: str | None = None):
     """Issue a one-time operator code for an existing companion request."""
     state = _server_state()
     if not state["running"]:
-        print("MARK LIV server is not running. Start it first with --start.")
+        print("Mark server is not running. Start it first with --start.")
         return
     if not state["ready"]:
         print(
-            f"MARK LIV worker is running (PID {state['pid']}), but the local API is not ready "
+            f"Mark worker is running (PID {state['pid']}), but the local API is not ready "
             f"on {LOCAL_BASE_URL}. Pairing is unavailable until the API is healthy. "
             f"Check runtime/error.log and port {DASHBOARD_PORT}."
         )
@@ -206,7 +206,7 @@ def _pair_device(pairing_id: str | None = None):
         req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/new", data=payload, method="POST", headers={"X-Jarvis-Local": "1", "Content-Type": "application/json"})
         with _ur.urlopen(req, timeout=3) as r:
             data = _json.loads(r.read().decode("utf-8"))
-        print(f"MARK LIV Pair Code: {data['code']}")
+        print(f"Mark Pair Code: {data['code']}")
         print(f"Pairing request: {data['pairing_id']}")
         print("Code is one-time and expires with the pairing request.")
     except Exception as exc:
@@ -218,20 +218,20 @@ def _stop_server():
     pid = _server_pid()
     if not pid:
         pidfile.unlink(missing_ok=True)
-        print("MARK LIV server is not running.")
+        print("Mark server is not running.")
         return
     # The local HTTP identity is useful when available, but it must not be a
     # prerequisite for stopping the worker: dashboard readiness and worker
     # lifecycle are separate concerns.  Verify the OS process command line
     # instead so a stale PID can never terminate an unrelated process.
     service_pid = _local_server_identity()
-    if service_pid != pid and not _is_markliv_worker(pid):
-        print(f"Refusing to stop PID {pid}: process is not a MARK LIV server worker.")
+    if service_pid != pid and not _is_mark_worker(pid):
+        print(f"Refusing to stop PID {pid}: process is not a Mark server worker.")
         return
     if sys.platform == "win32":
         r = _subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True, timeout=10)
         if r.returncode and _pid_alive(pid):
-            print(f"Could not stop MARK LIV server PID {pid}: {(r.stderr or r.stdout).strip()}")
+            print(f"Could not stop Mark server PID {pid}: {(r.stderr or r.stdout).strip()}")
             return
     else:
         try:
@@ -242,46 +242,46 @@ def _stop_server():
     while _time.monotonic() < deadline and _pid_alive(pid):
         _time.sleep(0.1)
     if _pid_alive(pid):
-        print(f"MARK LIV server PID {pid} did not stop cleanly.")
+        print(f"Mark server PID {pid} did not stop cleanly.")
         return
     pidfile.unlink(missing_ok=True)
-    print(f"MARK LIV server stopped (PID {pid}).")
+    print(f"Mark server stopped (PID {pid}).")
 
 def _autostart_enable():
     """Install per-user autostart without adding another runtime mode."""
     py=str(Path(sys.executable).resolve()); main=str(MAIN_FILE)
     if sys.platform == "win32":
-        name="MARK-LIV-Server"
+        name="Mark-Server"
         cmd=f'"{py}" "{main}" --start'
         r=_subprocess.run(["schtasks","/Create","/TN",name,"/SC","ONLOGON","/TR",cmd,"/F"],capture_output=True,text=True)
         if r.returncode: raise RuntimeError(r.stderr.strip() or r.stdout.strip())
     elif sys.platform == "darwin":
-        target=Path.home()/"Library/LaunchAgents/com.markliv.server.plist"; target.parent.mkdir(parents=True,exist_ok=True)
-        target.write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>com.markliv.server</string><key>ProgramArguments</key><array><string>{py}</string><string>{main}</string><string>--start</string></array><key>RunAtLoad</key><true/></dict></plist>',encoding="utf-8")
+        target=Path.home()/"Library/LaunchAgents/com.mark.server.plist"; target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>com.mark.server</string><key>ProgramArguments</key><array><string>{py}</string><string>{main}</string><string>--start</string></array><key>RunAtLoad</key><true/></dict></plist>',encoding="utf-8")
         _subprocess.run(["launchctl","unload",str(target)],capture_output=True)
         _subprocess.run(["launchctl","load",str(target)],check=True)
     else:
-        target=Path.home()/".config/systemd/user/mark-liv.service"; target.parent.mkdir(parents=True,exist_ok=True)
-        target.write_text(f"[Unit]\nDescription=MARK LIV Server\n\n[Service]\nType=oneshot\nExecStart={py} {main} --start\nRemainAfterExit=yes\nExecStop={py} {main} --stop\n\n[Install]\nWantedBy=default.target\n",encoding="utf-8")
+        target=Path.home()/".config/systemd/user/mark.service"; target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_text(f"[Unit]\nDescription=Mark Server\n\n[Service]\nType=oneshot\nExecStart={py} {main} --start\nRemainAfterExit=yes\nExecStop={py} {main} --stop\n\n[Install]\nWantedBy=default.target\n",encoding="utf-8")
         _subprocess.run(["systemctl","--user","daemon-reload"],check=True)
-        _subprocess.run(["systemctl","--user","enable","mark-liv.service"],check=True)
-    print("MARK LIV autostart enabled."); _spawn_server()
+        _subprocess.run(["systemctl","--user","enable","mark.service"],check=True)
+    print("Mark autostart enabled."); _spawn_server()
 
 def _autostart_disable():
     if sys.platform == "win32":
-        _subprocess.run(["schtasks","/Delete","/TN","MARK-LIV-Server","/F"],capture_output=True)
+        _subprocess.run(["schtasks","/Delete","/TN","Mark-Server","/F"],capture_output=True)
     elif sys.platform == "darwin":
-        target=Path.home()/"Library/LaunchAgents/com.markliv.server.plist"
+        target=Path.home()/"Library/LaunchAgents/com.mark.server.plist"
         _subprocess.run(["launchctl","unload",str(target)],capture_output=True); target.unlink(missing_ok=True)
     else:
-        _subprocess.run(["systemctl","--user","disable","mark-liv.service"],capture_output=True)
-        (Path.home()/".config/systemd/user/mark-liv.service").unlink(missing_ok=True)
+        _subprocess.run(["systemctl","--user","disable","mark.service"],capture_output=True)
+        (Path.home()/".config/systemd/user/mark.service").unlink(missing_ok=True)
         _subprocess.run(["systemctl","--user","daemon-reload"],capture_output=True)
-    print("MARK LIV autostart disabled. Running server, if any, is left unchanged; use --stop to stop it.")
+    print("Mark autostart disabled. Running server, if any, is left unchanged; use --stop to stop it.")
 
 def _runtime_mode(argv=None):
     import argparse
-    parser=argparse.ArgumentParser(description="MARK LIV server")
+    parser=argparse.ArgumentParser(description="Mark server")
     g=parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--start",action="store_true",help="start server")
     g.add_argument("--enable",action="store_true",help="enable autostart and start server")

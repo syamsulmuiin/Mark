@@ -97,4 +97,4 @@ class ServerInterface(HeadlessInterface):
     def wait_for_api_key(self):
         from core.setup_config import configured
         if not configured():
-            raise RuntimeError("MARK LIV server is not configured. Run setup.py before --start.")
+            raise RuntimeError("Mark server is not configured. Run setup.py before --start.")

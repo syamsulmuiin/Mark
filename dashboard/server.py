@@ -758,7 +758,7 @@ class DashboardServer:
     def _sent_item(self, item):
         result = {k: item.get(k) for k in ("id", "name", "size", "status", "destination_device", "created_at")}
         target = self._mesh.get(item["destination_device"]) or {}
-        result["destination_name"] = "Server" if item.get("server_upload") else "MARK LIV" if item.get("assistant_upload") else target.get("name") or item["destination_device"]
+        result["destination_name"] = "Server" if item.get("server_upload") else "Mark" if item.get("assistant_upload") else target.get("name") or item["destination_device"]
         result["assistant_upload"] = bool(item.get("assistant_upload"))
         result["server_upload"] = bool(item.get("server_upload"))
         return result
@@ -834,7 +834,7 @@ class DashboardServer:
         """Send a server-created file to the canonical companion destination.
 
         The destination is explicit on the wire so completion reports cannot
-        silently claim an unspecified folder. Android receives Downloads/MARK-LIV;
+        silently claim an unspecified folder. Android receives Downloads/Mark;
         desktop companions retain their own Downloads default.
         """
         path = Path(str(source or "")).expanduser()
@@ -847,7 +847,7 @@ class DashboardServer:
         token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
         target = self._mesh.get(destination_device) or {}
         capabilities = set(target.get("capabilities") or [])
-        destination = "Downloads/MARK-LIV" if "android.ui.inspect" in capabilities else ""
+        destination = "Downloads/Mark" if "android.ui.inspect" in capabilities else ""
         payload = {
             "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
             "name": name, "sha256": info["sha256"], "size": info["size"]}
@@ -899,7 +899,7 @@ class DashboardServer:
             path = req.url.path
             allowed = (path in ("/api/pairing/request", "/api/pairing/claim", "/api/local/pairing/new", "/api/local/pairing/pending", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/") or path.startswith("/api/transfer/"))
             if not allowed:
-                return JSONResponse({"error": "Install a MARK LIV companion client to access this server."}, status_code=404)
+                return JSONResponse({"error": "Install a Mark companion client to access this server."}, status_code=404)
             return await call_next(req)
 
         def _auth(req: Request) -> bool:
@@ -942,7 +942,7 @@ class DashboardServer:
             host = req.client.host if req.client else ""
             if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
                 return JSONResponse({"error": "local access only"}, status_code=403)
-            return JSONResponse({"service": "MARK-LIV", "status": "ready", "pid": os.getpid()})
+            return JSONResponse({"service": "Mark", "status": "ready", "pid": os.getpid()})
 
         @app.get("/api/local/pairing/pending")
         async def local_pairing_pending(req: Request):
@@ -1538,7 +1538,7 @@ class DashboardServer:
     def assert_port_available(self) -> None:
         """Fail before any companion/tunnel task is started when the HTTP port is owned.
 
-        A second MARK-LIV worker used to launch Uvicorn in a detached asyncio task.
+        A second Mark worker used to launch Uvicorn in a detached asyncio task.
         Uvicorn then raised SystemExit(1) on EADDRINUSE, which cancelled the active
         Gemini Live session as collateral damage.  Check synchronously so the duplicate
         worker exits cleanly without touching the already-running server.
@@ -1550,8 +1550,8 @@ class DashboardServer:
         except OSError as exc:
             if getattr(exc, "errno", None) in (48, 98, 10048):
                 raise RuntimeError(
-                    f"MARK LIV HTTP port {PORT} is already in use. "
-                    "Another MARK LIV server may already be running; stop that instance before starting a second one."
+                    f"Mark HTTP port {PORT} is already in use. "
+                    "Another Mark server may already be running; stop that instance before starting a second one."
                 ) from exc
             raise
         finally:
@@ -1560,7 +1560,7 @@ class DashboardServer:
     async def serve(self) -> None:
         if not _DEPS_OK:
             raise RuntimeError(
-                "MARK LIV HTTP API cannot start because FastAPI/Uvicorn dependencies "
+                "Mark HTTP API cannot start because FastAPI/Uvicorn dependencies "
                 f"are unavailable: {_DEPS_ERROR!r}"
             )
 

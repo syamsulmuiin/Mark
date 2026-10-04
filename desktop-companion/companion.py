@@ -1,4 +1,4 @@
-"""MARK LIV native desktop companion for Windows, Linux and macOS.
+"""Mark native desktop companion for Windows, Linux and macOS.
 The server remains headless; text, microphone and speaker live on this client.
 """
 from __future__ import annotations
@@ -15,10 +15,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from cryptography.hazmat.primitives import serialization
 from runtime.core.network_config import PUBLIC_BASE_URL, DISCOVERY_PORT
 
-APP_DIR=Path.home()/".mark-liv-companion"; APP_DIR.mkdir(exist_ok=True)
+APP_DIR=Path.home()/".mark-companion"; APP_DIR.mkdir(exist_ok=True)
 STATE=APP_DIR/"state.json"
 LOG_DIR=APP_DIR/"logs"; LOG_DIR.mkdir(exist_ok=True)
-error_log=logging.getLogger('mark_liv.companion')
+error_log=logging.getLogger('mark.companion')
 error_log.setLevel(logging.WARNING)
 error_handler=RotatingFileHandler(LOG_DIR/'error.log',maxBytes=2_000_000,backupCount=2,encoding='utf-8')
 error_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))

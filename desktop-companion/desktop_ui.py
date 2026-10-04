@@ -1,4 +1,4 @@
-"""MARK LV HUD layout around the MARK LIV companion transport and actions."""
+"""Desktop Companion HUD layout around the Mark transport and local actions."""
 from __future__ import annotations
 import psutil
 from PyQt6.QtCore import QObject, QRectF, Qt, QTimer, QUrl, QPoint, pyqtSignal
@@ -59,7 +59,7 @@ class DesktopWindow(QMainWindow):
         self.video_audio_player = None
         self.video_audio_output = None
         self.dispatcher = Dispatcher(self)
-        self.setWindowTitle('MARK LIV · Desktop Companion')
+        self.setWindowTitle('Mark · Desktop Companion')
         self.resize(1040, 720)
         self.setMinimumSize(820, 580)
         self.setStyleSheet(f'''QWidget {{ color: {C.TEXT}; font-family: 'Segoe UI', sans-serif; }}
@@ -136,12 +136,12 @@ class DesktopWindow(QMainWindow):
         body.addWidget(right)
         self.clock_timer=QTimer(self); self.clock_timer.timeout.connect(self.update_clock); self.clock_timer.start(1000); self.update_clock()
         self.metrics_timer=QTimer(self); self.metrics_timer.timeout.connect(self.update_metrics); self.metrics_timer.start(3500); self.update_metrics()
-        self.show_login(paired=bool(owner.st.get('paired')), message='Connecting to MARK LIV…' if owner.st.get('paired') else '')
+        self.show_login(paired=bool(owner.st.get('paired')), message='Connecting to Mark…' if owner.st.get('paired') else '')
     def _make_login(self,owner):
         page=QWidget(self);page.setObjectName('loginPage')
         outer=QVBoxLayout(page);outer.setContentsMargins(32,22,32,32)
         brand=QHBoxLayout();brand.addStretch()
-        name=QLabel('MARK LIV');name.setObjectName('gatewayBrand');name.setStyleSheet('color: #f7f8f8; font-size: 17px; font-weight: bold; letter-spacing: 4px;');brand.addWidget(name)
+        name=QLabel('Mark');name.setObjectName('gatewayBrand');name.setStyleSheet('color: #f7f8f8; font-size: 17px; font-weight: bold; letter-spacing: 4px;');brand.addWidget(name)
         dot=QLabel('●');dot.setStyleSheet('color: #16d9f5; font-size: 13px;');brand.addWidget(dot)
         brand.addStretch();outer.addLayout(brand)
         outer.addStretch(1)
@@ -185,7 +185,7 @@ class DesktopWindow(QMainWindow):
             raise RuntimeError('QtMultimedia is unavailable on this desktop companion')
         if self.video_window is None:
             self.video_window = QVideoWidget()
-            self.video_window.setWindowTitle('MARK LIV · Video')
+            self.video_window.setWindowTitle('Mark · Video')
             self.video_window.resize(960, 540)
             self.video_audio = QAudioOutput(self.video_window)
             self.video_player = QMediaPlayer(self.video_window)
@@ -200,7 +200,7 @@ class DesktopWindow(QMainWindow):
     def show_video(self, source, title='', muted=True, audio_source=''):
         def open_video():
             player = self._ensure_video()
-            self.video_window.setWindowTitle(title or 'MARK LIV · Video')
+            self.video_window.setWindowTitle(title or 'Mark · Video')
             self.video_audio.setMuted(bool(muted))
             self.video_audio_output.setMuted(bool(muted))
             player.setSource(QUrl.fromUserInput(str(source)))
@@ -233,19 +233,19 @@ class DesktopWindow(QMainWindow):
 
     def show_login(self,paired=False,message=''):
         self.pages.setCurrentWidget(self.login_page)
-        self.gateway_title.setText(('Connecting to MARK LIV' if message=='Connecting to MARK LIV…' else 'Reconnect to MARK LIV') if paired else 'Connect to MARK LIV')
-        self.gateway_hint.setText(('Your paired desktop is reconnecting.' if message=='Connecting to MARK LIV…' else 'Your desktop identity is saved.') if paired else 'Enter the Pair Code from your MARK LIV server.')
+        self.gateway_title.setText(('Connecting to Mark' if message=='Connecting to Mark…' else 'Reconnect to Mark') if paired else 'Connect to Mark')
+        self.gateway_hint.setText(('Your paired desktop is reconnecting.' if message=='Connecting to Mark…' else 'Your desktop identity is saved.') if paired else 'Enter the Pair Code from your Mark server.')
         self.code_label.setVisible(not paired)
         self.code_input.setVisible(not paired)
         self.pair_button.setVisible(not paired)
         self.reconnect_button.setVisible(paired)
-        self.reconnect_button.setEnabled(message!='Connecting to MARK LIV…')
+        self.reconnect_button.setEnabled(message!='Connecting to Mark…')
         self.new_code_button.setVisible(paired)
         self.gateway_status.setText(message)
         self.gateway_status.setVisible(bool(message))
         if not paired and self.isVisible():self.code_input.setFocus()
     def show_connecting(self):
-        self.show_login(paired=True,message='Connecting to MARK LIV…')
+        self.show_login(paired=True,message='Connecting to Mark…')
     def show_dashboard(self):
         self.pages.setCurrentWidget(self.dashboard_page)
         self.set_status('Connected · voice on client')
@@ -286,7 +286,7 @@ class AttachmentDialog(QDialog):
     def __init__(self, owner):
         super().__init__(owner.root)
         self.owner=owner
-        self.setWindowTitle('Attachments · MARK LIV'); self.resize(600, 430)
+        self.setWindowTitle('Attachments · Mark'); self.resize(600, 430)
         layout=QVBoxLayout(self)
         heading=QLabel('ATTACHMENTS'); heading.setObjectName('title'); layout.addWidget(heading)
         self.tabs=QTabWidget(); self.tabs.addTab(QWidget(), 'Received'); self.tabs.addTab(QWidget(), 'Sent')

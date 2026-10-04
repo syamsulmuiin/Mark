@@ -1,6 +1,6 @@
-# MARK-LIV Desktop Companion
+# Mark Desktop Companion
 
-Native companion runtime for Windows, Linux, and macOS. The original MARK LV PyQt HUD, standard animated reactor core, metrics, and activity log now live in the desktop companion. Original HUD components are licensed under the project CC BY-NC 4.0 license. It is the desktop user-facing control/execution surface for the headless MARK-LIV server and carries the established local action runtime so device-local commands execute on this computer.
+Native companion runtime for Windows, Linux, and macOS. The PyQt HUD, standard animated reactor core, metrics, and activity log live in the desktop companion. The HUD includes adapted material credited in the project license and source attribution. It is the desktop user-facing control/execution surface for the headless Mark server and carries the established local action runtime so device-local commands execute on this computer.
 
 ## Install and run
 
@@ -27,11 +27,11 @@ A command originating from this companion defaults to this computer unless the u
 
 The desktop companion exposes the device-local `video_player` action for local files, direct media URLs, and YouTube links/searches. Playback uses optional Qt Multimedia and `yt-dlp` dependencies on the companion only, starts muted, supports stop/mute/unmute, and cancels an in-flight YouTube resolution when stopped. The headless server never opens a host video window.
 
-## Current MARK-LIV control model
+## Current Mark control model
 
-The desktop companion is a device endpoint for the headless MARK-LIV server. Device UI work is origin-first and application-agnostic: application names are target data and generic local capabilities perform the operation.
+The desktop companion is a device endpoint for the headless Mark server. Device UI work is origin-first and application-agnostic: application names are target data and generic local capabilities perform the operation.
 
-Credential entry remains protected. Ending a conversation does not stop the server. The existing local file controller manages the desktop filesystem; it is not a generic companion-to-companion file-transfer protocol.
+Credential entry remains protected. Ending a conversation does not stop the server. The local file controller manages the desktop filesystem, while cross-device attachments use the separate server-coordinated `file.upload` / `file.receive` and attachment-inbox transport.
 
 
 
@@ -69,7 +69,7 @@ A voice request to send files to the server opens the Desktop multi-select picke
 
 ### Received and Sent attachments
 
-The attachment window separates received files from read-only sent history. Open, Save As and Share remain available only for received files; uploads to MARK LIV for processing appear in Sent.
+The attachment window separates received files from read-only sent history. Open, Save As and Share remain available only for received files; uploads to Mark for processing appear in Sent.
 
 ### Voice attachment picker
 
@@ -86,7 +86,7 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 
 ## Desktop error log
 
-Desktop failures are recorded in `~/.mark-liv-companion/logs/error.log` (Windows: `%USERPROFILE%\.mark-liv-companion\logs\error.log`). The log rotates at 2 MB with two backups. Connection, audio, pairing, attachment, and capability failures are recorded there; routine activity appears in the HUD log. The server has a separate `runtime/error.log`.
+Desktop failures are recorded in `~/.mark-companion/logs/error.log` (Windows: `%USERPROFILE%\.mark-companion\logs\error.log`). The log rotates at 2 MB with two backups. Connection, audio, pairing, attachment, and capability failures are recorded there; routine activity appears in the HUD log. The server has a separate `runtime/error.log`.
 
 ## Reactor visual
 

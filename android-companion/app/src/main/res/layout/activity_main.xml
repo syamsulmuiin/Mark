@@ -5,7 +5,7 @@
         <FrameLayout android:layout_width="match_parent" android:layout_height="64dp" android:paddingLeft="12dp" android:paddingRight="12dp">
             <Space android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="start|center_vertical"/>
             <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent" android:layout_gravity="center" android:gravity="center" android:orientation="horizontal">
-                <TextView android:text="HERMES" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.16" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <TextView android:text="MARK" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.16" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                 <View android:layout_width="5dp" android:layout_height="5dp" android:layout_marginLeft="7dp" android:background="@drawable/bg_cyan_dot"/>
             </LinearLayout>
             <ImageButton android:id="@+id/pairMenu" android:visibility="gone" android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="end|center_vertical" android:background="@android:color/transparent" android:src="@drawable/ic_more_vertical" android:tint="#A5E8EB" android:contentDescription="Pengaturan" android:padding="14dp"/>
@@ -16,7 +16,7 @@
                     <View android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/bg_pair_reactor" android:contentDescription="Companion reactor"/>
                     <TextView android:text="COMPANION" android:textColor="#8A8F98" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.25" android:layout_marginTop="14dp" android:layout_marginBottom="26dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="22dp">
-                        <TextView android:text="Hubungkan ke Hermes" android:textColor="#F7F8F8" android:textStyle="bold" android:textSize="21sp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                        <TextView android:text="Connect to Mark" android:textColor="#F7F8F8" android:textStyle="bold" android:textSize="21sp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
                         <TextView android:text="Masukkan kode pairing operator untuk menghubungkan perangkat." android:textColor="#8A8F98" android:textSize="14sp" android:layout_marginTop="6dp" android:layout_marginBottom="16dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
                         <TextView android:text="Kode pairing operator (8 karakter)" android:textColor="#8A8F98" android:textSize="12sp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
                         <EditText android:id="@+id/pairCode" android:hint="Masukkan kode" android:inputType="textCapCharacters" android:maxLength="8" android:singleLine="true" android:gravity="center" android:letterSpacing="0.20" android:textColor="#F7F8F8" android:textColorHint="#8A8F98" android:background="@drawable/bg_input" android:padding="14dp" android:layout_marginTop="4dp" android:layout_width="match_parent" android:layout_height="56dp"/>
@@ -35,7 +35,7 @@
     </LinearLayout>
 
     <LinearLayout android:id="@+id/voicePanel" android:visibility="gone" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_horizontal" android:paddingBottom="12dp">
-        <!-- Hermes-style app bar: centered identity and unobtrusive overflow menu. -->
+        <!-- Centered JARVIS identity with an unobtrusive Companion overflow menu. -->
         <FrameLayout android:layout_width="match_parent" android:layout_height="64dp">
             <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent" android:layout_gravity="center" android:orientation="horizontal" android:gravity="center">
                 <TextView android:text="JARVIS" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.20" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
@@ -45,7 +45,7 @@
             <TextView android:id="@+id/attachmentBadge" android:visibility="gone" android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="end|top" android:layout_marginRight="8dp" android:layout_marginTop="5dp" android:background="@drawable/bg_badge" android:textColor="#001417" android:textSize="10sp" android:textStyle="bold" android:gravity="center"/>
         </FrameLayout>
 
-        <!-- Reactor keeps JARVIS identity but follows Hermes proportions/motion composition. -->
+        <!-- Reactor represents the JARVIS assistant on the Companion voice surface. -->
         <com.jarvis.companion.JarvisOrbView android:id="@+id/orb" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:contentDescription="JARVIS live reactor orb"/>
 
         <TextView android:id="@+id/status" android:text="@string/connecting" android:textColor="#F7F8F8" android:textSize="13sp" android:textStyle="bold" android:gravity="center" android:background="@drawable/bg_status_pill" android:paddingLeft="14dp" android:paddingRight="14dp" android:paddingTop="8dp" android:paddingBottom="8dp" android:layout_marginTop="8dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>

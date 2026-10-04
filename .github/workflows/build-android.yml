@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       assistant_public_url:
-        description: Public Mark-LIV URL embedded in the APK
+        description: Public Mark server URL embedded in the APK
         required: false
         default: https://auth.kasirdigital.web.id
         type: string

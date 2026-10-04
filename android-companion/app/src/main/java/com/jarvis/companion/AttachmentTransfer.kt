@@ -46,8 +46,8 @@ object AttachmentTransfer {
         if(Build.VERSION.SDK_INT<29) error("file.receive to shared Downloads is unsupported on Android below 10 without legacy storage permission")
         val name=args.optString("name","file").replace(Regex("[\\/]+"),"_")
         val destination=args.optString("destination").trim()
-        if(destination != "Downloads/MARK-LIV") error("Unsupported or unspecified destination: $destination")
-        val values=ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME,name); put(MediaStore.MediaColumns.MIME_TYPE,"application/octet-stream"); put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/MARK-LIV") }
+        if(destination != "Downloads/Mark") error("Unsupported or unspecified destination: $destination")
+        val values=ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME,name); put(MediaStore.MediaColumns.MIME_TYPE,"application/octet-stream"); put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/Mark") }
         val outUri=activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)?:error("Cannot create destination file")
         val digest=MessageDigest.getInstance("SHA-256"); var total=0L
         try {
@@ -58,7 +58,7 @@ object AttachmentTransfer {
             }
             val hash=digest.digest().joinToString(""){"%02x".format(it)}
             if(hash!=args.getString("sha256")||total!=args.getLong("size")) error("Downloaded file failed SHA-256/size verification")
-            return JSONObject().put("saved_to","Downloads/MARK-LIV/$name").put("uri",outUri.toString()).put("sha256",hash).put("size",total).toString()
+            return JSONObject().put("saved_to","Downloads/Mark/$name").put("uri",outUri.toString()).put("sha256",hash).put("size",total).toString()
         } catch(e:Exception){ activity.contentResolver.delete(outUri,null,null); throw e }
     }
 }

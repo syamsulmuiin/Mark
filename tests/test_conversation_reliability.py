@@ -9,9 +9,9 @@ def test_server_worker_identity_uses_psutil_before_shell(monkeypatch):
         def __init__(self,pid): assert pid==4321
         def cmdline(self): return ["python", str(ROOT/"main.py"), "--server-worker"]
     monkeypatch.setitem(sys.modules,"psutil",types.SimpleNamespace(Process=P))
-    assert server_lifecycle._is_markliv_worker(4321) is True
+    assert server_lifecycle._is_mark_worker(4321) is True
 
-def test_unrelated_pid_is_not_markliv_worker(monkeypatch):
+def test_unrelated_pid_is_not_mark_worker(monkeypatch):
     from core import server_lifecycle
     class P:
         def __init__(self,pid): pass
@@ -19,7 +19,7 @@ def test_unrelated_pid_is_not_markliv_worker(monkeypatch):
     monkeypatch.setitem(sys.modules,"psutil",types.SimpleNamespace(Process=P))
     monkeypatch.setattr(server_lifecycle.sys,"platform","not-a-real-platform")
     monkeypatch.setattr(server_lifecycle._subprocess,"run",lambda *a,**k: types.SimpleNamespace(stdout="",returncode=1))
-    assert server_lifecycle._is_markliv_worker(9) is False
+    assert server_lifecycle._is_mark_worker(9) is False
 
 def test_keepalive_rollover_not_consumed_by_generic_bounded_failure():
     src=(ROOT/"main.py").read_text(encoding="utf-8")

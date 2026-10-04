@@ -10,7 +10,7 @@ def weather_action(parameters: dict, player=None, session_memory=None) -> str:
         r = requests.get(
             f"https://wttr.in/{city}",
             params={"format": "3"},
-            headers={"User-Agent": "MARK-LIV/1"},
+            headers={"User-Agent": "Mark/1"},
             timeout=12,
         )
         r.raise_for_status()

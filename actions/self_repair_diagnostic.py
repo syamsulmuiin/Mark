@@ -1,4 +1,4 @@
-"""Read-only diagnosis for MARK-LIV.
+"""Read-only diagnosis for Mark.
 
 Diagnosis remains read-only. A separate guarded apply action may later apply a
 high-confidence, explicitly authorized exact replacement against a narrow
@@ -64,7 +64,7 @@ def _select_files(problem: str, files: list[str], inspected: list[str]) -> tuple
     remaining = [f for f in files if f not in set(inspected)]
     if not remaining:
         return [], True
-    prompt = f"""You are tracing a bug through the MARK-LIV/JARVIS source tree.
+    prompt = f"""You are tracing a bug through the Mark/JARVIS source tree.
 User-reported problem:
 {problem}
 
@@ -148,7 +148,7 @@ def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
     context = _read_context(selected)
     prior = search_knowledge(problem, limit=5)
     prior_context = json.dumps(prior, ensure_ascii=False)[:12000] if prior else "(none)"
-    prompt = f"""You are a senior engineer performing READ-ONLY self-repair diagnosis on MARK-LIV/JARVIS.
+    prompt = f"""You are a senior engineer performing READ-ONLY self-repair diagnosis on Mark/JARVIS.
 
 Problem:\n{problem}
 Evidence supplied by user:\n{evidence or '(none)'}
@@ -260,8 +260,8 @@ Return ONLY valid JSON with exactly these keys:
 TOOL = {
     "name": "self_repair_diagnostic",
     "description": (
-        "Internal safety diagnostic for MARK-LIV itself. Call ONLY after the user explicitly asks to "
-        "diagnose/debug/check the cause/repair a concrete MARK-LIV problem. A vague statement such as 'there is an error', "
+        "Internal safety diagnostic for Mark itself. Call ONLY after the user explicitly asks to "
+        "diagnose/debug/check the cause/repair a concrete Mark problem. A vague statement such as 'there is an error', "
         "'something seems wrong', or merely observing an exception is NOT authorization: converse first and ask what failed. "
         "Do not narrate internal dry-run/read-only policy wording to the user. If the user's actual request explicitly asks to fix/repair/apply and "
         "the diagnostic returns a Repair plan, immediately continue with self_repair_apply instead of ending the response "
@@ -272,7 +272,7 @@ TOOL = {
     "parameters": {
         "type": "OBJECT",
         "properties": {
-            "problem": {"type": "STRING", "description": "The MARK-LIV/JARVIS bug or behavior to diagnose"},
+            "problem": {"type": "STRING", "description": "The Mark/JARVIS bug or behavior to diagnose"},
             "evidence": {"type": "STRING", "description": "Optional error/log evidence already available in the conversation"},
         },
         "required": ["problem"],

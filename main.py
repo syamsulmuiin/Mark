@@ -2517,7 +2517,7 @@ class JarvisLive:
             instruction = (
                 "[SERVER FILE STORAGE RESULT] This is the result of the user's prior voice request, "
                 "not a new request. The following file names were permanently stored in the "
-                f"MARK LIV server object store: {json.dumps(names, ensure_ascii=False)}. "
+                f"Mark server object store: {json.dumps(names, ensure_ascii=False)}. "
                 f"{failed} file(s) failed. Confirm the stored files to the user in their current "
                 "language. Do not claim to have edited their contents or call transfer_file again."
             )
@@ -2608,7 +2608,7 @@ class JarvisLive:
             while asyncio.get_running_loop().time() < deadline:
                 if self._dashboard_task.done():
                     await self._dashboard_task
-                    raise RuntimeError("MARK LIV HTTP API stopped during startup")
+                    raise RuntimeError("Mark HTTP API stopped during startup")
                 try:
                     reader, writer = await asyncio.wait_for(
                         asyncio.open_connection("127.0.0.1", DASHBOARD_PORT), timeout=0.5
@@ -2621,12 +2621,12 @@ class JarvisLive:
                     await asyncio.sleep(0.1)
             if not api_ready:
                 raise RuntimeError(
-                    f"MARK LIV HTTP API did not bind to 127.0.0.1:{DASHBOARD_PORT} within 10 seconds"
+                    f"Mark HTTP API did not bind to 127.0.0.1:{DASHBOARD_PORT} within 10 seconds"
                 )
             # Runs for the whole lifetime, not just inside an active session.
             asyncio.create_task(self._process_dashboard_commands())
         except Exception as e:
-            print(f"[ERROR] MARK LIV HTTP API startup failed: {e}", file=sys.stderr)
+            print(f"[ERROR] Mark HTTP API startup failed: {e}", file=sys.stderr)
             raise
 
         while True:
@@ -2725,7 +2725,7 @@ class JarvisLive:
                     tg.create_task(self._play_audio())
                     # System monitoring remains available on demand; no unsolicited server alerts.
                     tg.create_task(self._run_background_monitor())
-                    # Do not run unsolicited proactive check-ins. MARK-LIV stays idle
+                    # Do not run unsolicited proactive check-ins. Mark stays idle
                     # unless the user speaks or a user-created scheduled workflow is due.
                     tg.create_task(self._run_scheduled_workflows())
                     tg.create_task(self._run_sleep_watch())

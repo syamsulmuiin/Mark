@@ -1,5 +1,5 @@
-"""Original MARK LV HUD core, metrics and log, adapted for the desktop companion.
-Source: https://github.com/FatihMakes/Mark-LV (CC BY-NC 4.0).
+"""Desktop Companion HUD core, metrics and activity log.
+Adapted material attribution: https://github.com/FatihMakes/Mark-LV (CC BY-NC 4.0).
 The rendering classes remain in the client; no GUI runs on the server.
 """
 from __future__ import annotations
@@ -373,7 +373,7 @@ class HudCanvas(QWidget):
             self._grid_key   = _gkey
         p.drawPixmap(0, 0, self._grid_cache)
 
-        # Original MARK LV reactor core, centered above the status line.
+        # Desktop Companion reactor core, centered above the status line.
         _sy_status = cy + fw * 0.40
         _band_t = 12.0
         _band_h = max(60.0, _sy_status - 12.0 - _band_t)

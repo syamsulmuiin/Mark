@@ -1,6 +1,7 @@
-# MARK-LIV server / companion architecture
+# Mark server / companion architecture
 
 This document describes the current architecture. Historical GUI/CLI/background runtime modes are obsolete and are not supported server access surfaces.
+> Compatibility note: protocol identifiers such as `jarvis.command`, `X-Jarvis-Local`, and the Android package `com.jarvis.companion` remain stable because they identify the JARVIS protocol and installed Android application, not a Mark generation.
 
 
 ### Live voice liveness recovery
@@ -116,7 +117,7 @@ Automation pauses only at the credential boundary (PIN/password/passcode/authent
 
 Device automation is capability-driven rather than application-driven. Application/package names and domain values are target data only. The companion exposes generic primitives for launch/close, UI inspection, click/tap, ordinary text entry, scrolling, supported global navigation, and verification. Android additionally advertises native `audio.volume` control for generic media-volume adjustment; this is a device capability, not an app-specific recipe.
 
-The same inspect -> act -> verify loop applies to every application, including applications installed after MARK-LIV was built. Legacy actions may perform backend computation but do not define companion UI behavior. Credential/authentication input remains the intentional user-intervention boundary apart from a genuinely unavailable capability.
+The same inspect -> act -> verify loop applies to every application, including applications installed after Mark was built. Legacy actions may perform backend computation but do not define companion UI behavior. Credential/authentication input remains the intentional user-intervention boundary apart from a genuinely unavailable capability.
 
 ## Conversation lifecycle versus server lifecycle
 
@@ -161,7 +162,7 @@ Live input/output transcription is broadcast as `transcript.delta` while audio i
 
 Warning/error-like stdout diagnostics are retained. Python stderr is written directly to the same rotating sink so exceptions and tracebacks remain complete. The error sink keeps the existing bounded size-based rotation and backup limits.
 
-MARK-LIV does not create a second persistent full-runtime transcript as part of this change. Normal runtime output remains ephemeral unless a dedicated diagnostic facility explicitly captures it.
+Mark does not create a second persistent full-runtime transcript as part of this change. Normal runtime output remains ephemeral unless a dedicated diagnostic facility explicitly captures it.
 
 ## Intentional voice termination state
 
@@ -173,7 +174,7 @@ Voice recovery distinguishes intentional session end from unexpected transport f
 
 ## Host browser runtime policy
 
-Server-side `browser_control` depends on the Playwright Python API. First-time setup installs an isolated Chromium runtime on supported architectures; on a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser runtime is reported as unavailable; MARK LIV does not copy Companion cookies/session state to the server.
+Server-side `browser_control` depends on the Playwright Python API. First-time setup installs an isolated Chromium runtime on supported architectures; on a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser runtime is reported as unavailable; Mark does not copy Companion cookies/session state to the server.
 
 This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host. Android browser workflows use `browser.open`/`browser.search` followed by `android.ui.inspect` -> action -> inspect verification.
 

@@ -20,5 +20,5 @@ def test_worker_waits_for_actual_port_bind():
     assert "await self._dashboard_task" in MAIN
 
 def test_startup_failure_goes_to_stderr_error_log():
-    assert 'print(f"[ERROR] MARK LIV HTTP API startup failed: {e}", file=sys.stderr)' in MAIN
+    assert 'print(f"[ERROR] Mark HTTP API startup failed: {e}", file=sys.stderr)' in MAIN
     assert "sys.stderr = sink" in LOG

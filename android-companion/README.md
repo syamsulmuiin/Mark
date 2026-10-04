@@ -1,6 +1,6 @@
-# MARK-LIV Android Companion
+# Mark Android Companion
 
-The Android companion is a native control, execution, and interactive-voice endpoint for the headless MARK-LIV server. Android-originated device-local requests default back to this phone unless the user explicitly targets another paired device.
+The Android companion is a native control, execution, and interactive-voice endpoint for the headless Mark server. Android-originated device-local requests default back to this phone unless the user explicitly targets another paired device.
 
 ## Build
 
@@ -41,13 +41,13 @@ The companion does not silently add root, ADB/Shizuku, Device Owner, arbitrary s
 - **Server says device offline:** confirm the companion is connected; if duplicate historical device names exist, the server should resolve the currently online record/UUID.
 - **Voice has no response audio:** do not change Android audio handling solely to fix command routing. Server command-origin and active-voice state are separate and must both remain valid.
 
-## Current MARK-LIV control model
+## Current Mark control model
 
-Android is a companion endpoint for a headless MARK-LIV server. Device UI automation is application-agnostic and uses generic Accessibility capabilities with an inspect -> act -> verify loop. Application/package names are target data, not automation recipes.
+Android is a companion endpoint for a headless Mark server. Device UI automation is application-agnostic and uses generic Accessibility capabilities with an inspect -> act -> verify loop. Application/package names are target data, not automation recipes.
 
 Credential fields are a hard boundary: the companion must not accept automated PIN/password/passcode/credential entry. Normal non-credential UI operations remain available when Accessibility and the required Android permission are enabled.
 
-Ending a conversation does not stop the MARK-LIV server. Cross-device generic file transfer is not yet advertised as an Android companion capability.
+Ending a conversation does not stop the Mark server. Cross-device attachment transfer is supported through the Companion attachment transport; Android advertises `file.upload`, `file.receive`, and `attachment.inbox`, with the server coordinating verified delivery.
 
 ## Voice end and reconnect lifecycle
 
@@ -58,7 +58,7 @@ An intentional end-call action sets explicit local ended state before the voice 
 A fresh explicit Pair Code can replace one unambiguous offline stale identity with the same companion-reported name after reinstall. Normal reconnect does not delete trust, and ambiguous same-name devices are never removed automatically.
 
 ## File transfer
-The Android companion advertises generic `file.upload` and `file.receive` capabilities. Upload sources must be a path or content URI Android permits the companion to read; private data belonging to other applications is not bypassed. On Android 10 and newer, received files are written through MediaStore to `Downloads/MARK-LIV` and verified by SHA-256 and byte size. Android versions below 10 return a clear unsupported error for shared-Downloads receive rather than claiming success without the required legacy storage permission.
+The Android companion advertises generic `file.upload` and `file.receive` capabilities. Upload sources must be a path or content URI Android permits the companion to read; private data belonging to other applications is not bypassed. On Android 10 and newer, received files are written through MediaStore to `Downloads/Mark` and verified by SHA-256 and byte size. Android versions below 10 return a clear unsupported error for shared-Downloads receive rather than claiming success without the required legacy storage permission.
 
 
 ### Attachment inbox
@@ -87,7 +87,7 @@ A voice request to send files to the server opens the Android multi-select picke
 
 ### Received and Sent attachments
 
-The Attachments dialog has Received and Sent views in the main companion’s dark and cyan visual style. Sent history is read-only; Open, Save As and Share are available only to recipients. Files uploaded to MARK LIV for processing appear in Sent and do not show up as incoming files on the same phone.
+The Attachments dialog has Received and Sent views in the main companion’s dark and cyan visual style. Sent history is read-only; Open, Save As and Share are available only to recipients. Files uploaded to Mark for processing appear in Sent and do not show up as incoming files on the same phone.
 
 ### Voice attachment picker
 

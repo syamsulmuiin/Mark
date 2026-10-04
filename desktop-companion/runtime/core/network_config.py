@@ -1,4 +1,4 @@
-"""Central network endpoints and ports for MARK-LIV.
+"""Central network endpoints and ports for Mark.
 
 Environment variables override config/network.json, which overrides built-in defaults.
 This keeps transport settings in one source of truth without changing default behavior.

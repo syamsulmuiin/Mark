@@ -1,11 +1,12 @@
-# MARK-LIV / JARVIS
+# Mark / JARVIS
 
-MARK-LIV is a headless JARVIS server with native companion clients for Android, Windows, Linux, and macOS. The server owns the AI session, trusted-device mesh, memory, scheduling, remote transport, and server-side services. Interactive voice and device-local UI execution belong to companions.
+Mark is a headless JARVIS server with native companion clients for Android, Windows, Linux, and macOS. The server owns the AI session, trusted-device mesh, memory, scheduling, remote transport, and server-side services. Interactive voice and device-local UI execution belong to companions.
+> Compatibility note: protocol identifiers such as `jarvis.command`, `X-Jarvis-Local`, and the Android package `com.jarvis.companion` remain stable because they identify the JARVIS protocol and installed Android application, not a Mark generation.
 
 ## Architecture
 
 ```text
-                         MARK-LIV SERVER
+                         Mark SERVER
                             (headless)
                                 |
              +------------------+------------------+
@@ -75,7 +76,7 @@ The standalone desktop runtime carries its corresponding network configuration. 
 
 Source: `android-companion/`.
 
-Android provides companion voice, application launch/close, supported device functions, and user-approved Accessibility UI automation. Accessibility must be enabled by the user in Android Settings. MARK-LIV does not silently require root, ADB/Shizuku, Device Owner, or arbitrary shell access.
+Android provides companion voice, application launch/close, supported device functions, and user-approved Accessibility UI automation. Accessibility must be enabled by the user in Android Settings. Mark does not silently require root, ADB/Shizuku, Device Owner, or arbitrary shell access.
 
 ### Windows / Linux / macOS
 
@@ -86,7 +87,7 @@ python desktop-companion/install.py
 python desktop-companion/companion.py
 ```
 
-The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Both companions show a focused dark/cyan Pair Code screen for a new device. The desktop dashboard opens after the signed server `ready` message. Pairing checks public TLS certificates and keeps the UI responsive; desktop errors are stored in `~/.mark-liv-companion/logs/error.log`. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
+The desktop companion carries its own local runtime so device-side work executes on that companion rather than turning the headless server into a desktop-control endpoint. Its interface uses the standard animated reactor core without holographic-face assets. Both companions show a focused dark/cyan Pair Code screen for a new device. The desktop dashboard opens after the signed server `ready` message. Pairing checks public TLS certificates and keeps the UI responsive; desktop errors are stored in `~/.mark-companion/logs/error.log`. Android uses consistent dark and cyan surfaces for pairing and attachment tabs.
 
 ## Application-agnostic device automation
 
@@ -104,7 +105,7 @@ Generic companion primitives include application launch/close, UI inspection, cl
 
 Android browser interaction is device-local: `browser.open` or `browser.search` launches the phone's installed browser, then `android.ui.inspect` -> `android.ui.click`/`android.ui.text`/`android.ui.scroll` -> inspect again controls the visible webpage. Browser cookies and sessions remain on the phone. Server `browser_control` must not replace an Android-originated browser request.
 
-The same mechanism applies to applications installed after MARK-LIV was built. A missing predefined application recipe is not a reason to hand normal UI work back to the user. When a requested target is not visible, JARVIS should inspect and use available navigation/search/scroll/text/select operations, then inspect again.
+The same mechanism applies to applications installed after Mark was built. A missing predefined application recipe is not a reason to hand normal UI work back to the user. When a requested target is not visible, JARVIS should inspect and use available navigation/search/scroll/text/select operations, then inspect again.
 
 Server actions are restricted to headless/backend work. Device-local application, UI, media, messaging, screen/camera, and desktop file operations are packaged in companions and reached through advertised capabilities; they are not imported into the server action registry.
 
@@ -139,11 +140,11 @@ explicit server/service shutdown
         -> server termination
 ```
 
-`shutdown_jarvis` is reserved for explicit server/service termination intent. Farewell, stop-talking, or end-session intent must not shut down the MARK-LIV server.
+`shutdown_jarvis` is reserved for explicit server/service termination intent. Farewell, stop-talking, or end-session intent must not shut down the Mark server.
 
 ## Scheduling
 
-MARK-LIV does not create unsolicited morning news, time, greeting, or briefing schedules. Scheduled workflows run only when explicitly requested by the user.
+Mark does not create unsolicited morning news, time, greeting, or briefing schedules. Scheduled workflows run only when explicitly requested by the user.
 
 User-created recurring workflows are persisted in:
 
@@ -167,7 +168,7 @@ Protected architecture invariants include headless server operation, server/comp
 
 ## File handling status
 
-The server currently contains upload/download endpoints and a server upload repository. This is not yet a complete generic cross-device file-transfer protocol. Do not describe MARK-LIV as supporting arbitrary companion-to-companion file sharing until common transfer capabilities are implemented across the companions.
+Mark provides cross-device attachment transfer between paired Android and Desktop Companions through the server object store. Source Companions expose `file.upload`; destination Companions expose `file.receive`; the attachment inbox supports offline delivery, verified SHA-256/size downloads, recipient Open/Save/Share actions where the platform supports them, and multi-file picker batches. `transfer_file` is the user-facing transaction path; legacy `file.receive` remains a compatibility capability. The server remains the transport/orchestration point rather than pretending local files are directly shared peer-to-peer.
 
 Server file-transfer data uses a single-copy SHA-256 object store under project-local `storage/objects/` with metadata under `storage/metadata/`. Upload/share/download are transfer states, not duplicate physical directories. Cross-companion transfers stream through one-time authenticated URLs into a durable recipient-scoped attachment inbox. The recipient chooses Open, Save As or Share. Temporary server objects are retained while inbox references exist (30-day expiry); permanent server retention is explicit. `storage/` is excluded from Git. Source selection is user-directed and can use the native source picker; Android reads only paths/content URIs it can access. Attachment delivery does not force a destination directory.
 
@@ -234,7 +235,7 @@ The server browser context is isolated from Companion cookies and sessions. Disp
 
 ### Generic persistent task continuity
 
-MARK LIV persists unfinished multi-step work independently from the Gemini Live resumption handle. Tasks store their goal, constraints, completion criteria, verified checkpoints, last tool/action result, blocker state, and origin device. Reconnects, Live rollovers, interrupted responses, and server restarts restore the unfinished task and inject an automatic continuation instruction. Completion requires a verified requested end state; credential/user-authentication boundaries pause rather than discard the task.
+Mark persists unfinished multi-step work independently from the Gemini Live resumption handle. Tasks store their goal, constraints, completion criteria, verified checkpoints, last tool/action result, blocker state, and origin device. Reconnects, Live rollovers, interrupted responses, and server restarts restore the unfinished task and inject an automatic continuation instruction. Completion requires a verified requested end state; credential/user-authentication boundaries pause rather than discard the task.
 ### Companion camera vision
 
 Companion camera vision uses the generic `camera.capture` capability and always returns real one-shot image bytes. Android selects the requested front or back camera through Camera2. The shared Windows/Linux/macOS desktop companion captures the configured/default host webcam through OpenCV and reports its actual selection as `default` rather than inventing a front/back identity. Camera applications do not need to be opened. Accessibility/UI inspection is never treated as image data and cannot satisfy a camera or visual-screen request.
@@ -245,11 +246,11 @@ Release packages contain source/runtime assets only. Generated Python caches and
 
 
 ### Re-pair after reinstall
-If reinstalling a companion creates a new cryptographic device identity, pairing it again with a fresh Pair Code can replace one unambiguous offline stale record for that same companion name. Normal reconnects keep the existing trust record. If several trusted devices share the same name, MARK-LIV preserves them rather than guessing which one to replace.
+If reinstalling a companion creates a new cryptographic device identity, pairing it again with a fresh Pair Code can replace one unambiguous offline stale record for that same companion name. Normal reconnects keep the existing trust record. If several trusted devices share the same name, Mark preserves them rather than guessing which one to replace.
 
 
 ### Runtime recovery guards
-Vision frames are validated and bound to the active Live session so reconnects do not replay stale image payloads. Rejected companion actions are protected by a generic unchanged-action guard: MARK-LIV must re-inspect/replan or change the action before executing the same rejected device operation again.
+Vision frames are validated and bound to the active Live session so reconnects do not replay stale image payloads. Rejected companion actions are protected by a generic unchanged-action guard: Mark must re-inspect/replan or change the action before executing the same rejected device operation again.
 
 
 ### Deferred attachment selection and companion controls
@@ -278,7 +279,7 @@ Voice requests such as “send this file to the server” use the current compan
 
 ### Attachment completion and history
 
-After the picker uploads files, MARK LIV resumes the requested assistant task or announces delivery to another companion. Assistant uploads appear only in the sender’s Sent history; recipients retain Open, Save As and Share. Success and cancellation no longer create warning logs.
+After the picker uploads files, Mark resumes the requested assistant task or announces delivery to another companion. Assistant uploads appear only in the sender’s Sent history; recipients retain Open, Save As and Share. Success and cancellation no longer create warning logs.
 
 ### Voice attachment picker
 

@@ -1,4 +1,4 @@
-"""Central model configuration for MARK-LIV.
+"""Central model configuration for Mark.
 
 Model identifiers live here so provider model changes do not require synchronising
 hard-coded strings across the runtime and helper clients. Environment overrides

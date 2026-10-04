@@ -1,8 +1,8 @@
-"""MARK LIV headless server setup.
+"""Mark headless server setup.
 
 The server installer is intentionally independent from desktop audio, GUI, screen,
 camera, and input-control packages. It supports the common Windows, macOS, and
-Linux CPU families used by MARK LIV, including Linux ARM64/aarch64 devices such
+Linux CPU families used by Mark, including Linux ARM64/aarch64 devices such
 as Armbian boards.
 
 On Linux, setup uses a project-local virtual environment when the current Python
@@ -70,7 +70,7 @@ def _check_python() -> None:
     version = sys.version_info[:2]
     if version < MIN_PY:
         raise SystemExit(
-            f"MARK LIV requires Python {MIN_PY[0]}.{MIN_PY[1]} or newer; "
+            f"Mark requires Python {MIN_PY[0]}.{MIN_PY[1]} or newer; "
             f"detected {version[0]}.{version[1]}."
         )
     if version > MAX_TESTED_PY:
@@ -103,7 +103,7 @@ def _ensure_linux_venv() -> None:
 
 def main() -> None:
     print(
-        f"[Setup] MARK LIV headless server | OS={OS or 'unknown'} | "
+        f"[Setup] Mark headless server | OS={OS or 'unknown'} | "
         f"architecture={_normalized_arch()} | "
         f"Python={sys.version_info[0]}.{sys.version_info[1]}"
     )

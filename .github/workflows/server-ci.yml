@@ -1,4 +1,4 @@
-name: Mark-LIV Server CI
+name: Mark Server CI
 
 on:
   pull_request:

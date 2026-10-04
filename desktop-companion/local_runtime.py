@@ -1,5 +1,5 @@
-"""Local execution bridge for MARK LIV desktop companions.
-Runs the existing MARK LIV device-side tools on the companion machine so the
+"""Local execution bridge for Mark desktop companions.
+Runs the existing Mark device-side tools on the companion machine so the
 server refactor does not remove established computer/file/browser capabilities.
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ def invoke(tool: str, parameters: dict | None = None, player=None):
     if tool in {"youtube_video", "video_player"}:
         class LocalPlayer:
             def write_log(self, message):
-                logging.getLogger("mark_liv.companion").info("%s", message)
+                logging.getLogger("mark.companion").info("%s", message)
             def show_video(self, source, title, muted=True, audio_source=""):
                 if player is None: raise RuntimeError("desktop video surface unavailable")
                 return player.show_video(source, title, muted=muted, audio_source=audio_source)

@@ -1,4 +1,4 @@
-"""Safety primitives for MARK-LIV self-repair.
+"""Safety primitives for Mark self-repair.
 
 This module is policy/transaction infrastructure, not a model-facing tool.  The
 repair actions may call it, but autonomous repair is forbidden from modifying
@@ -219,7 +219,7 @@ def _run_validators(root: Path, changed_files: list[str], timeout: int) -> tuple
 
 def validate_sandbox(candidates: dict[str, str], timeout: int = VALIDATION_TIMEOUT) -> tuple[bool, list[dict]]:
     """Validate a candidate in an isolated temporary repository copy first."""
-    with tempfile.TemporaryDirectory(prefix="markliv-repair-sandbox-") as td:
+    with tempfile.TemporaryDirectory(prefix="mark-repair-sandbox-") as td:
         root = Path(td) / "repo"
         shutil.copytree(BASE_DIR, root, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", "storage", "build", "dist", ".pytest_cache"))
         for rel, text in candidates.items():

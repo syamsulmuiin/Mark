@@ -11,6 +11,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Maintain persistent continuity for any substantive multi-step task. Before the first action of such a task call action=begin. "
             "After a milestone is actually verified call checkpoint. If credentials/user-only authorization or a genuine unavailable capability blocks progress call block. "
+            "Only use a credential blocker when the immediately preceding tool result explicitly reports AUTHENTICATION_REQUIRED or an actual credential prompt; never infer it from a routing, capability, or file-generation error. "
             "Call complete only after the user's requested end state is verified. This is generic and must not depend on application names or task type."
         ),
         "parameters": {
@@ -57,12 +58,28 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "send_server_file",
+        "description": "Send a file already created on the JARVIS server directly to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. The server chooses and reports the exact destination folder; Android uses Downloads/MARK-LIV and desktop uses its Downloads folder. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "destination_device": {"type":"STRING", "description":"Exact paired destination device ID/name, or current for the companion handling this request."},
+                "source": {"type":"STRING", "description":"Absolute path of the file already present on the server."},
+                "destination_name": {"type":"STRING", "description":"Optional filename to use on the companion."}
+            },
+            "required": ["destination_device", "source"]
+        }
+    },
+    {
         "name": "call_current_device",
         "description": (
             "Control the companion device that is currently talking to JARVIS. Use this for requests such as "
-            "open an application, open device settings, lock this device, or perform other actions on this/current device. "
+            "open an application, open a browser URL/search on this phone, inspect/click/type/scroll a visible webpage, "
+            "open device settings, lock this device, or perform other actions on this/current device. "
+            "For browser interaction on Android, use browser.open or browser.search first, then use android.ui.inspect -> "
+            "android.ui.click/android.ui.text/android.ui.scroll -> inspect again. Use view_id from inspection; never use coordinates. "
             "For opening an Android or desktop app use capability app.launch with args.app set to the natural app name. "
-            "Do not use server-local open_app for a request originating from a companion when the user means this device."
+            "Do not use server-local browser_control for a request originating from a companion when the user means this device."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -75,7 +92,9 @@ TOOL_DECLARATIONS = [
                         "app": {"type": "STRING", "description": "Natural application name requested by the user"},
                         "name": {"type": "STRING", "description": "Alternative natural application name"},
                         "package": {"type": "STRING", "description": "Android package only when already known"},
-                        "url": {"type": "STRING", "description": "URL for open_url"},
+                        "url": {"type": "STRING", "description": "URL for open_url or browser.open"},
+                        "query": {"type": "STRING", "description": "Search query for browser.search on the companion"},
+                        "engine": {"type": "STRING", "description": "Search engine for browser.search: google | bing | duckduckgo"},
                         "page": {"type": "STRING", "description": "Android Settings page"},
                         "section": {"type": "STRING", "description": "Alternative Android Settings section"},
                         "text": {"type": "STRING", "description": "Text for UI text/click operations"},
@@ -124,7 +143,9 @@ TOOL_DECLARATIONS = [
                         "app": {"type": "STRING", "description": "Natural application name requested by the user"},
                         "name": {"type": "STRING", "description": "Alternative natural application name"},
                         "package": {"type": "STRING", "description": "Android package only when already known"},
-                        "url": {"type": "STRING", "description": "URL for open_url"},
+                        "url": {"type": "STRING", "description": "URL for open_url or browser.open"},
+                        "query": {"type": "STRING", "description": "Search query for browser.search on the companion"},
+                        "engine": {"type": "STRING", "description": "Search engine for browser.search: google | bing | duckduckgo"},
                         "page": {"type": "STRING", "description": "Android Settings page"},
                         "section": {"type": "STRING", "description": "Alternative Android Settings section"},
                         "text": {"type": "STRING", "description": "Text for UI text/click operations"},

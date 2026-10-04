@@ -102,9 +102,11 @@ inspect -> choose next generic action -> act -> inspect -> verify
 
 Generic companion primitives include application launch/close, UI inspection, click/tap, ordinary text entry, scrolling, supported global navigation, and verification.
 
+Android browser interaction is device-local: `browser.open` or `browser.search` launches the phone's installed browser, then `android.ui.inspect` -> `android.ui.click`/`android.ui.text`/`android.ui.scroll` -> inspect again controls the visible webpage. Browser cookies and sessions remain on the phone. Server `browser_control` must not replace an Android-originated browser request.
+
 The same mechanism applies to applications installed after MARK-LIV was built. A missing predefined application recipe is not a reason to hand normal UI work back to the user. When a requested target is not visible, JARVIS should inspect and use available navigation/search/scroll/text/select operations, then inspect again.
 
-Legacy server actions may still provide backend computation or content retrieval, but they must not become an application-specific substitute for companion UI control.
+Server actions are restricted to headless/backend work. Device-local application, UI, media, messaging, screen/camera, and desktop file operations are packaged in companions and reached through advertised capabilities; they are not imported into the server action registry.
 
 ## Credential boundary
 
@@ -151,13 +153,17 @@ User-created recurring workflows are persisted in:
 
 At execution time the saved instruction is run then, allowing time-sensitive information to be obtained fresh. Duplicate daily execution is prevented by persisted run state.
 
-## Read-only self-repair diagnostic
+## Safe self-repair and repair knowledge
 
-`actions/self_repair_diagnostic.py` provides read-only diagnosis. It can inspect the relevant dependency/root-cause path and report findings, files involved, proposed changes, validation steps, risks, and missing evidence.
+`actions/self_repair_diagnostic.py` is the read-only diagnosis stage. It traces the relevant source/dependency path, checks prior repair knowledge as historical evidence, verifies that evidence against current source, and reports root cause, confidence, risk, affected files, proposed changes, and validation requirements. A vague error observation is not repair authorization.
 
-Diagnostic mode has no apply capability. It must not edit/delete production source, install dependencies, restart the server, or commit/push changes. A vague error statement alone does not authorize repair; explicit concrete diagnostic intent is required.
+`actions/self_repair_apply.py` is a separate transactional apply stage backed by `core/repair_engine.py`. It requires explicit `APPLY_DIAGNOSTIC_REPAIR` authorization and a high-confidence diagnosis. Repair Guard enforces allowed source areas, protected safety files, path traversal protection, file/change budgets, a three-attempt ceiling, and separate `HIGH_RISK_REPAIR_APPROVED` approval for HIGH-risk changes. Model/user supplied shell commands are never executed by the repair validator. Dependency installation, privilege changes, service restart, commit, push, credentials, deployment workflows, and the repair safety implementation itself are outside autonomous repair authority.
 
-Protected architecture invariants include headless server operation, origin-first device routing, separation of command and voice routing, companion-only conversational audio, remote pairing, application-agnostic companion UI automation, credential protection, and no unsolicited scheduled content.
+Before a write, the engine records a transaction manifest and complete snapshots of every affected file. The candidate is first validated in a temporary repository copy with fixed import, compile, and full test commands. Only a passing sandbox candidate may be written to the working tree; the same fixed health checks then run again. Any write/test/knowledge failure restores every file in the transaction. Interrupted PREPARED/CANDIDATE transactions are recovered before another repair. Runtime transaction/audit/knowledge data lives under ignored `storage/self_repair/`. Audit records redact credential-like values.
+
+Successful repairs are stored as CONFIRMED/verified knowledge only after validation. Failed candidates are stored separately as EXPERIMENTAL failure knowledge, including the hypothesis, validation failure, and rollback result. Historical knowledge is advisory: diagnosis must verify that the current source still has the same root cause before adapting an old fix.
+
+Protected architecture invariants include headless server operation, server/companion execution boundaries, origin-first device routing, separation of command and voice routing, companion-only conversational audio, remote pairing, credential protection, and no unsolicited scheduled content.
 
 ## File handling status
 
@@ -169,7 +175,7 @@ Server file-transfer data uses a single-copy SHA-256 object store under project-
 
 The normal deployment configuration is `config/network.json`. Supported environment overrides include the public hostname, dashboard/transport ports, discovery port, and local host settings.
 
-Playwright/browser binaries are not installed automatically on the headless server. If server-side browser automation is intentionally required, install `requirements-browser.txt` separately on a supported platform.
+Playwright and its isolated Chromium runtime are part of the normal headless server setup on supported architectures. Set `SKIP_BROWSER_INSTALL=1` only when the server should provide `web_search` without host browser automation.
 
 ## Security model
 
@@ -179,7 +185,7 @@ For Android release signing, see `android-companion/SIGNING.md`.
 
 ## Runtime behavior
 
-Expected Live-session rollover and temporary transport/network loss use the reconnect/resumption path rather than being treated as a new user conversation. Unexpected application failures retain diagnostic logging.
+Expected Live-session rollover and temporary transport/network loss use the reconnect/resumption path rather than being treated as a new user conversation. Unknown provider/session failures clear a potentially stale resumption handle, preserve bounded local context, notify the Companion of reconnecting state, and start a clean provider session with bounded backoff. Unexpected application failures retain credential-redacted diagnostics.
 
 `runtime/error.log` is a severity-focused rotating diagnostic file. Normal INFO/debug output, successful tool activity, connection status, and conversation transcript are not persisted there. Warning/error-like diagnostics and Python stderr/tracebacks are retained. Rotation remains bounded by the configured size/backups. Runtime model identifiers are centralized in `core/model_config.py`; network settings are centralized in `core/network_config.py`.
 
@@ -193,7 +199,7 @@ The dashboard/transport layer is optional where its dependencies are unavailable
 - `core/model_config.py` — provider model identifiers.
 - `core/network_config.py` — server network configuration.
 - `core/language_compat.py` — isolated multilingual command aliases.
-- `actions/` — server/tool actions, schedules, and read-only diagnostic tools.
+- `actions/` — headless server actions/services only: network/browser retrieval, server-side processing, schedules, monitoring, and guarded diagnostic/repair tools.
 - `dashboard/` — HTTP/WebSocket transport, pairing/device endpoints, and server upload endpoints.
 - `android-companion/` — Android native companion.
 - `desktop-companion/` — Windows/Linux/macOS companion and local runtime.
@@ -220,13 +226,11 @@ Ending a voice conversation is terminal for that voice session. The companion re
 
 ### Server browser runtime
 
-The server installs the Playwright Python package because `browser_control` is a discoverable server action. Setup installs Chromium on x86_64 Windows/Linux/macOS hosts. ARM and other architectures keep the Python runtime but do not receive a forced browser binary install. Companion-origin UI and vision work remains on the companion.
+The server installs the Playwright Python package and, on supported architectures, the isolated Chromium runtime during `python setup.py`. This provides headless browser automation on display-less VPS hosts without requiring a desktop. Companion-origin UI and vision work remains on the companion.
 
 ### Host browser policy
 
-The Playwright Python API is a server dependency because `browser_control` is discoverable at runtime. MARK LIV does not download a separate Playwright-managed Chromium browser. Native navigation and interactive automation use compatible browsers installed on the host. If the requested browser cannot be located, interactive automation reports it as unavailable instead of silently substituting another browser.
-
-On Linux, browser metadata uses the detected machine architecture rather than assuming x86_64.
+The server browser context is isolated from Companion cookies and sessions. Display-less Linux uses headless Chromium; visible desktop hosts prefer the explicitly selected installed browser. If first-time Chromium installation is skipped or fails, `web_search` remains available and `browser_control` reports a bounded browser-runtime error.
 
 ### Generic persistent task continuity
 

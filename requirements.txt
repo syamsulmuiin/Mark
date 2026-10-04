@@ -1,6 +1,7 @@
 # MARK LIV headless server dependencies.
-# Desktop GUI, local audio, screen/camera capture, keyboard/mouse control, and
-# browser binaries intentionally belong to companion or optional extras.
+# Desktop GUI, local audio, screen/camera capture, and keyboard/mouse control
+# belong to companions. Server-side headless browser automation is an explicit
+# server capability and uses Playwright plus an isolated Chromium runtime.
 
 # Core server and Gemini Live
 numpy>=1.24,<3
@@ -14,6 +15,8 @@ send2trash
 youtube-transcript-api
 python-pptx
 openpyxl
+pandas>=2,<3
+pydub>=0.25,<1
 ddgs>=9,<10
 pdfplumber
 PyPDF2
@@ -35,5 +38,6 @@ google-auth-oauthlib
 # Smart-home integration
 tinytuya
 
-# Server browser-control Python runtime; browser binaries are platform-gated by setup.py
+# Browser-control Python runtime is part of the single server install.
+# First-time setup also installs isolated Chromium when the architecture supports it.
 playwright>=1.40,<2

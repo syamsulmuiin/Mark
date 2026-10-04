@@ -30,10 +30,10 @@ def _port(env, key, default):
     if not 1 <= value <= 65535: raise ValueError(f"{env}/{key} must be between 1 and 65535")
     return value
 
-PUBLIC_HOSTNAME = _text("MARK_LIV_PUBLIC_HOSTNAME", "public_hostname", "auth.kasirdigital.web.id").removeprefix("https://").removeprefix("http://").rstrip("/")
-DASHBOARD_PORT = _port("MARK_LIV_DASHBOARD_PORT", "dashboard_port", 8000)
-LAN_HTTPS_PORT = _port("MARK_LIV_LAN_HTTPS_PORT", "lan_https_port", 8001)
-DISCOVERY_PORT = _port("MARK_LIV_DISCOVERY_PORT", "discovery_port", 37991)
-LOCAL_HOST = _text("MARK_LIV_LOCAL_HOST", "local_host", "127.0.0.1")
+PUBLIC_HOSTNAME = _text("ASSISTANT_PUBLIC_HOSTNAME", "public_hostname", "auth.kasirdigital.web.id").removeprefix("https://").removeprefix("http://").rstrip("/")
+DASHBOARD_PORT = _port("ASSISTANT_DASHBOARD_PORT", "dashboard_port", 8000)
+LAN_HTTPS_PORT = _port("ASSISTANT_LAN_HTTPS_PORT", "lan_https_port", 8001)
+DISCOVERY_PORT = _port("ASSISTANT_DISCOVERY_PORT", "discovery_port", 37991)
+LOCAL_HOST = _text("ASSISTANT_LOCAL_HOST", "local_host", "127.0.0.1")
 LOCAL_BASE_URL = f"http://{LOCAL_HOST}:{DASHBOARD_PORT}"
 PUBLIC_BASE_URL = f"https://{PUBLIC_HOSTNAME}"

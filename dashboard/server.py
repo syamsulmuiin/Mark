@@ -9,6 +9,7 @@ Install deps:  pip install fastapi "uvicorn[standard]" cryptography
 """
 
 import asyncio
+import array
 import base64
 import hashlib
 import re
@@ -18,6 +19,7 @@ import string
 import time
 import json
 import os
+import shutil
 from pathlib import Path
 
 _DEPS_OK = False
@@ -42,10 +44,11 @@ from core.device_mesh import DeviceMesh
 from core.file_store import ObjectStore
 from core.attachment_inbox import AttachmentInbox
 from core.cloudflare_tunnel import NamedTunnel, enabled as cloudflare_enabled, public_url as cloudflare_public_url
+from core.runtime_errors import Boundary, classify_error
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
 STATIC_DIR  = Path(__file__).parent / "static"
 PORT        = DASHBOARD_PORT
-DISCOVERY_MAGIC = "MARKLIV_DISCOVER_V1"
+DISCOVERY_MAGIC = "ASSISTANT_DISCOVER_V1"
 MAX_UPLOAD_MB = 500
 
 def _safe_filename(raw: str) -> str:
@@ -56,6 +59,17 @@ def _safe_filename(raw: str) -> str:
 
 STORAGE_ROOT = BASE_DIR / "storage"
 STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+INTERACTION_LOG = BASE_DIR / "runtime" / "interaction.log"
+INTERACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+
+def _interaction_event(event: str, **fields) -> None:
+    """Persist bounded voice/device boundary events without payloads or secrets."""
+    record = {"ts": round(time.time(), 3), "event": event, **fields}
+    try:
+        with INTERACTION_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
 
 def _get_gemini_key() -> str | None:
     try:
@@ -477,6 +491,9 @@ class DashboardServer:
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
+        self._accept_phone_audio: bool             = True
+        self._last_audio_queue_full_log: float    = 0.0
+        self._audio_frame_counts: dict[str, int] = {}
         self._file_store                  = ObjectStore(STORAGE_ROOT)
         self._attachment_inbox = AttachmentInbox(self._file_store.meta)
         self._file_store.attachment_referenced = self._attachment_inbox.referenced
@@ -488,6 +505,19 @@ class DashboardServer:
         self._attachment_result_callback = None
         self.app                          = self._build_app()
 
+    def set_phone_audio_enabled(self, enabled: bool) -> int:
+        """Gate companion microphone frames during Live-session rollover."""
+        self._accept_phone_audio = bool(enabled)
+        dropped = 0
+        if not enabled:
+            while True:
+                try:
+                    self._phone_audio_queue.get_nowait()
+                    dropped += 1
+                except asyncio.QueueEmpty:
+                    break
+        return dropped
+
     # ── one-time key management ───────────────────────────────────────────
 
     def new_key(self, expiry_secs: int = 600) -> str:
@@ -496,19 +526,6 @@ class DashboardServer:
         key = ''.join(secrets.choice(_KEY_CHARS) for _ in range(6))
         self._pending_keys[key] = now + expiry_secs
         return key
-
-    def new_pairing_offer(self, expiry_secs: int = 600) -> dict:
-        return self._mesh.create_pairing_offer(ttl=expiry_secs)
-
-    def get_pairing_url(self, offer: dict) -> str:
-        # Carry the JARVIS public identity in the QR. Native companions use this
-        # as the out-of-band trust anchor when the LAN dashboard uses a locally
-        # generated/self-signed TLS certificate.
-        from urllib.parse import quote
-        base = self.get_remote_url()
-        return (f"{base}/pair?code={quote(offer['code'])}"
-                f"&server_id={quote(self._mesh.device_id)}"
-                f"&server_key={quote(self._mesh.public_key)}")
 
     @staticmethod
     def _ssl_enabled() -> bool:
@@ -523,7 +540,15 @@ class DashboardServer:
         return f"http://{self._ip}:{PORT}"
 
     def get_remote_url(self) -> str:
-        """Stable public endpoint when Cloudflare remote access is configured."""
+        """Return the endpoint reachable by a companion for HTTP transfers.
+
+        The staging tunnel is managed outside this process, so the tunnel can be
+        alive even when the local remote_access flag is disabled. Prefer the
+        explicit public URL in that setup; otherwise preserve the local fallback.
+        """
+        configured = os.environ.get("ASSISTANT_PUBLIC_URL", "").strip().rstrip("/")
+        if configured:
+            return configured
         if cloudflare_enabled():
             return self._public_url or cloudflare_public_url()
         return self.get_url()
@@ -609,10 +634,20 @@ class DashboardServer:
                 return
         ws = self._device_sockets.get(device_id)
         if ws is None:
+            _interaction_event("audio_out_dropped", reason="no_socket", bytes=len(pcm))
             return
         try:
             await ws.send_bytes(pcm)
-        except Exception:
+            _interaction_event("audio_out", device_id=device_id, bytes=len(pcm))
+        except Exception as exc:
+            decision = classify_error(Boundary.COMPANION_SOCKET, exc)
+            _interaction_event(
+                "audio_out_failed",
+                device_id=device_id,
+                bytes=len(pcm),
+                category=decision.category,
+                action=decision.action.value,
+            )
             self._device_sockets.pop(device_id, None)
             if self._active_voice_device == device_id:
                 self._active_voice_device = None
@@ -637,8 +672,19 @@ class DashboardServer:
         fut = asyncio.get_running_loop().create_future()
         self._device_pending_calls[call_id] = fut
         try:
+            _interaction_event("capability_call", device_id=device_id, capability=capability)
             await ws.send_json({"type":"capability.call", "call_id":call_id, "capability":capability, "args":args or {}})
             return await asyncio.wait_for(fut, timeout=timeout)
+        except Exception as exc:
+            decision = classify_error(Boundary.COMPANION_SOCKET, exc)
+            _interaction_event(
+                "capability_failed",
+                device_id=device_id,
+                capability=capability,
+                category=decision.category,
+                action=decision.action.value,
+            )
+            raise
         finally:
             self._device_pending_calls.pop(call_id, None)
 
@@ -783,6 +829,41 @@ class DashboardServer:
                 "size":size, "destination_device":destination_device,
                 "saved_to_destination":False}
 
+    async def send_server_file(self, destination_device: str, source: str, destination_name: str = ""):
+        """Send a server-created file to the canonical companion destination.
+
+        The destination is explicit on the wire so completion reports cannot
+        silently claim an unspecified folder. Android receives Downloads/MARK-LIV;
+        desktop companions retain their own Downloads default.
+        """
+        path = Path(str(source or "")).expanduser()
+        if not path.is_file():
+            raise FileNotFoundError(f"Server file not found: {path}")
+        name = _safe_filename(destination_name or path.name)
+        tmp = self._file_store.tmp / secrets.token_hex(12)
+        shutil.copyfile(path, tmp)
+        info = self._file_store.ingest(tmp, name, temporary=False)
+        token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
+        target = self._mesh.get(destination_device) or {}
+        capabilities = set(target.get("capabilities") or [])
+        destination = "Downloads/MARK-LIV" if "android.ui.inspect" in capabilities else ""
+        payload = {
+            "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
+            "name": name, "sha256": info["sha256"], "size": info["size"]}
+        if destination:
+            payload["destination"] = destination
+        reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
+        if not isinstance(reply, dict) or not reply.get("ok"):
+            raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
+        result = {"ok": True, "status": "saved_to_device", "name": name,
+                  "source": str(path), "sha256": info["sha256"], "size": info["size"],
+                  "destination_device": destination_device,
+                  "destination_verified": True,
+                  "result": reply.get("result")}
+        if destination:
+            result["destination"] = destination
+        return result
+
     async def _send_attachment_inbox(self, ws, device_id):
         await ws.send_json({"type":"attachment.inbox", "attachments":
                             self._attachment_inbox.for_device(device_id)})
@@ -815,7 +896,7 @@ class DashboardServer:
         @app.middleware("http")
         async def native_companions_only(req: Request, call_next):
             path = req.url.path
-            allowed = (path.startswith("/api/pairing/offer/") or path == "/api/pairing/accept" or path in ("/api/local/pairing/new", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/") or path.startswith("/api/transfer/"))
+            allowed = (path in ("/api/pairing/request", "/api/pairing/claim", "/api/local/pairing/new", "/api/local/pairing/pending", "/api/local/health", "/api/upload", "/api/files") or path.startswith("/uploads/") or path.startswith("/api/transfer/"))
             if not allowed:
                 return JSONResponse({"error": "Install a MARK LIV companion client to access this server."}, status_code=404)
             return await call_next(req)
@@ -846,12 +927,14 @@ class DashboardServer:
             rec = self._mesh.get(device_id)
             return JSONResponse({"known": bool(rec and not rec.get("revoked"))})
 
-        @app.get("/api/pairing/offer/{code}")
-        async def pairing_offer_public(code: str):
-            offer = self._mesh.pending_offer(code)
-            if not offer:
-                return JSONResponse({"error": "Pairing code invalid or expired"}, status_code=404)
-            return JSONResponse(offer)
+        @app.post("/api/pairing/request")
+        async def pairing_request(req: Request):
+            try:
+                body = await req.json()
+                result = self._mesh.create_pairing_request(body.get("peer") or {})
+                return JSONResponse(result)
+            except Exception as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
 
         @app.get("/api/local/health")
         async def local_health(req: Request):
@@ -860,13 +943,29 @@ class DashboardServer:
                 return JSONResponse({"error": "local access only"}, status_code=403)
             return JSONResponse({"service": "MARK-LIV", "status": "ready", "pid": os.getpid()})
 
+        @app.get("/api/local/pairing/pending")
+        async def local_pairing_pending(req: Request):
+            host = req.client.host if req.client else ""
+            if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
+                return JSONResponse({"error": "local access only"}, status_code=403)
+            return JSONResponse({"pending": self._mesh.pending_requests()})
+
         @app.post("/api/local/pairing/new")
         async def local_pairing_new(req: Request):
             host = req.client.host if req.client else ""
             if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
                 return JSONResponse({"error": "local access only"}, status_code=403)
-            offer = self.new_pairing_offer()
-            return JSONResponse({"code": offer["code"], "expires_at": offer["expires_at"], "url": self.get_pairing_url(offer)})
+            try:
+                body = await req.json()
+            except Exception:
+                body = {}
+            pairing_id = str(body.get("pairing_id") or "").strip()
+            if not pairing_id:
+                return JSONResponse({"error": "pairing_id is required; request pairing from the companion first"}, status_code=400)
+            try:
+                return JSONResponse(self._mesh.issue_pairing_code(pairing_id))
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
 
         @app.get("/", response_class=HTMLResponse)
         async def index():
@@ -984,41 +1083,28 @@ class DashboardServer:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
             return JSONResponse({"local": self._mesh.public_identity(), "devices": self._mesh.list_devices()})
 
-        @app.post("/api/pairing/offer")
-        async def pairing_offer(req: Request):
-            if not _auth(req):
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            return JSONResponse(self._mesh.create_pairing_offer())
-
-        @app.post("/api/pairing/accept")
-        async def pairing_accept(req: Request):
+        @app.post("/api/pairing/claim")
+        async def pairing_claim(req: Request):
             try:
                 body = await req.json()
-                peer = body.get("peer") or {}
-                new_id = str(peer.get("device_id") or "").strip()
-                peer_name = str(peer.get("name") or new_id).strip()
-                # An explicit Pair Code authorizes replacement, but only when the
-                # stale target is unambiguous: exactly one non-revoked, offline peer
-                # has the same companion-reported name. Never guess between duplicates.
-                replacement_candidates = [
-                    d.get("device_id") for d in self._mesh.list_devices()
-                    if d.get("device_id") != new_id
-                    and not d.get("revoked")
-                    and str(d.get("name") or "").strip() == peer_name
-                    and d.get("device_id") not in self._device_sockets
-                ]
-                replace_ids = replacement_candidates if len(replacement_candidates) == 1 else []
-                rec = self._mesh.accept_pairing(
-                    body.get("code", ""), peer, body.get("signature", ""),
-                    body.get("capabilities"), replace_device_ids=replace_ids,
+                rec = self._mesh.claim_pairing_request(
+                    body.get("pairing_id", ""),
+                    body.get("code", ""),
+                    body.get("signature", ""),
+                    body.get("capabilities"),
                 )
-                replaced = list(rec.get("replaced_device_ids") or [])
-                if replaced and self._origin_device_id in replaced:
-                    self._origin_device_id = new_id
-                if replaced and self._active_voice_device in replaced:
-                    self._active_voice_device = new_id
-                return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k:v for k,v in rec.items() if k != "public_key"}})
+                _interaction_event(
+                    "pairing_claimed",
+                    device_id=rec.get("device_id"),
+                    capabilities=len(rec.get("capabilities", [])),
+                )
+                return JSONResponse({"ok": True, "local": self._mesh.public_identity(), "device": {k: v for k, v in rec.items() if k != "public_key"}})
             except Exception as exc:
+                _interaction_event(
+                    "pairing_claim_failed",
+                    error=type(exc).__name__,
+                    reason=str(exc)[:120],
+                )
                 return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
         @app.post("/api/devices/{device_id}/revoke")
@@ -1036,6 +1122,7 @@ class DashboardServer:
             if not rec or rec.get("revoked"):
                 await websocket.close(code=4001); return
             await websocket.accept()
+            disconnect_reason = "unknown"
             challenge = secrets.token_urlsafe(32)
             server_proof = self._mesh.sign((device_id + ":" + challenge).encode())
             await websocket.send_json({"type": "challenge", "challenge": challenge,
@@ -1051,22 +1138,50 @@ class DashboardServer:
                 live_caps = proof.get("capabilities")
                 if isinstance(live_caps, list) and live_caps:
                     rec = self._mesh.set_capabilities(device_id, [str(c) for c in live_caps if str(c).strip()])
+                # A reconnecting companion can arrive before the previous socket
+                # has completed its disconnect callback. Keep exactly one socket
+                # owner per paired device; otherwise audio/results can be routed
+                # to a stale connection while the new connection appears ready.
+                previous = self._device_sockets.get(device_id)
+                if previous is not None and previous is not websocket:
+                    try:
+                        await previous.close(code=4008, reason="replaced by newer device connection")
+                    except Exception:
+                        pass
                 self._device_sockets[device_id] = websocket
                 self._mesh.touch(device_id)
+                _interaction_event("device_ready", device_id=device_id)
                 await websocket.send_json({"type": "ready", "capabilities": rec.get("capabilities", [])})
                 await self._send_attachment_inbox(websocket, device_id)
                 await self._send_attachment_sent(websocket, device_id)
                 while True:
                     packet = await websocket.receive()
                     if packet.get("type") == "websocket.disconnect":
+                        disconnect_reason = f"peer_closed:{packet.get('code', 'unknown')}"
                         break
                     audio = packet.get("bytes")
                     if audio is not None:
                         self._origin_device_id = device_id
                         self._active_voice_device = device_id
+                        count = self._audio_frame_counts.get(device_id, 0) + 1
+                        self._audio_frame_counts[device_id] = count
+                        if not self._accept_phone_audio:
+                            continue
+                        if count == 1 or count % 50 == 0:
+                            try:
+                                samples = array.array("h")
+                                samples.frombytes(audio[:len(audio) - (len(audio) % 2)])
+                                rms = int((sum(v * v for v in samples) / max(1, len(samples))) ** 0.5)
+                            except Exception:
+                                rms = -1
+                            _interaction_event("audio_in", device_id=device_id, frames=count, bytes=len(audio), rms=rms)
                         try:
                             self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000"})
                         except asyncio.QueueFull:
+                            now = time.monotonic()
+                            if now - self._last_audio_queue_full_log >= 1.0:
+                                self._last_audio_queue_full_log = now
+                                _interaction_event("audio_queue_full", device_id=device_id, frames=count)
                             pass
                         continue
                     raw = packet.get("text")
@@ -1083,13 +1198,17 @@ class DashboardServer:
                         if text:
                             self._origin_device_id = device_id
                             self._active_voice_device = device_id
+                            _interaction_event("text_command_in", device_id=device_id, chars=len(text))
                             await self._command_queue.put(text)
                             if self._wake_callback: self._wake_callback()
                     elif msg.get("type") == "jarvis.interrupt":
                         # Same interruption path as the desktop keyboard/UI: stop
                         # the current answer immediately and reopen listening.
+                        _interaction_event("device_interrupt", device_id=device_id)
                         if self._interrupt_callback:
                             self._interrupt_callback()
+                    elif msg.get("type") == "jarvis.heartbeat":
+                        await websocket.send_json({"type": "jarvis.heartbeat.ack", "ts": msg.get("ts")})
                     elif msg.get("type") == "attachment.picker.received":
                         request_id=str(msg.get("request_id") or "")
                         if self._pending_attachment_picks.get(request_id, {}).get("source_device") == device_id:
@@ -1181,11 +1300,20 @@ class DashboardServer:
                                     pass
                     elif msg.get("type") == "capability.result":
                         call_id = str(msg.get("call_id") or "")
+                        _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
                         fut = self._device_pending_calls.pop(call_id, None)
                         if fut and not fut.done(): fut.set_result(msg)
-            except (WebSocketDisconnect, asyncio.TimeoutError):
-                pass
+            except WebSocketDisconnect as exc:
+                disconnect_reason = f"websocket_disconnect:{getattr(exc, 'code', 'unknown')}"
+            except asyncio.TimeoutError:
+                disconnect_reason = "timeout"
+            except KeyError as exc:
+                disconnect_reason = f"key_error:{exc}"
+            except Exception as exc:
+                disconnect_reason = f"handler_error:{type(exc).__name__}"
+                print(f"[ERROR DeviceWebSocket] device={device_id} error={type(exc).__name__}: {exc}")
             finally:
+                _interaction_event("device_disconnect", device_id=device_id, reason=disconnect_reason)
                 if self._device_sockets.get(device_id) is websocket:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:

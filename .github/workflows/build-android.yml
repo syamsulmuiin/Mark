@@ -2,6 +2,12 @@ name: Build Android Companion
 
 on:
   workflow_dispatch:
+    inputs:
+      assistant_public_url:
+        description: Public Mark-LIV URL embedded in the APK
+        required: false
+        default: https://auth.kasirdigital.web.id
+        type: string
   push:
     paths:
       - 'android-companion/**'
@@ -17,6 +23,8 @@ jobs:
   debug:
     name: Debug APK
     runs-on: ubuntu-latest
+    env:
+      ASSISTANT_PUBLIC_URL: ${{ inputs.assistant_public_url || 'https://auth.kasirdigital.web.id' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -49,6 +57,8 @@ jobs:
     name: Signed Release APK
     runs-on: ubuntu-latest
     environment: android-release
+    env:
+      ASSISTANT_PUBLIC_URL: ${{ inputs.assistant_public_url || 'https://auth.kasirdigital.web.id' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -89,10 +99,10 @@ jobs:
       - name: Build signed release APK
         working-directory: android-companion
         env:
-          JARVIS_KEYSTORE_PATH: ${{ runner.temp }}/jarvis-release.jks
-          JARVIS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          JARVIS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          JARVIS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ASSISTANT_KEYSTORE_PATH: ${{ runner.temp }}/jarvis-release.jks
+          ASSISTANT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ASSISTANT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ASSISTANT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle --no-daemon clean assembleRelease --stacktrace
       - name: Verify APK signature
         run: |

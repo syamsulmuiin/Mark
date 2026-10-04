@@ -51,24 +51,17 @@ Android Accessibility is opt-in. UI automation follows `inspect -> act -> verify
 
 There is no default morning briefing, news poll, or time announcement. News/time are fetched on demand. The scheduler exists to execute workflows explicitly created by the user. Recurring workflow state is stored under `~/.jarvis/scheduled_workflows.json`.
 
-## Read-only self repair
+## Safe self-repair boundary
 
-Diagnostic self-repair is user-initiated and conversational first: a vague error observation does not trigger it. JARVIS obtains a concrete symptom and explicit diagnostic/repair intent, announces the read-only diagnostic, and only then starts inspection. A code-level activation guard rejects accidental generic calls. Once authorized, diagnostic self-repair may traverse the complete relevant dependency path without a fixed total file limit. It cannot apply edits, delete source, install packages, restart services, or perform Git mutations. Architecture invariants above are part of its diagnostic safety boundary.
+Self-repair is server-side and user-initiated. Diagnosis is read-only and may inspect the complete relevant dependency path. It may recall persistent repair knowledge, but previous incidents are untrusted historical evidence until the current source confirms the same root cause.
 
+Apply is a separate transaction. Repair Guard performs scope, protected-area, risk, path and change-budget checks before a snapshot is created. LOW/MEDIUM repairs still require explicit repair authorization; HIGH-risk repairs additionally require `HIGH_RISK_REPAIR_APPROVED`. The autonomous path cannot edit its repair policy, rollback/validation implementation, credential protection, loader/permission boundaries, deployment workflows, or audit state. It cannot install dependencies, elevate privileges, restart services, commit, push, or execute shell commands supplied by a model, user, website, log, plugin, or other untrusted content.
 
-### v27 runtime stability
-- Headless server does not emit unsolicited CPU/RAM voice alerts; system status remains available on demand.
-- Gemini side/diagnostic calls no longer open extra Live sessions that can consume Live quota or destabilize the interactive companion voice session.
-- Removed retired pinned `gemini-2.5-flash` / `gemini-2.5-flash-lite` fallback names in favor of maintained rolling aliases.
-- WebSocket keepalive/close timeouts are treated as transport rollover: conversation context is preserved and the server reconnects quietly.
-- Diagnostic self-repair remains read-only and still requires explicit, concrete user diagnostic intent.
+A candidate is validated in an isolated temporary repository copy using fixed import, compile and full-test commands. Only a passing candidate reaches the working tree, where the fixed health checks run again. Failure restores the complete transaction snapshot. Interrupted candidate transactions are recovered before the next repair. Attempts are capped at three. Verified successful repairs and failed approaches are recorded separately under ignored `storage/self_repair/knowledge/`; secrets are redacted from the JSONL audit trail.
 
 ## Runtime module boundaries
 
 `main.py` remains the Live conversation orchestrator. Headless process lifecycle is isolated in `core/server_lifecycle.py`; Live-bound tool schemas are isolated in `core/live_tools.py`; model selection is centralized in `core/model_config.py`; and bounded worker stdout/stderr rotation is handled by `core/runtime_log.py`. This separation is structural only and does not move voice or device execution back onto the server.
-
-### v32 network configuration centralization
-Network endpoints and ports now use `core/network_config.py` as the server source of truth. Defaults remain unchanged, but deployments can override them with `MARK_LIV_PUBLIC_HOSTNAME`, `MARK_LIV_DASHBOARD_PORT`, `MARK_LIV_LAN_HTTPS_PORT`, `MARK_LIV_DISCOVERY_PORT`, and `MARK_LIV_LOCAL_HOST`, or `config/network.json`. The standalone desktop runtime carries the same config module. Android uses `BuildConfig.MARK_LIV_PUBLIC_URL`, set at APK build time from `MARK_LIV_PUBLIC_URL`, so the public endpoint is no longer duplicated in Kotlin.
 
 
 ## Default network configuration
@@ -88,7 +81,7 @@ Project-facing documentation, comments, prompts, logs, UI text, and examples are
 
 The root Python environment is the server environment. It must not require a display server, local microphone/speaker stack, camera, screen capture, keyboard/mouse automation, or desktop window APIs. Those dependencies belong to desktop companions. Linux server setup uses a project-local virtual environment when necessary so Debian-family distributions, including Armbian, are not forced to modify an externally managed system Python.
 
-Server-side Playwright automation is an optional extra and is not part of the base headless installation. This keeps ARM deployments independent from browser-binary availability.
+Server-side Playwright automation is part of the normal headless server installation. The root `requirements.txt` installs the Playwright Python API, and `setup.py` installs an isolated Chromium runtime on supported x86_64 and ARM64 hosts. `SKIP_BROWSER_INSTALL=1` may explicitly skip the Chromium runtime; in that case `web_search` remains available while `browser_control` remains unavailable until a compatible runtime is installed. Desktop companion browser automation remains a separate local capability with its own dependency set.
 
 
 ## Operation-aware origin routing
@@ -114,7 +107,7 @@ Conversation lifecycle and server lifecycle are separate. Ending or closing a co
 
 ## Documentation synchronization status
 
-This document describes the current server/companion architecture. The root `readme.md` is the operational entry point and `PATCH_NOTES.md` is the version history. Current invariants are: headless server; companion-only conversational audio; origin-first routing; application-agnostic inspect -> act -> verify device automation; credential input protection; conversation lifecycle separate from server lifecycle; explicit-only scheduling; and no claim of full cross-device file sharing until a common transfer protocol exists across companions.
+This document describes the current server/companion architecture. The root `readme.md` is the operational entry point. Current invariants are: headless server; companion-only conversational audio; origin-first routing; application-agnostic inspect -> act -> verify device automation; credential input protection; conversation lifecycle separate from server lifecycle; explicit-only scheduling; and no claim of full cross-device file sharing until a common transfer protocol exists across companions.
 
 ## Companion voice transport recovery
 
@@ -142,7 +135,10 @@ Voice routing and command routing remain separate. `call_current_device` targets
 
 The recovery path is transport-generic and does not depend on the application currently open on the companion.
 
-## Runtime error logging boundary
+## Live transcript streaming and rollover recovery
+
+Live input/output transcription is broadcast as `transcript.delta` while audio is still flowing. Companion clients render the current cumulative turn and replace it with the final `log` entry at `turn_complete`; progress/status events remain outside the transcript. If the provider session expires or the receive task fails before `turn_complete`, the server records bounded `You [partial]`/`JARVIS [partial]` entries, disables phone audio immediately, drains the phone queue, and reconnects with the preserved context. This keeps provider rollover separate from the authenticated device WebSocket.
+
 
 `runtime/error.log` is reserved for actionable diagnostics rather than a complete runtime transcript. The detached headless worker filters normal stdout so routine INFO/debug events, successful device/tool operations, connection-state chatter, and user/assistant transcript lines are not persisted in the error file.
 
@@ -156,13 +152,13 @@ Voice recovery distinguishes intentional session end from unexpected transport f
 
 ## Server browser capability and origin routing
 
-`browser_control` is a server action, so Playwright is installed with server requirements. Browser binaries are platform runtime dependencies: setup installs Chromium on x86_64 desktop-class hosts and does not force browser binaries onto ARM/headless hosts. Companion-origin UI/vision remains capability-driven and on the origin companion unless server/host is explicitly targeted.
+`browser_control` is a server action. It supports installed-browser automation in visible desktop mode and automatically switches to headless mode on a display-less Linux host. Ordinary information lookup still uses `web_search`; browser automation is reserved for an explicit host/browser workflow or a page interaction that requires a browser context.
 
 ## Host browser runtime policy
 
-Server-side `browser_control` depends on the Playwright Python API but not on Playwright-managed browser binaries. Browser executables are host capabilities. Interactive automation may start only when the requested browser resolves to a host executable or an explicit supported installed-browser channel. Missing browsers are reported as unavailable; MARK LIV does not silently substitute bundled Chromium.
+Server-side `browser_control` depends on the Playwright Python API. First-time setup installs an isolated Chromium runtime on supported architectures; on a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser runtime is reported as unavailable; MARK LIV does not copy Companion cookies/session state to the server.
 
-This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host.
+This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host. Android browser workflows use `browser.open`/`browser.search` followed by `android.ui.inspect` -> action -> inspect verification.
 
 ## Generic task continuity
 
@@ -176,7 +172,7 @@ Server transfer storage is project-local and single-copy: content is addressed b
 
 
 ### Vision origin continuity
-Companion-origin vision remains bound to the originating paired device across transient WebSocket reconnects. Missing/offline companion vision never falls back to server camera or screen hardware. Server/host visual capture requires an explicit user request for server/host hardware.
+Companion-origin vision remains bound to the originating paired device across transient WebSocket reconnects. Missing/offline companion vision never falls back to server camera or screen hardware. The server is headless and exposes no local screen/camera capture; visual input must come from a companion that advertises the required capture capability.
 
 
 ### Android camera capture readiness

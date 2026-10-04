@@ -9,9 +9,11 @@ Open `android-companion/` in Android Studio with JDK 17 and build/install the `a
 ## Pairing
 
 1. Start the server: `python main.py --start`.
-2. Create a Pair Code: `python main.py --pair`.
-3. Use the companion pairing UI with the displayed code. The configured public endpoint is `https://auth.kasirdigital.web.id`, allowing supported off-LAN pairing without manually entering a LAN server URL.
-4. The companion creates/persists its device identity and reconnects through signed challenge/response.
+2. Wait for a companion pairing request; the operator does not create a free-standing code.
+3. Open the companion and tap **Minta permintaan pairing**. The server returns only an opaque request ID and expiry; it does not return a pairing code to the phone.
+4. On the trusted server operator machine, run `python main.py --pair` to review pending requests, then run `python main.py --pair --pairing-id <request-id>` to issue one 8-character code out of band.
+5. Enter the operator-issued code in the companion. The code is one-time, expires with the request, is rate-limited, and is bound to the device's Ed25519 identity.
+6. The companion creates/persists its device identity and reconnects through signed challenge/response.
 
 Pairing establishes identity and permitted capabilities; it is not blanket device permission.
 

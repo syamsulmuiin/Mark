@@ -32,3 +32,20 @@ def has_explicit_diagnostic_intent(text: str) -> bool:
 def is_generic_error_report(text: str) -> bool:
     """Return whether the utterance only reports a generic problem without detail."""
     return bool(_GENERIC_ERROR_RE.fullmatch(text or ""))
+
+
+_REPAIR_APPLY_RE = re.compile(
+    r"\b(apply|implement|proceed|repair|fix|lakukan|terapkan|perbaiki|lanjutkan)\b", re.IGNORECASE
+)
+_HIGH_RISK_APPROVAL_RE = re.compile(
+    r"\b(approve|approved|setuju|setujui|izinkan|lanjutkan)\b.{0,40}\b(high[ -]?risk|risiko tinggi|resiko tinggi)\b|"
+    r"\b(high[ -]?risk|risiko tinggi|resiko tinggi)\b.{0,40}\b(approve|approved|setuju|setujui|izinkan|lanjutkan)\b",
+    re.IGNORECASE,
+)
+
+def has_explicit_repair_apply_intent(text: str) -> bool:
+    """Approval evidence from the user's actual utterance, not model parameters."""
+    return bool(_REPAIR_APPLY_RE.search(text or ""))
+
+def has_explicit_high_risk_approval(text: str) -> bool:
+    return bool(_HIGH_RISK_APPROVAL_RE.search(text or ""))

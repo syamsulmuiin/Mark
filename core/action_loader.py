@@ -155,7 +155,8 @@ def _validate(module, filename: str) -> ActionRecord:
 
 
 def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
-                     logger: Callable[[str], None] = print) -> ActionRegistry:
+                     logger: Callable[[str], None] = print,
+                     allowed_names: set[str] | None = None) -> ActionRegistry:
     """
     Scans actions_dir for *.py files (skips files starting with '_'). A file is
     only treated as an action if it exposes a module-level TOOL dict; files
@@ -171,6 +172,11 @@ def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
     files = sorted(actions_dir.glob("*.py"), key=lambda p: p.name)  # deterministic order
     for path in files:
         if path.name.startswith("_"):
+            continue
+        # A server registry must never import companion-only modules merely to
+        # discover that they are not executable here. Filtering before import
+        # keeps GUI/audio/device dependencies out of the headless process.
+        if allowed_names is not None and path.stem not in allowed_names:
             continue
         try:
             module_name = f"actions.{path.stem}"

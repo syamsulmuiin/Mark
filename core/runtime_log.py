@@ -140,8 +140,8 @@ def configure_runtime_log(path: Path, max_bytes: int | None = None, backups: int
     Stderr is written directly to the same sink so Python tracebacks and explicit
     stderr diagnostics are retained in full.
     """
-    max_bytes = max_bytes or int(os.getenv("MARK_LIV_LOG_MAX_BYTES", DEFAULT_MAX_BYTES))
-    backups = backups or int(os.getenv("MARK_LIV_LOG_BACKUPS", DEFAULT_BACKUPS))
+    max_bytes = max_bytes or int(os.getenv("ASSISTANT_LOG_MAX_BYTES", DEFAULT_MAX_BYTES))
+    backups = backups or int(os.getenv("ASSISTANT_LOG_BACKUPS", DEFAULT_BACKUPS))
     sink = RotatingTextStream(path, max_bytes=max_bytes, backups=backups)
     sys.stdout = SeverityFilteredStream(sink)
     sys.stderr = sink

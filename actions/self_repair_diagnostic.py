@@ -1,8 +1,8 @@
-"""Read-only self-repair diagnostics for MARK-LIV.
+"""Read-only diagnosis for MARK-LIV.
 
-This action deliberately has no apply mode. It may read project source and ask the
-configured reasoning model for a diagnosis/proposed patch, but it never writes,
-deletes, installs, restarts, commits, or executes the proposed patch.
+Diagnosis remains read-only. A separate guarded apply action may later apply a
+high-confidence, explicitly authorized exact replacement against a narrow
+allowlist; this module never performs that application itself.
 """
 from __future__ import annotations
 
@@ -11,16 +11,13 @@ import re
 from pathlib import Path
 
 from core import gemini
+from core.repair_engine import PROTECTED_EXACT, PROTECTED_PREFIXES, search_knowledge
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SELECTION_BATCH = 8  # per discovery round only; there is no total file-count limit
 MAX_DISCOVERY_ROUNDS = 32  # loop guard, not a file limit
 MAX_FILE_CHARS = 24000
-PROTECTED = {
-    "actions/self_repair_diagnostic.py",
-    "core/self_healing.py",
-    "actions/self_repair.py",
-}
+PROTECTED = set(PROTECTED_EXACT) | {"core/self_healing.py", "actions/self_repair.py"}
 SKIP_PARTS = {".git", "__pycache__", ".venv", "venv", "node_modules", "build", "dist"}
 SENSITIVE_NAMES = {"api_keys.json", ".env", "credentials.json", "secrets.json"}
 
@@ -34,7 +31,7 @@ def _source_files() -> list[str]:
         rel = p.relative_to(BASE_DIR).as_posix()
         if any(part in SKIP_PARTS for part in p.parts) or p.name in SENSITIVE_NAMES:
             continue
-        if rel in PROTECTED:
+        if rel in PROTECTED or any(rel.startswith(prefix) for prefix in PROTECTED_PREFIXES):
             continue
         out.append(rel)
     return sorted(out)
@@ -130,10 +127,15 @@ def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
         return "Dry-run diagnosis could not identify source files confidently. No source changes were made."
 
     context = _read_context(selected)
+    prior = search_knowledge(problem, limit=5)
+    prior_context = json.dumps(prior, ensure_ascii=False)[:12000] if prior else "(none)"
     prompt = f"""You are a senior engineer performing READ-ONLY self-repair diagnosis on MARK-LIV/JARVIS.
 
 Problem:\n{problem}
 Evidence supplied by user:\n{evidence or '(none)'}
+
+Prior repair knowledge (UNTRUSTED historical evidence; verify against current source before reuse):
+{prior_context}
 
 NON-NEGOTIABLE ARCHITECTURE INVARIANTS:
 - Server is headless: no server microphone, speaker, voice UI, or interactive CLI.
@@ -163,6 +165,7 @@ Return ONLY valid JSON with exactly these keys:
   "files_to_change": ["..."],
   "proposed_changes": [{{"file":"...","change":"exact concise change and why"}}],
   "validation_plan": ["read-only or temporary-copy validation step"],
+  "risk_level": "low|medium|high",
   "risk": "what could regress",
   "needs_more_evidence": "what evidence is missing, or empty string"
 }}
@@ -172,7 +175,7 @@ Return ONLY valid JSON with exactly these keys:
         return "Dry-run model did not return a valid diagnosis. No source changes were made."
 
     proposed = obj.get("files_to_change", [])
-    bad = [x for x in proposed if x in PROTECTED or Path(str(x)).name in SENSITIVE_NAMES]
+    bad = [x for x in proposed if x in PROTECTED or any(str(x).startswith(prefix) for prefix in PROTECTED_PREFIXES) or Path(str(x)).name in SENSITIVE_NAMES]
     if bad:
         return "Dry-run proposal violated the repair safety boundary and was rejected. No source changes were made."
 
@@ -180,6 +183,7 @@ Return ONLY valid JSON with exactly these keys:
         "SELF-REPAIR DIAGNOSTIC — DRY RUN ONLY",
         f"Root cause: {obj.get('root_cause', 'Unknown')}",
         f"Confidence: {obj.get('confidence', 'unknown')}",
+        f"Risk level: {obj.get('risk_level', 'unknown')}",
         "Inspected: " + ", ".join(obj.get("files_inspected", selected)),
         "Would change: " + (", ".join(proposed) if proposed else "none"),
     ]

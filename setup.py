@@ -49,6 +49,23 @@ def _venv_python() -> Path:
     return VENV_DIR / ("Scripts/python.exe" if OS == "Windows" else "bin/python")
 
 
+def _ensure_browser_runtime() -> None:
+    """Install the isolated Chromium runtime used by headless server browsing."""
+    if os.environ.get("SKIP_BROWSER_INSTALL") == "1":
+        print("[Setup] Skipping Playwright Chromium install (SKIP_BROWSER_INSTALL=1).")
+        return
+    if _normalized_arch() not in {"x86_64", "arm64"}:
+        print(f"[Setup] Skipping Playwright Chromium on unsupported architecture {_normalized_arch()}; web_search remains available.")
+        return
+    print("[Setup] Installing Playwright Chromium runtime for headless server browsing ...")
+    result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        cwd=HERE,
+    )
+    if result.returncode:
+        print("[Setup] Warning: Chromium install failed; server web_search still works, but browser_control remains unavailable until Chromium is installed.")
+
+
 def _check_python() -> None:
     version = sys.version_info[:2]
     if version < MIN_PY:
@@ -64,7 +81,7 @@ def _check_python() -> None:
 
 
 def _ensure_linux_venv() -> None:
-    if OS != "Linux" or _in_venv() or os.environ.get("MARK_LIV_SETUP_IN_VENV") == "1":
+    if OS != "Linux" or _in_venv() or os.environ.get("ASSISTANT_SETUP_IN_VENV") == "1":
         return
     python = _venv_python()
     if not python.exists():
@@ -78,7 +95,7 @@ def _ensure_linux_venv() -> None:
                 f"Details: {exc}"
             ) from exc
     env = os.environ.copy()
-    env["MARK_LIV_SETUP_IN_VENV"] = "1"
+    env["ASSISTANT_SETUP_IN_VENV"] = "1"
     print(f"[Setup] Continuing inside {python}")
     result = subprocess.run([str(python), str(HERE / "setup.py")], cwd=HERE, env=env)
     raise SystemExit(result.returncode)
@@ -95,11 +112,11 @@ def main() -> None:
 
     _run("Upgrading packaging tools", [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
     _run("Installing headless server dependencies", [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    _ensure_browser_runtime()
 
     # browser_control is discoverable on the server, so its Python dependency
-    # is installed by requirements.txt. MARK LIV controls browsers installed on
-    # the host and does not download a separate Playwright-managed browser.
-    print("[Setup] Playwright Python runtime installed; browser automation uses host-installed browsers.")
+    # and the isolated Chromium runtime are installed by the first-time setup.
+    print("[Setup] Playwright Python and Chromium runtime setup completed (or was explicitly skipped).")
 
     from core.setup_config import configured, interactive_setup
     if not configured():
@@ -113,7 +130,8 @@ def main() -> None:
     print(f'  Start server:     "{python_cmd}" main.py --start')
     print(f'  Enable autostart: "{python_cmd}" main.py --enable')
     print("  Install a companion separately on the device that provides UI/audio/control.")
-    print("  Server browser UI automation requires a compatible browser installed on the host.")
+    print("  Server browser automation uses isolated Chromium in headless mode on display-less hosts.")
+    print("  Set SKIP_BROWSER_INSTALL=1 to skip that optional runtime install.")
 
 
 if __name__ == "__main__":

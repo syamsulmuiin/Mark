@@ -1,71 +1,43 @@
-import webbrowser
-from urllib.parse import quote_plus
+import requests
 
 
-def weather_action(
-    parameters: dict,
-    player=None,
-    session_memory=None,
-) -> str:
-    city     = parameters.get("city")
-    when     = parameters.get("time", "today")  
-
-    if not city or not isinstance(city, str) or not city.strip():
-        msg = "Sir, the city is missing for the weather report."
-        _log(msg, player)
-        return msg
-
-    city = city.strip()
-    when = (when or "today").strip()
-
-    search_query  = f"weather in {city} {when}"
-    url           = f"https://www.google.com/search?q={quote_plus(search_query)}"
-
+def weather_action(parameters: dict, player=None, session_memory=None) -> str:
+    city = str((parameters or {}).get("city") or "").strip()
+    when = str((parameters or {}).get("time") or "today").strip()
+    if not city:
+        return "Sir, the city is missing for the weather report."
     try:
-        opened = webbrowser.open(url)
-        if not opened:
-            raise RuntimeError("webbrowser.open returned False")
-    except Exception as e:
-        msg = f"Sir, I couldn't open the browser for the weather report: {e}"
-        _log(msg, player)
-        return msg
-
-    msg = f"Showing the weather for {city}, {when}, sir."
-    _log(msg, player)
-
+        r = requests.get(
+            f"https://wttr.in/{city}",
+            params={"format": "3"},
+            headers={"User-Agent": "MARK-LIV/1"},
+            timeout=12,
+        )
+        r.raise_for_status()
+        report = r.text.strip()
+        if not report:
+            raise RuntimeError("weather service returned an empty response")
+        result = f"{report} ({when})"
+    except Exception as exc:
+        result = f"Weather lookup failed: {exc}"
     if session_memory:
         try:
-            session_memory.set_last_search(query=search_query, response=msg)
+            session_memory.set_last_search(query=f"weather in {city} {when}", response=result)
         except Exception:
             pass
-
-    return msg
-
-
-def _log(message: str, player=None) -> None:
-    print(f"[Weather] {message}")
-    if player:
-        try:
-            player.write_log(f"JARVIS: {message}")
-        except Exception:
-            pass
+    return result
 
 
-# ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "weather_report",
-    "description": "Gives the weather report to user",
+    "description": "Gets a textual weather report on the headless server without opening a GUI browser.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
-            "city": {
-                "type": "STRING",
-                "description": "City name"
-            }
+            "city": {"type": "STRING", "description": "City name"},
+            "time": {"type": "STRING", "description": "Optional time such as today or tomorrow"},
         },
-        "required": [
-            "city"
-        ]
+        "required": ["city"],
     },
     "handler": weather_action,
 }

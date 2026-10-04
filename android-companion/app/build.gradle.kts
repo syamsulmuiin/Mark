@@ -1,10 +1,10 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 
-val markLivPublicUrl = (System.getenv("MARK_LIV_PUBLIC_URL") ?: "https://auth.kasirdigital.web.id").trimEnd('/')
-val releaseStorePath = System.getenv("JARVIS_KEYSTORE_PATH")
-val releaseStorePassword = System.getenv("JARVIS_KEYSTORE_PASSWORD")
-val releaseKeyAlias = System.getenv("JARVIS_KEY_ALIAS")
-val releaseKeyPassword = System.getenv("JARVIS_KEY_PASSWORD")
+val assistantPublicUrl = (System.getenv("ASSISTANT_PUBLIC_URL") ?: "https://auth.kasirdigital.web.id").trimEnd('/')
+val releaseStorePath = System.getenv("ASSISTANT_KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("ASSISTANT_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("ASSISTANT_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("ASSISTANT_KEY_PASSWORD")
 val releaseSigningReady = listOf(
     releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
 ).all { !it.isNullOrBlank() }
@@ -28,7 +28,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "MARK_LIV_PUBLIC_URL", "\"${markLivPublicUrl}\"")
+        buildConfigField("String", "ASSISTANT_PUBLIC_URL", "\"${assistantPublicUrl}\"")
     }
 
     buildFeatures { buildConfig = true }

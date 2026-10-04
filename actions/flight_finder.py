@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from config import is_windows, is_mac, is_linux
+from core.artifact_paths import artifact_path
 
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -273,23 +274,13 @@ def _format_text_report(
 def _save_to_desktop(content: str, origin: str, destination: str) -> str:
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"flights_{origin}_{destination}_{ts}.txt".replace(" ", "_")
-    desktop  = Path.home() / "Desktop"
-    desktop.mkdir(parents=True, exist_ok=True)
-    filepath = desktop / filename
+    filepath = artifact_path(filename, "flights")
 
     filepath.write_text(content, encoding="utf-8")
     print(f"[FlightFinder] 💾 Saved: {filepath}")
 
-    try:
-        if is_windows():
-            subprocess.Popen(["notepad.exe", str(filepath)])
-        elif is_mac():
-            subprocess.Popen(["open", "-t", str(filepath)])
-        else:
-            subprocess.Popen(["xdg-open", str(filepath)])
-    except Exception as e:
-        print(f"[FlightFinder] ⚠️ Could not open text editor: {e}")
-
+    # Server is headless: persist the report only. Presentation/opening belongs
+    # to the requesting companion.
     return str(filepath)
 
 
@@ -350,7 +341,7 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
         if save and flights:
             report     = _format_text_report(flights, origin, destination, date, return_date, page_url)
             saved_path = _save_to_desktop(report, origin, destination)
-            result    += f" Results saved to Desktop: {saved_path}"
+            result    += f" Results saved to server storage: {saved_path}"
 
         return result
 

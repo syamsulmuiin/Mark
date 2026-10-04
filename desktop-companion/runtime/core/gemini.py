@@ -11,7 +11,7 @@ WHY THIS EXISTS
 
     That is not tidiness, it is three real faults:
 
-    NO TIMEOUT.  The SDK waits forever by default. `gemini-flash-latest` spent
+    NO TIMEOUT.  The SDK waits forever by default. a legacy rolling alias spent
     an afternoon returning 504 DEADLINE_EXCEEDED, and every one of those calls
     became an unbounded hang — measured at ten seconds of silence while a phone
     rang, and worse elsewhere, because nothing was there to give up.
@@ -49,10 +49,7 @@ THE LADDER, MEASURED
         2300 characters of code     3.39s, not truncated
         three concurrent sessions   all fine, 4.77s wall clock
     REST text models, same prompt, same afternoon:
-        gemini-2.5-flash-lite       0.76s   ...then 429, quota exhausted
-        gemini-2.5-flash            0.80s   ...then 429
-        gemini-flash-lite-latest    2.58s
-        gemini-flash-latest         504, every time
+        legacy rolling alias        504, every time
     So REST is two to four times quicker while it lasts, and the whole point of
     the ladder is that it does not last. Pinned REST names sit behind Live;
     rolling `-latest` aliases sit behind those, because they were the ones
@@ -115,17 +112,16 @@ LIVE = "live"
 
 from core.model_config import get_live_model, get_text_model, get_text_fallback_model
 
+_TEXT_MODELS = tuple(dict.fromkeys((get_text_model(), get_text_fallback_model())))
 _LADDERS = {
-    FAST: (LIVE, "gemini-2.5-flash-lite", "gemini-2.5-flash"),
-    SMART: (LIVE, "gemini-2.5-flash", "gemini-2.5-flash-lite"),
-    # Grounded search needs response.candidates[...].grounding_metadata, which a
-    # Live turn does not produce. REST only, and it says so rather than silently
-    # returning an answer with no sources behind it.
-    SEARCH: ("gemini-2.5-flash", get_text_model(), "gemini-2.5-flash-lite"),
+    # Compatibility runtime follows the same two text models as the server.
+    # It must not silently introduce legacy 2.x or rolling aliases.
+    FAST: _TEXT_MODELS,
+    SMART: tuple(reversed(_TEXT_MODELS)),
+    SEARCH: _TEXT_MODELS,
 }
 
-# The Live model to use for one-shot calls. main.py owns the real one; this is
-# only the fallback for when this module is imported without it (tests).
+# Compatibility fallback only. Interactive Live orchestration belongs to server main.py.
 _LIVE_FALLBACK = get_live_model()
 
 # How many one-shot Live sessions may exist at once.

@@ -1,5 +1,10 @@
 package com.jarvis.companion
 
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.graphics.Typeface
+
 import android.Manifest
 import android.app.*
 import android.content.*
@@ -511,18 +516,29 @@ class MainActivity : AppCompatActivity() {
         if(streamingSpeaker != who){ streamingSpeaker=who; streamingText="" }
         streamingText=text
         val rendered=ArrayList(transcriptTurns)
-        rendered.add("$who  $streamingText")
-        transcript.text=rendered.takeLast(4).joinToString("\n\n")
+        rendered.add("$who: $streamingText")
+        transcript.text=renderTranscript(rendered.takeLast(4))
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
     private fun appendTranscript(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
         streamingSpeaker=""; streamingText=""
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
-        transcriptTurns.addLast("$who  $text")
+        transcriptTurns.addLast("$who: $text")
         while(transcriptTurns.size > 4) transcriptTurns.removeFirst()
-        transcript.text=transcriptTurns.joinToString("\n\n")
+        transcript.text=renderTranscript(transcriptTurns.toList())
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
+    private fun renderTranscript(lines:List<String>):CharSequence {
+        val out=SpannableStringBuilder()
+        lines.forEachIndexed { index,line ->
+            if(index>0) out.append("\n\n")
+            val start=out.length
+            out.append(line)
+            val colon=line.indexOf(':')
+            if(colon>=0) out.setSpan(StyleSpan(Typeface.BOLD),start,start+colon+1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return out
+    }
     private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
     private fun setEnded()=runOnUiThread { status.text=getString(R.string.conversation_ended); orb.state="SLEEPING"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }

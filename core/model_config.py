@@ -17,16 +17,8 @@ DEFAULT_TEXT_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 # unavailable aliases. The ladder is intentionally configurable without changing
 # call sites or placing credentials in source control.
 DEFAULT_TEXT_MODELS = (
-    "gemini-3.7-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-2.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-lite-latest",
-    "gemini-2.5-flash",
-    "gemini-3.5-flash",
-    "gemini-3.6-flash",
-    "gemini-3-flash-preview",
-    "gemini-flash-latest",
+    DEFAULT_TEXT_MODEL,
+    DEFAULT_TEXT_FALLBACK_MODEL,
 )
 
 DEFAULT_QUOTA_COOLDOWN_SECONDS = 5 * 60

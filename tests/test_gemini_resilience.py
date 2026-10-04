@@ -55,11 +55,13 @@ def test_note_failure_assigns_category_specific_cooldowns(gemini, monkeypatch):
     assert "network-model" not in gemini._cooldown
 
 
-def test_ladders_include_multiple_fallback_rungs(gemini):
-    assert len(gemini._LADDERS[gemini.FAST]) >= 4
-    assert len(gemini._LADDERS[gemini.SMART]) >= 4
-    assert gemini.LIVE_MODELS[0]
-    assert gemini.LIVE_MODELS[1]
+def test_ladders_use_configured_text_primary_and_fallback_only(gemini):
+    assert gemini._LADDERS[gemini.FAST] == ("gemini-3.7-flash", "gemini-3.5-flash-lite")
+    assert set(gemini._LADDERS[gemini.SMART]) == {"gemini-3.7-flash", "gemini-3.5-flash-lite"}
+    assert gemini.LIVE_MODELS == (
+        "models/gemini-3.8-live",
+        "models/gemini-3.1-flash-live-preview",
+    )
 
 
 def test_live_model_failover_skips_cooled_model(gemini):

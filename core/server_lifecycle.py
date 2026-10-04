@@ -33,7 +33,20 @@ def _pid_alive(pid):
         return False
 
 def _is_markliv_worker(pid):
-    """Never terminate an unrelated process just because a stale PID file exists."""
+    """Never terminate an unrelated process just because a stale PID file exists.
+
+    Prefer psutil because it is already a server dependency and is more reliable
+    than shell command-line inspection on Windows. Keep the OS-specific probe as
+    a dependency/runtime fallback.
+    """
+    try:
+        import psutil
+        proc = psutil.Process(int(pid))
+        cmd = " ".join(proc.cmdline()).lower().replace("/", "\\")
+        if "main.py" in cmd and "--server-worker" in cmd:
+            return True
+    except Exception:
+        pass
     try:
         if sys.platform == "win32":
             ps = (
@@ -78,6 +91,11 @@ def _server_pid():
     pidfile, _ = _runtime_paths()
     file_pid = _read_pidfile()
     service_pid = _local_server_identity()
+    if not service_pid and file_pid and _pid_alive(file_pid):
+        # The dashboard event loop can be briefly busy while Live audio/tools are
+        # active. A transient health timeout must not turn a live worker into a
+        # false "server is not running" result.
+        service_pid = _local_server_identity(timeout=2.0)
     if service_pid and _pid_alive(service_pid):
         # Self-heal a missing/stale PID file from the running MARK-LIV server.
         if file_pid != service_pid:

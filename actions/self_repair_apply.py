@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -49,8 +50,29 @@ def _record_failure(payload: dict) -> None:
     except Exception as exc:
         audit("failure_knowledge_write_failed", error=repr(exc))
 
+
+def _load_plan(plan_id: str) -> dict:
+    if not plan_id or not plan_id.replace("-", "").isalnum():
+        return {}
+    path = BASE_DIR / "storage" / "self_repair" / "plans" / f"{plan_id}.json"
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return obj if isinstance(obj, dict) and obj.get("plan_id") == plan_id else {}
+
 def self_repair_apply(parameters: dict, **_kwargs) -> str:
-    params = parameters or {}
+    params = dict(parameters or {})
+    plan_id = str(params.get("plan_id", "")).strip()
+    if plan_id:
+        plan = _load_plan(plan_id)
+        if not plan:
+            return "Repair rejected: the diagnostic repair plan is missing or invalid. Run diagnosis again."
+        # The persisted plan is the source of edit authority. Model-generated
+        # operations cannot override it.
+        for key in ("problem", "root_cause", "confidence", "risk", "operations"):
+            if key in plan:
+                params[key] = plan[key]
     recover_incomplete_transactions()
     try:
         attempt = int(params.get("attempt", 1))
@@ -150,6 +172,7 @@ TOOL = {
         "runs model-supplied shell commands, restarts services, changes privileges, commits, or pushes."
     ),
     "parameters": {"type": "OBJECT", "properties": {
+         "plan_id": {"type": "STRING", "description": "Server-side plan id returned by self_repair_diagnostic"},
         "apply": {"type": "BOOLEAN"}, "authorization": {"type": "STRING"},
         "confidence": {"type": "STRING"}, "risk": {"type": "STRING"},
         "high_risk_approval": {"type": "STRING"}, "problem": {"type": "STRING"},
@@ -158,6 +181,6 @@ TOOL = {
         "operations": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
             "file": {"type": "STRING"}, "old": {"type": "STRING"}, "new": {"type": "STRING"}},
             "required": ["file", "old", "new"]}},
-    }, "required": ["apply", "authorization", "confidence", "risk", "problem", "operations"]},
+    }, "required": ["apply", "authorization"]},
     "handler": self_repair_apply,
 }

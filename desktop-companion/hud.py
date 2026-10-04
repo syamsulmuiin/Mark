@@ -571,6 +571,11 @@ class LogWidget(QTextEdit):
                 "sys":  qcol(C.TEXT_MED),
             }.get(self._tag, qcol(C.TEXT))
             fmt.setForeground(QBrush(col))
+            # Make transcript speaker labels visually distinct while keeping
+            # the message body at normal weight.
+            prefix_end = self._text.find(":") + 1
+            is_transcript = self._tag in ("you", "ai") and prefix_end > 0
+            fmt.setFontWeight(QFont.Weight.Bold if is_transcript and self._pos < prefix_end else QFont.Weight.Normal)
             cur.movePosition(cur.MoveOperation.End)
             cur.insertText(ch, fmt)
             self.setTextCursor(cur)

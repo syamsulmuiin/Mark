@@ -516,7 +516,8 @@ class JarvisLive:
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
-        self._session_log: list[str] = []          # conversation turns for end-of-session summary
+        self._session_log: list[str] = []
+        self._last_repair_plan_id: str = ""          # conversation turns for end-of-session summary
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
@@ -1022,7 +1023,7 @@ class JarvisLive:
         # conversation vanished. This is only used after an actual rejected
         # resumption handle; normal fresh launches remain fresh.
         if self._recovery_context_pending and self._session_log:
-            recent = "\n".join(self._session_log[-24:])
+            recent = "\n".join(self._session_log[-40:])
             parts.append(
                 "SESSION ROLLOVER CONTEXT (reference only; do not answer, repeat, summarize, or act on this block unless the user sends a new request):\n"
                 + recent
@@ -1179,6 +1180,8 @@ class JarvisLive:
 
         try:
             if name == "self_repair_apply":
+                if not str(args.get("plan_id", "")).strip() and self._last_repair_plan_id:
+                    args["plan_id"] = self._last_repair_plan_id
                 # Authorization must be grounded in the user's actual latest utterance.
                 # Tool arguments are model-generated and therefore cannot prove human approval.
                 _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
@@ -1667,6 +1670,16 @@ class JarvisLive:
                             "response": None, "session_memory": None}
                     r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
                     result = r or "Done."
+                    if name == "self_repair_diagnostic":
+                        _plan_match = re.search(r"^Repair plan:\s*([A-Za-z0-9-]+)\s*$", str(result), re.MULTILINE)
+                        self._last_repair_plan_id = _plan_match.group(1) if _plan_match else ""
+                        if self._last_repair_plan_id and has_explicit_repair_apply_intent(_last_user):
+                            result += (
+                                "\nNEXT ACTION: The user's current utterance already explicitly authorizes repair. "
+                                "Call self_repair_apply now with apply=true and plan_id="
+                                + self._last_repair_plan_id
+                                + ". Do not stop at the read-only diagnosis. HIGH-risk still requires explicit high-risk approval."
+                            )
                     # web_search: mirror results to the on-screen content panel
                     if (name == "web_search" and r
                             and not r.startswith("No results")
@@ -2594,10 +2607,28 @@ class JarvisLive:
                         self._conn_backoff = 0
                         continue
 
+                # Transport/session rollover errors need the dedicated handler
+                # below. In particular, a keepalive ping timeout is a transport
+                # break, not evidence that the latest resumption handle is bad.
+                # Previously BOUNDED_FAILURE consumed it here first, discarded
+                # the handle, and made an ordinary reconnect look like a new
+                # conversation.
+                _is_rollover_transport = (
+                    "goaway" in _err_lower
+                    or "session durat" in _err_lower
+                    or "session expired" in _err_lower
+                    or ("1008" in _err_lower and (
+                        "failed to close" in _err_lower
+                        or "operation was aborted" in _err_lower
+                    ))
+                    or "keepalive ping timeout" in _err_lower
+                    or "timed out while closing connection" in _err_lower
+                )
+
                 # Unknown Live-session failures must start a clean provider
                 # session. Reusing a possibly-invalid handle can leave the
                 # Companion connected but permanently silent after recovery.
-                if decision.action is ErrorAction.BOUNDED_FAILURE:
+                if decision.action is ErrorAction.BOUNDED_FAILURE and not _is_rollover_transport:
                     self._recovery_context_pending = bool(self._session_log)
                     self._resume_handle = None
                     self._conn_backoff = min(max(getattr(self, "_conn_backoff", 1) * 2, 2), 30)
@@ -2613,14 +2644,7 @@ class JarvisLive:
                 # duration limit. Treat that as a normal rollover and reconnect
                 # with the latest session-resumption handle instead of dumping a
                 # TaskGroup/1008 traceback.
-                if ("goaway" in _err_lower or "session durat" in _err_lower
-                        or "session expired" in _err_lower
-                        or ("1008" in _err_lower and (
-                            "failed to close" in _err_lower
-                            or "operation was aborted" in _err_lower
-                        ))
-                        or "keepalive ping timeout" in _err_lower
-                        or "timed out while closing connection" in _err_lower):
+                if _is_rollover_transport:
                     # Gemini may surface normal Live-session rollover either as a
                     # GoAway, a provider session-expired policy close, or a
                     # WebSocket 1008. Expired sessions cannot be resumed with the

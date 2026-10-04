@@ -11,7 +11,7 @@ WHY THIS EXISTS
 
     That is not tidiness, it is three real faults:
 
-    NO TIMEOUT.  The SDK waits forever by default. `gemini-flash-latest` spent
+    NO TIMEOUT.  The SDK waits forever by default. a legacy rolling alias spent
     an afternoon returning 504 DEADLINE_EXCEEDED, and every one of those calls
     became an unbounded hang — measured at ten seconds of silence while a phone
     rang, and worse elsewhere, because nothing was there to give up.
@@ -35,10 +35,7 @@ THE LADDER, MEASURED
         2300 characters of code     3.39s, not truncated
         three concurrent sessions   all fine, 4.77s wall clock
     REST text models, same prompt, same afternoon:
-        gemini-2.5-flash-lite       0.76s   ...then 429, quota exhausted
-        gemini-2.5-flash            0.80s   ...then 429
-        gemini-flash-lite-latest    2.58s
-        gemini-flash-latest         504, every time
+        legacy rolling alias        504, every time
     So REST is two to four times quicker while it lasts, and the whole point of
     the ladder is that it does not last. Pinned REST names sit behind Live;
     rolling `-latest` aliases sit behind those, because they were the ones

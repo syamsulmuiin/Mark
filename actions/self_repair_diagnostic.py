@@ -115,6 +115,25 @@ def _read_context(files: list[str]) -> str:
     return "".join(chunks)
 
 
+
+def _plan_dir() -> Path:
+    path = ROOT / "storage" / "self_repair" / "plans"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save_plan(plan: dict) -> str:
+    import hashlib, time
+    seed = json.dumps(plan, sort_keys=True, ensure_ascii=False) + str(time.time_ns())
+    plan_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+    payload = dict(plan)
+    payload["plan_id"] = plan_id
+    target = _plan_dir() / f"{plan_id}.json"
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(target)
+    return plan_id
+
 def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
     problem = str((parameters or {}).get("problem", "")).strip()
     evidence = str((parameters or {}).get("evidence", "")).strip()
@@ -164,7 +183,8 @@ Return ONLY valid JSON with exactly these keys:
   "files_inspected": ["..."],
   "files_to_change": ["..."],
   "proposed_changes": [{{"file":"...","change":"exact concise change and why"}}],
-  "validation_plan": ["read-only or temporary-copy validation step"],
+  "operations": [{{"file":"relative/path","old":"exact existing source text","new":"exact replacement source text"}}],
+  "validation_plan": ["fixed validation step"],
   "risk_level": "low|medium|high",
   "risk": "what could regress",
   "needs_more_evidence": "what evidence is missing, or empty string"
@@ -179,6 +199,38 @@ Return ONLY valid JSON with exactly these keys:
     if bad:
         return "Dry-run proposal violated the repair safety boundary and was rejected. No source changes were made."
 
+    operations = obj.get("operations") if isinstance(obj.get("operations"), list) else []
+    validated_ops = []
+    for op in operations:
+        if not isinstance(op, dict):
+            continue
+        rel = str(op.get("file", "")).replace("\\", "/").lstrip("/")
+        old = str(op.get("old", ""))
+        new = str(op.get("new", ""))
+        target = (ROOT / rel).resolve()
+        try:
+            target.relative_to(ROOT.resolve())
+        except ValueError:
+            continue
+        if (not rel or not old or old == new or not target.is_file()
+                or rel in PROTECTED or any(rel.startswith(prefix) for prefix in PROTECTED_PREFIXES)
+                or Path(rel).name in SENSITIVE_NAMES):
+            continue
+        current = target.read_text(encoding="utf-8", errors="ignore")
+        if current.count(old) != 1:
+            continue
+        validated_ops.append({"file": rel, "old": old, "new": new})
+
+    plan_id = ""
+    if str(obj.get("confidence", "")).lower() == "high" and validated_ops and not obj.get("needs_more_evidence"):
+        plan_id = _save_plan({
+            "problem": problem,
+            "root_cause": str(obj.get("root_cause", "")),
+            "confidence": "high",
+            "risk": str(obj.get("risk_level", "medium")).lower(),
+            "operations": validated_ops,
+        })
+
     lines = [
         "SELF-REPAIR DIAGNOSTIC — DRY RUN ONLY",
         f"Root cause: {obj.get('root_cause', 'Unknown')}",
@@ -187,6 +239,11 @@ Return ONLY valid JSON with exactly these keys:
         "Inspected: " + ", ".join(obj.get("files_inspected", selected)),
         "Would change: " + (", ".join(proposed) if proposed else "none"),
     ]
+    if plan_id:
+        lines.append("Repair plan: " + plan_id)
+        lines.append("The plan is ready for guarded apply when the user's actual request explicitly authorizes repair.")
+    elif proposed:
+        lines.append("Repair plan: not generated because the exact edit could not be verified against current source.")
     for item in obj.get("proposed_changes", []):
         if isinstance(item, dict):
             lines.append(f"- {item.get('file', '?')}: {item.get('change', '')}")
@@ -207,8 +264,10 @@ TOOL = {
         "READ-ONLY diagnostic/dry-run self-repair for MARK-LIV itself. Call ONLY after the user explicitly asks to "
         "diagnose/debug/check the cause/repair a concrete MARK-LIV problem. A vague statement such as 'there is an error', "
         "'something seems wrong', or merely observing an exception is NOT authorization: converse first and ask what failed. "
-        "Before calling, tell the user briefly that the diagnostic is read-only. Never invent a generic problem just to call "
-        "this tool. It reads relevant source and proposes the smallest repair but NEVER applies edits, deletes files, "
+        "This diagnostic stage itself is read-only. If the user's actual request explicitly asks to fix/repair/apply and "
+        "the diagnostic returns a Repair plan, immediately continue with self_repair_apply instead of ending the response "
+        "at the dry-run result. Never invent a generic problem just to call this tool. It reads relevant source and proposes "
+        "the smallest repair but NEVER directly applies edits, deletes files, "
         "installs dependencies, restarts services, or commits/pushes."
     ),
     "parameters": {

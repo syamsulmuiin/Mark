@@ -1,4 +1,4 @@
-plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+plugins { id("com.android.application") }
 
 val assistantPublicUrl = (System.getenv("ASSISTANT_PUBLIC_URL") ?: "https://auth.kasirdigital.web.id").trimEnd('/')
 val releaseStorePath = System.getenv("ASSISTANT_KEYSTORE_PATH")
@@ -16,10 +16,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     defaultConfig {

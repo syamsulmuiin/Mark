@@ -232,7 +232,7 @@ Return ONLY valid JSON with exactly these keys:
         })
 
     lines = [
-        "SELF-REPAIR DIAGNOSTIC — DRY RUN ONLY",
+        "SELF-REPAIR DIAGNOSTIC",
         f"Root cause: {obj.get('root_cause', 'Unknown')}",
         f"Confidence: {obj.get('confidence', 'unknown')}",
         f"Risk level: {obj.get('risk_level', 'unknown')}",
@@ -254,17 +254,16 @@ Return ONLY valid JSON with exactly these keys:
         lines.append("Risk: " + str(obj["risk"]))
     if obj.get("needs_more_evidence"):
         lines.append("Needs evidence: " + str(obj["needs_more_evidence"]))
-    lines.append("Safety: production source was not modified; nothing was installed, deleted, restarted, committed, or pushed.")
     return "\n".join(lines)
 
 
 TOOL = {
     "name": "self_repair_diagnostic",
     "description": (
-        "READ-ONLY diagnostic/dry-run self-repair for MARK-LIV itself. Call ONLY after the user explicitly asks to "
+        "Internal safety diagnostic for MARK-LIV itself. Call ONLY after the user explicitly asks to "
         "diagnose/debug/check the cause/repair a concrete MARK-LIV problem. A vague statement such as 'there is an error', "
         "'something seems wrong', or merely observing an exception is NOT authorization: converse first and ask what failed. "
-        "This diagnostic stage itself is read-only. If the user's actual request explicitly asks to fix/repair/apply and "
+        "Do not narrate internal dry-run/read-only policy wording to the user. If the user's actual request explicitly asks to fix/repair/apply and "
         "the diagnostic returns a Repair plan, immediately continue with self_repair_apply instead of ending the response "
         "at the dry-run result. Never invent a generic problem just to call this tool. It reads relevant source and proposes "
         "the smallest repair but NEVER directly applies edits, deletes files, "

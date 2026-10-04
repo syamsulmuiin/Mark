@@ -517,7 +517,8 @@ class JarvisLive:
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
         self._session_log: list[str] = []
-        self._last_repair_plan_id: str = ""          # conversation turns for end-of-session summary
+        self._last_repair_plan_id: str = ""
+        self._current_user_transcript: str = ""          # conversation turns for end-of-session summary
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
@@ -1184,7 +1185,7 @@ class JarvisLive:
                     args["plan_id"] = self._last_repair_plan_id
                 # Authorization must be grounded in the user's actual latest utterance.
                 # Tool arguments are model-generated and therefore cannot prove human approval.
-                _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
+                _last_user = (self._current_user_transcript or next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), ""))
                 if not has_explicit_repair_apply_intent(_last_user):
                     result = ("Repair was not applied. Explicit user repair/apply approval is required in the latest request; "
                               "a model-generated authorization parameter is not sufficient.")
@@ -1220,7 +1221,7 @@ class JarvisLive:
                 # observation into a long diagnostic tool run.  Require explicit
                 # diagnostic/repair intent in the user's actual latest utterance and
                 # enough symptom detail to diagnose something concrete.
-                _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
+                _last_user = (self._current_user_transcript or next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), ""))
                 _intent = has_explicit_diagnostic_intent(_last_user)
                 _generic = is_generic_error_report(_last_user)
                 _problem = str(args.get("problem", "")).strip()
@@ -1233,7 +1234,7 @@ class JarvisLive:
                     result = (
                         "Diagnostic was not started. The user has not yet provided explicit diagnostic intent "
                         "with a concrete symptom. Respond conversationally first: acknowledge the issue, ask what "
-                        "failed or what they observed, and offer the read-only diagnostic. Do not call this tool "
+                        "failed or what they observed. Do not expose internal diagnostic safety-stage wording. Do not call this tool "
                         "again until the user explicitly asks to diagnose/check/debug/repair that concrete problem."
                     )
                 else:
@@ -1241,6 +1242,26 @@ class JarvisLive:
                             "response": None, "session_memory": None}
                     r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
                     result = r or "Done."
+                    _plan_match = re.search(r"^Repair plan:\s*([A-Za-z0-9-]+)\s*$", str(result), re.MULTILINE)
+                    self._last_repair_plan_id = _plan_match.group(1) if _plan_match else ""
+                    if self._last_repair_plan_id and has_explicit_repair_apply_intent(_last_user):
+                        result += (
+                            "\nNEXT ACTION: The current user request explicitly authorizes repair. "
+                            "Call self_repair_apply now with apply=true and plan_id="
+                            + self._last_repair_plan_id
+                            + ". HIGH-risk still requires explicit high-risk approval."
+                        )
+
+                # Diagnostic is handled exactly once above. Returning here prevents
+                # the generic action runner later in this method from executing it again.
+                if _progress_task is not None:
+                    _progress_task.cancel()
+                    try:
+                        await _progress_task
+                    except asyncio.CancelledError:
+                        pass
+                task_state.action_finished(name, result)
+                return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
 
             elif name == "task_continuity":
                 action = str(args.get("action", "")).strip().lower()
@@ -1308,7 +1329,7 @@ class JarvisLive:
             elif name == "screen_process":
                 # Companion-origin vision stays on the origin device.
                 _origin = self._dashboard.origin_device_id if self._dashboard else None
-                _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
+                _last_user = (self._current_user_transcript or next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), ""))
                 _explicit_server = bool(re.search(
                     r"\b(?:on|from|using|use|via)\s+(?:the\s+)?(?:server|host)\b|"
                     r"\b(?:server|host)(?:'s)?\s+(?:camera|screen|display|webcam)\b",
@@ -1581,7 +1602,7 @@ class JarvisLive:
                 # call_current_device.  Desktop companions can run the established
                 # legacy actions locally; Android app launches map to app.launch.
                 _origin = self._dashboard.origin_device_id if self._dashboard else None
-                _last_user = next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), "")
+                _last_user = (self._current_user_transcript or next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), ""))
                 _explicit_server = bool(re.search(r"\b(server|host)\b", _last_user, re.IGNORECASE))
                 _device_local_actions = {
                     "open_app", "computer_control", "computer_settings", "desktop_control",
@@ -1936,7 +1957,8 @@ class JarvisLive:
                                     self._attachment_turn = None
                                     self._blocked_device_action = None
                                 in_buf.append(txt)
-                                self._broadcast_transcript_delta("user", " ".join(in_buf))
+                                self._current_user_transcript = " ".join(in_buf).strip()
+                                self._broadcast_transcript_delta("user", self._current_user_transcript)
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
@@ -1951,6 +1973,11 @@ class JarvisLive:
                             # preceding request instead of turning it into contextless
                             # audio after the interrupt.
                             if self._interrupted:
+                                interrupted_out = " ".join(out_buf).strip()
+                                if interrupted_out:
+                                    # Preserve words already transcribed/displayed. Interruption
+                                    # stops future audio; it must not erase visible conversation.
+                                    self._record_transcript_entry("jarvis", interrupted_out, partial=True)
                                 interrupted_in = " ".join(in_buf).strip()
                                 if interrupted_in:
                                     self._last_out_logged = ""
@@ -1964,6 +1991,7 @@ class JarvisLive:
                                             "interrupted": True,
                                         }))
                                 self._interrupted = False
+                                self._current_user_transcript = ""
                                 in_buf = []
                                 out_buf = []
                                 self._visemes.reset()
@@ -1980,6 +2008,7 @@ class JarvisLive:
                                         "text": full_in,
                                         "ts": datetime.now().isoformat(),
                                     }))
+                            self._current_user_transcript = ""
                             in_buf = []
 
                             full_out = " ".join(out_buf).strip()

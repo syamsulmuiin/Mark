@@ -517,14 +517,16 @@ class MainActivity : AppCompatActivity() {
         streamingText=text
         val rendered=ArrayList(transcriptTurns)
         rendered.add("$who: $streamingText")
-        transcript.text=renderTranscript(rendered.takeLast(4))
+        transcript.text=renderTranscript(rendered.toList())
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}
     private fun appendTranscript(speaker:String,text:String){ if(text.isBlank()) return; runOnUiThread {
         streamingSpeaker=""; streamingText=""
         val who=if(speaker.equals("user",true)) "YOU" else "JARVIS"
         transcriptTurns.addLast("$who: $text")
-        while(transcriptTurns.size > 4) transcriptTurns.removeFirst()
+        // Keep the completed transcript visible for the whole conversation.
+        // Bound only retained in-memory history, not the last four UI turns.
+        while(transcriptTurns.size > 200) transcriptTurns.removeFirst()
         transcript.text=renderTranscript(transcriptTurns.toList())
         transcriptScroll.post { transcriptScroll.fullScroll(View.FOCUS_DOWN) }
     }}

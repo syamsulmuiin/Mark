@@ -2,6 +2,12 @@
 
 This document describes the current architecture. Historical GUI/CLI/background runtime modes are obsolete and are not supported server access surfaces.
 
+
+### Live voice liveness recovery
+
+The server treats transport connectivity and conversational liveness as separate states. A Gemini Live socket can remain open while no longer producing response events, so voice recovery is not exception-only. Completed companion voice-activity boundaries are tracked against meaningful provider progress. Two consecutive ended voice turns with no provider content trigger a context-preserving Live-session recycle. A new user voice turn also clears stale interruption state so an interrupted response cannot suppress later response audio indefinitely. Session-resumption handles and the local transcript fallback remain the continuity mechanisms across that recycle.
+
+
 ## Headless server
 
 The server owns Gemini Live orchestration, trusted-device routing, persistence/scheduling, server-side actions, and HTTP/WebSocket transport. It has no local microphone, speaker, conversational CLI, or desktop GUI.

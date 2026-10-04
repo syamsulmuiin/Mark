@@ -512,6 +512,14 @@ class JarvisLive:
         self._resume_handle: str | None = None
         self._recovery_context_pending = False  # inject local transcript if a server resumption handle expires
         self._turn_done_event: asyncio.Event | None = None
+        # Live-session liveness. A WebSocket can remain open while the provider
+        # stops producing turn events, so exception-only reconnect logic is not
+        # sufficient. Voice boundaries are tracked independently from transport.
+        self._live_progress_seq = 0
+        self._voice_turn_seq = 0
+        self._pending_voice_turns: list[tuple[int, float, int]] = []
+        self._unanswered_voice_turns = 0
+        self._live_stall_timeout = 12.0
         self._dashboard     = None
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
@@ -1754,16 +1762,75 @@ class JarvisLive:
             **_extra
         )
 
+    def _note_live_progress(self) -> None:
+        """Record meaningful provider progress and clear stale voice deadlines."""
+        self._live_progress_seq += 1
+        self._pending_voice_turns.clear()
+        self._unanswered_voice_turns = 0
+
+    def _note_voice_activity_start(self) -> None:
+        # A fresh user utterance is a new turn. Do not let an interrupted prior
+        # answer poison all future response audio if Gemini omitted turn_complete.
+        self._interrupted = False
+        self._voice_turn_seq += 1
+
+    def _note_voice_activity_end(self) -> None:
+        self._pending_voice_turns.append((
+            self._voice_turn_seq,
+            time.monotonic() + self._live_stall_timeout,
+            self._live_progress_seq,
+        ))
+        # Bound state even if a noisy microphone creates many boundaries.
+        if len(self._pending_voice_turns) > 8:
+            self._pending_voice_turns = self._pending_voice_turns[-8:]
+
+    async def _watch_live_stall(self) -> None:
+        """Recover an open-but-silent Gemini Live session.
+
+        One unanswered activity boundary can be noise or an utterance for which
+        no answer is appropriate. Two consecutive ended voice turns with no
+        meaningful provider content indicate the failure seen in interaction.log:
+        PCM continues to send successfully while Gemini produces nothing and no
+        exception reaches error.log.
+        """
+        while True:
+            await asyncio.sleep(0.5)
+            if not self._pending_voice_turns:
+                continue
+            now = time.monotonic()
+            expired = [x for x in self._pending_voice_turns if x[1] <= now]
+            if not expired:
+                continue
+            self._pending_voice_turns = [x for x in self._pending_voice_turns if x[1] > now]
+            for turn_seq, _deadline, progress_seq in expired:
+                if progress_seq != self._live_progress_seq:
+                    continue
+                self._unanswered_voice_turns += 1
+                _trace_event(
+                    "live_silent_turn",
+                    turn=turn_seq,
+                    consecutive=self._unanswered_voice_turns,
+                )
+                if self._unanswered_voice_turns >= 2:
+                    _trace_event("live_stall_reconnect", turn=turn_seq)
+                    self._reconnect_keep = True
+                    self._reconnect_reason = "silent Live session recovery"
+                    if self._reconnect_event:
+                        self._reconnect_event.set()
+                    return
+
     async def _send_realtime(self):
         sent = 0
         while True:
             msg = await self.out_queue.get()
             if msg.get("activity_start"):
                 await self.session.send_realtime_input(activity_start=types.ActivityStart())
+                self._note_voice_activity_start()
                 _trace_event("activity_start")
                 continue
             if msg.get("activity_end"):
                 await self.session.send_realtime_input(activity_end=types.ActivityEnd())
+                self._note_voice_activity_end()
                 _trace_event("activity_end")
                 continue
             # Gemini 3.x Live rejects the old realtime_input.media_chunks field
@@ -1890,6 +1957,8 @@ class JarvisLive:
         try:
             while True:
                 async for response in self.session.receive():
+                    if response.data or response.server_content or response.tool_call:
+                        self._note_live_progress()
 
                     # ── Session resumption ───────────────────────────────────
                     # The server sends this periodically. `resumable` goes false
@@ -2493,6 +2562,10 @@ class JarvisLive:
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
+                    self._live_progress_seq = 0
+                    self._voice_turn_seq = 0
+                    self._pending_voice_turns = []
+                    self._unanswered_voice_turns = 0
                     if self._dashboard:
                         self._dashboard.set_phone_audio_enabled(True)
 
@@ -2550,6 +2623,7 @@ class JarvisLive:
 
                     self._reconnect_event.clear()  # ignore requests from before this session
                     tg.create_task(self._watch_reconnect())
+                    tg.create_task(self._watch_live_stall())
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())

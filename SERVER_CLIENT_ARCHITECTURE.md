@@ -8,6 +8,11 @@ This document describes the current architecture. Historical GUI/CLI/background 
 The server treats transport connectivity and conversational liveness as separate states. A Gemini Live socket can remain open while no longer producing response events, so voice recovery is not exception-only. Completed companion voice-activity boundaries are tracked against meaningful provider progress. Two consecutive ended voice turns with no provider content trigger a context-preserving Live-session recycle. A new user voice turn also clears stale interruption state so an interrupted response cannot suppress later response audio indefinitely. Session-resumption handles and the local transcript fallback remain the continuity mechanisms across that recycle.
 
 
+### Semantic voice interruption
+
+Companion microphone activity is not itself an interruption. On full-duplex voice clients, speech detected while the assistant is speaking is buffered as a bounded candidate and classified by meaning across human languages. Only an explicit interruption, correction, cancellation, or deliberate conversational takeover stops assistant playback; background speech, echo, incidental acknowledgements, and ambiguous audio fail closed and do not interrupt. Accepted candidate audio is then replayed into the interactive Live session so the user's actual request remains part of the conversation. Manual interruption controls remain explicit and immediate.
+
+
 ## Headless server
 
 The server owns Gemini Live orchestration, trusted-device routing, persistence/scheduling, server-side actions, and HTTP/WebSocket transport. It has no local microphone, speaker, conversational CLI, or desktop GUI.

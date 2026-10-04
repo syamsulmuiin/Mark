@@ -520,6 +520,15 @@ class JarvisLive:
         self._pending_voice_turns: list[tuple[int, float, int]] = []
         self._unanswered_voice_turns = 0
         self._live_stall_timeout = 12.0
+        # Semantic barge-in: speech heard while the assistant is talking is only
+        # a candidate. Android uses VOICE_COMMUNICATION/AEC and keeps streaming
+        # mic PCM during playback; the server buffers that candidate and asks a
+        # multilingual model whether its meaning is an interruption/correction.
+        self._barge_audio = bytearray()
+        self._barge_voice_active = False
+        self._barge_last_voice = 0.0
+        self._barge_classifying = False
+        self._barge_max_bytes = SEND_SAMPLE_RATE * 2 * 8  # max 8 seconds PCM16
         self._dashboard     = None
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
@@ -2322,21 +2331,72 @@ class JarvisLive:
 
     # ── Phone audio relay ────────────────────────────────────────────────────────
 
+    async def _classify_barge_in(self, pcm: bytes) -> None:
+        """Classify a full-duplex speech candidate by meaning, not language.
+
+        Fail closed: if classification is unavailable or ambiguous, playback is
+        not interrupted. The audio itself is never written to logs.
+        """
+        if not pcm or self._barge_classifying:
+            return
+        self._barge_classifying = True
+        try:
+            prompt = (
+                "Classify the intent of this speech heard while an assistant is currently speaking. "
+                "Understand ANY human language. Return exactly one token: INTERRUPT if the speaker "
+                "means stop, wait, pause, cancel, objects/corrects the assistant, or deliberately "
+                "takes the conversational turn; IGNORE for background conversation, TV/media, echo, "
+                "incidental speech, acknowledgements that do not request the floor, or ambiguous audio. "
+                "When uncertain return IGNORE."
+            )
+            part = types.Part.from_bytes(data=pcm, mime_type="audio/pcm;rate=16000")
+            verdict = await asyncio.to_thread(
+                _gemini.text, [part, prompt], _gemini.FAST, None, 10_000, "", "IGNORE"
+            )
+            verdict = (verdict or "IGNORE").strip().upper()
+            accepted = verdict == "INTERRUPT"
+            _trace_event("barge_semantic_decision", accepted=accepted)
+            if not accepted or not self.session or not self.out_queue:
+                return
+            self.interrupt()
+            # Replay the accepted utterance into the interactive Live session so
+            # the correction/request is understood rather than merely stopping audio.
+            await self.out_queue.put({"activity_start": True})
+            for i in range(0, len(pcm), CHUNK_SIZE):
+                await self.out_queue.put({
+                    "data": pcm[i:i + CHUNK_SIZE],
+                    "mime_type": "audio/pcm;rate=16000",
+                })
+            await self.out_queue.put({"activity_end": True})
+        except Exception as exc:
+            _trace_event("barge_semantic_unavailable", error=type(exc).__name__)
+        finally:
+            self._barge_classifying = False
+
     async def _relay_phone_audio(self) -> None:
-        """Forward phone mic PCM chunks with explicit activity boundaries."""
+        """Forward phone mic PCM; speaking-time audio is a semantic barge candidate."""
         q = self._dashboard._phone_audio_queue
         while True:
             try:
                 chunk = await asyncio.wait_for(q.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 self._phone_active = False
-                if self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
+                with self._speaking_lock:
+                    speaking = self._is_speaking
+                if speaking and self._barge_voice_active and time.monotonic() - self._barge_last_voice >= 0.65:
+                    pcm = bytes(self._barge_audio)
+                    self._barge_audio.clear()
+                    self._barge_voice_active = False
+                    if pcm and not self._barge_classifying:
+                        asyncio.create_task(self._classify_barge_in(pcm))
+                elif not speaking and self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
                     try:
                         self.out_queue.put_nowait({"activity_end": True})
                     except asyncio.QueueFull:
                         pass
                     self._phone_activity_active = False
                 continue
+
             self._phone_active = True
             raw = chunk.get("data", b"")
             try:
@@ -2346,6 +2406,32 @@ class JarvisLive:
                 rms = 0.0
             now = time.monotonic()
             voice = rms >= 250.0
+            with self._speaking_lock:
+                speaking = self._is_speaking
+
+            if speaking:
+                # Do not send activity boundaries without their PCM. That old
+                # behaviour could disturb Live turn state while giving Gemini no
+                # words from which to decide whether the user meant to interrupt.
+                if voice:
+                    self._barge_last_voice = now
+                    self._barge_voice_active = True
+                if self._barge_voice_active and len(self._barge_audio) < self._barge_max_bytes:
+                    remaining = self._barge_max_bytes - len(self._barge_audio)
+                    self._barge_audio.extend(raw[:remaining])
+                if self._barge_voice_active and not voice and now - self._barge_last_voice >= 0.65:
+                    pcm = bytes(self._barge_audio)
+                    self._barge_audio.clear()
+                    self._barge_voice_active = False
+                    if pcm and not self._barge_classifying:
+                        asyncio.create_task(self._classify_barge_in(pcm))
+                continue
+
+            # Normal listening path. Drop any stale speaking-time candidate when
+            # playback ended naturally before classification completed.
+            if self._barge_voice_active:
+                self._barge_audio.clear()
+                self._barge_voice_active = False
             if voice:
                 self._phone_last_voice = now
                 if not self._phone_activity_active:
@@ -2360,32 +2446,11 @@ class JarvisLive:
                 except asyncio.QueueFull:
                     pass
                 self._phone_activity_active = False
-            with self._speaking_lock:
-                speaking = self._is_speaking
-            if not speaking and not self.ui.muted:
+            if not self.ui.muted:
                 try:
                     self.out_queue.put_nowait(chunk)
                 except asyncio.QueueFull:
                     pass
-
-    def _on_phone_connected(self) -> None:
-        self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
-        self.ui.notify_phone_connected()
-        if self._dashboard and self._session_log:
-            entries = []
-            for row in self._session_log[-20:]:
-                speaker, sep, text = row.partition(":")
-                if not sep or not text.strip():
-                    continue
-                entries.append({
-                    "speaker": "user" if speaker.strip().lower() in {"you", "user"} else "jarvis",
-                    "text": text.strip(),
-                })
-            if entries:
-                asyncio.create_task(self._dashboard.broadcast({
-                    "type": "conversation.snapshot",
-                    "entries": entries,
-                }))
 
     async def _run_scheduled_workflows(self) -> None:
         """Execute only schedules explicitly created by the user.

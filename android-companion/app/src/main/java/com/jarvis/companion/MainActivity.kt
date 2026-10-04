@@ -92,11 +92,6 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var micRunning = false
     @Volatile private var voiceState = "DISCONNECTED"
     @Volatile private var reconnectScheduled = false
-    @Volatile private var lastInterruptAt = 0L
-    private var voicedFrames = 0
-    private val interruptLevelThreshold = 0.08f
-    private val interruptFrameCount = 3
-    private val interruptCooldownMs = 800L
     private val prefs by lazy { getSharedPreferences("jarvis-device", MODE_PRIVATE) }
     private val client by lazy { lanClient() }
     private val serverBase: String get() = prefs.getString("server", BuildConfig.ASSISTANT_PUBLIC_URL) ?: BuildConfig.ASSISTANT_PUBLIC_URL
@@ -385,17 +380,6 @@ class MainActivity : AppCompatActivity() {
                 if(n>0){
                     val level=pcmLevel(buf,n)
                     orb.audioLevel(level)
-                    if(level >= interruptLevelThreshold) voicedFrames++ else voicedFrames=0
-                    val now=android.os.SystemClock.elapsedRealtime()
-                    if(voicedFrames >= interruptFrameCount &&
-                        (voiceState=="SPEAKING" || voiceState=="THINKING") &&
-                        now-lastInterruptAt >= interruptCooldownMs){
-                        lastInterruptAt=now
-                        voicedFrames=0
-                        ws?.send(JSONObject().put("type","jarvis.interrupt").toString())
-                        stopPlayback()
-                        setVoiceState("LISTENING")
-                    }
                     ws?.send(ByteString.of(*buf.copyOf(n)))
                 }
             }

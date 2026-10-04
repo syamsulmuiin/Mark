@@ -113,11 +113,30 @@ def _server_pid():
 def _local_server_ready(timeout=0.8):
     return _local_server_identity(timeout=timeout) is not None
 
+def _server_state():
+    """Return process/API state without conflating a live worker with a ready API."""
+    pid = _server_pid()
+    if not pid:
+        return {"running": False, "ready": False, "pid": None}
+    service_pid = _local_server_identity(timeout=2.0)
+    return {
+        "running": True,
+        "ready": service_pid == pid,
+        "pid": pid,
+        "service_pid": service_pid,
+    }
+
 def _spawn_server():
     import time as _time
     pidfile, logfile = _runtime_paths()
     if (pid := _server_pid()):
-        print(f"MARK LIV server already running (PID {pid}).")
+        if _local_server_identity(timeout=2.0) == pid:
+            print(f"MARK LIV server already running (PID {pid}).")
+        else:
+            print(
+                f"MARK LIV worker is running (PID {pid}), but the local API is not ready "
+                f"on {LOCAL_BASE_URL}. Check runtime/error.log and port {DASHBOARD_PORT}."
+            )
         return pid
     # Do not overwrite lifecycle state if the configured dashboard port belongs to another process.
     if _local_server_ready():
@@ -133,11 +152,9 @@ def _spawn_server():
     else:
         kwargs["start_new_session"] = True
     p = _subprocess.Popen([sys.executable, str(MAIN_FILE), "--server-worker"], **kwargs)
-    # Popen returns the actual --server-worker PID.  Startup success must track
-    # that worker lifecycle, not an HTTP endpoint: the dashboard/API can become
-    # ready slightly later while the long-lived worker is already healthy.
-    # The worker remains the owner of server.pid; wait only for that ownership
-    # hand-off and never report a false startup failure because HTTP is late.
+    # A server is ready only when both the worker and its local API are alive.
+    # Keep the PID file as process identity, but never report "started" merely
+    # because a detached process exists while port 8000/API initialization failed.
     deadline = _time.monotonic() + 15.0
     while _time.monotonic() < deadline:
         if p.poll() is not None:
@@ -145,18 +162,19 @@ def _spawn_server():
             return None
         file_pid = _read_pidfile()
         if file_pid == p.pid and _pid_alive(p.pid):
-            print(f"MARK LIV server started (PID {p.pid}).")
-            return p.pid
+            if _local_server_identity(timeout=0.8) == p.pid:
+                print(f"MARK LIV server started (PID {p.pid}).")
+                return p.pid
         _time.sleep(0.2)
-    # A live worker is still a successful server start even if PID-file I/O was
-    # delayed/blocked.  Repair the local lifecycle state from the child we just
-    # created instead of spawning a duplicate on the next --start.
     if p.poll() is None and _pid_alive(p.pid):
         try:
             pidfile.write_text(str(p.pid), encoding="utf-8")
         except Exception:
             pass
-        print(f"MARK LIV server started (PID {p.pid}).")
+        print(
+            f"MARK LIV worker started (PID {p.pid}), but the local API did not become ready "
+            f"within 15 seconds on {LOCAL_BASE_URL}. Check runtime/error.log and port {DASHBOARD_PORT}."
+        )
         return p.pid
     print("MARK LIV server failed to start. Check runtime/error.log.")
     return None
@@ -164,8 +182,16 @@ def _spawn_server():
 
 def _pair_device(pairing_id: str | None = None):
     """Issue a one-time operator code for an existing companion request."""
-    if not _server_pid() or not _local_server_ready():
+    state = _server_state()
+    if not state["running"]:
         print("MARK LIV server is not running. Start it first with --start.")
+        return
+    if not state["ready"]:
+        print(
+            f"MARK LIV worker is running (PID {state['pid']}), but the local API is not ready "
+            f"on {LOCAL_BASE_URL}. Pairing is unavailable until the API is healthy. "
+            f"Check runtime/error.log and port {DASHBOARD_PORT}."
+        )
         return
     try:
         import urllib.request as _ur, json as _json

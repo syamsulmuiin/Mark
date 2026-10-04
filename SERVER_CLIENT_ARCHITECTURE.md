@@ -13,6 +13,10 @@ The server treats transport connectivity and conversational liveness as separate
 Companion microphone activity is not itself an interruption. On full-duplex voice clients, speech detected while the assistant is speaking is buffered as a bounded candidate and classified by meaning across human languages. Only an explicit interruption, correction, cancellation, or deliberate conversational takeover stops assistant playback; background speech, echo, incidental acknowledgements, and ambiguous audio fail closed and do not interrupt. Accepted candidate audio is then replayed into the interactive Live session so the user's actual request remains part of the conversation. Manual interruption controls remain explicit and immediate.
 
 
+### Server lifecycle health
+
+The admin lifecycle distinguishes a live server worker from a ready local HTTP API. `--start` reports full server readiness only after `/api/local/health` identifies the same worker PID. A worker that remains alive while the API is unavailable is reported as degraded rather than incorrectly reported as a healthy server. Pairing requires API readiness and reports that degraded state explicitly.
+
 ## Headless server
 
 The server owns Gemini Live orchestration, trusted-device routing, persistence/scheduling, server-side actions, and HTTP/WebSocket transport. It has no local microphone, speaker, conversational CLI, or desktop GUI.

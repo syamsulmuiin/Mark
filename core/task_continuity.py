@@ -35,16 +35,22 @@ def begin(goal,constraints='',completion_criteria='',origin_device_id=''):
 def checkpoint(summary,evidence=''):
     d=active()
     if not d:return {}
-    item={'summary':summary.strip(),'evidence':evidence.strip(),'at':_now()}
-    if item['summary']: d.setdefault('verified_checkpoints',[]).append(item)
+    summary=summary.strip(); evidence=evidence.strip()
+    last=d.get('last_action') or {}
+    # A checkpoint is verified continuity evidence only when it is anchored to
+    # an observed, finished tool action. Free-form model claims are not enough.
+    if not summary or not evidence or last.get('state')!='FINISHED':
+        return {}
+    item={'summary':summary,'evidence':evidence,'observed_action':dict(last),'at':_now()}
+    d.setdefault('verified_checkpoints',[]).append(item)
     d['status']='IN_PROGRESS'; d['blocker']=''; d['updated_at']=_now(); _save(d); return d
 def action_started(name,args):
     d=active()
-    if not d:return
+    if not d or str(name)=='task_continuity':return
     d['last_action']={'name':str(name),'args':args,'state':'STARTED','at':_now()};d['updated_at']=_now();_save(d)
 def action_finished(name,result):
     d=active()
-    if not d:return
+    if not d or str(name)=='task_continuity':return
     d['last_action']={'name':str(name),'state':'FINISHED','result':str(result)[:4000],'at':_now()};d['updated_at']=_now();_save(d)
 def block(reason):
     d=active()
@@ -57,7 +63,20 @@ def resume():
 def complete(evidence=''):
     d=active()
     if not d:return {}
-    d['status']='COMPLETED';d['completion_evidence']=evidence.strip();d['updated_at']=_now();_save(d);return d
+    evidence=evidence.strip()
+    checkpoints=d.get('verified_checkpoints') or []
+    last=d.get('last_action') or {}
+    latest=checkpoints[-1] if checkpoints else {}
+    observed=latest.get('observed_action') or {}
+    # Completion is a state transition, not a model assertion. Require explicit
+    # evidence and a checkpoint tied to the latest real finished action. This
+    # prevents an empty/claimed completion from turning unfinished work green.
+    if (not evidence or last.get('state')!='FINISHED' or not latest.get('evidence')
+            or observed.get('state')!='FINISHED'
+            or observed.get('name')!=last.get('name')
+            or observed.get('at')!=last.get('at')):
+        return {}
+    d['status']='COMPLETED';d['completion_evidence']=evidence;d['updated_at']=_now();_save(d);return d
 def recovery_instruction():
     d=active()
     if not d:return ''

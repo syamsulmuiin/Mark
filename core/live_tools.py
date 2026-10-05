@@ -10,9 +10,9 @@ TOOL_DECLARATIONS = [
         "name": "task_continuity",
         "description": (
             "Maintain persistent continuity for any substantive multi-step task. Before the first action of such a task call action=begin. "
-            "After a milestone is actually verified call checkpoint. If credentials/user-only authorization or a genuine unavailable capability blocks progress call block. "
+            "After a milestone is actually verified by a finished real tool action call checkpoint with non-empty evidence from that observed result. If credentials/user-only authorization or a genuine unavailable capability blocks progress call block. "
             "Only use a credential blocker when the immediately preceding tool result explicitly reports AUTHENTICATION_REQUIRED or an actual credential prompt; never infer it from a routing, capability, or file-generation error. "
-            "Call complete only after the user's requested end state is verified. This is generic and must not depend on application names or task type."
+            "Call complete only after the user's requested end state is verified and the latest real action has a verified checkpoint; complete also requires non-empty completion evidence. This is generic and must not depend on application names or task type."
         ),
         "parameters": {
             "type": "OBJECT",

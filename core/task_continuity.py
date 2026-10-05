@@ -16,6 +16,13 @@ def _load():
             data=json.loads(STATE_FILE.read_text(encoding="utf-8"))
             return data if isinstance(data,dict) else {}
         except Exception:return {}
+def _journal(kind, text, **meta):
+    try:
+        from memory.activity_journal import append
+        append(kind, text, **meta)
+    except Exception:
+        pass
+
 def _save(data):
     with _LOCK:
         STATE_DIR.mkdir(parents=True,exist_ok=True)
@@ -31,7 +38,7 @@ def begin(goal,constraints='',completion_criteria='',origin_device_id=''):
     d={'version':1,'status':'IN_PROGRESS','goal':goal.strip(),'constraints':constraints.strip(),
        'completion_criteria':completion_criteria.strip(),'origin_device_id':origin_device_id or '',
        'verified_checkpoints':[],'last_action':{},'blocker':'','created_at':_now(),'updated_at':_now()}
-    _save(d); return d
+    _save(d); _journal('task_started', d['goal'], goal=d['goal']); return d
 def checkpoint(summary,evidence=''):
     d=active()
     if not d:return {}
@@ -76,7 +83,9 @@ def complete(evidence=''):
             or observed.get('name')!=last.get('name')
             or observed.get('at')!=last.get('at')):
         return {}
-    d['status']='COMPLETED';d['completion_evidence']=evidence;d['updated_at']=_now();_save(d);return d
+    d['status']='COMPLETED';d['completion_evidence']=evidence;d['updated_at']=_now();_save(d)
+    _journal('task_completed', d.get('goal',''), goal=d.get('goal',''), evidence=evidence, checkpoints=d.get('verified_checkpoints',[])[-6:])
+    return d
 def recovery_instruction():
     d=active()
     if not d:return ''

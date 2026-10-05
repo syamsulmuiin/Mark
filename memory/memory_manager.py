@@ -367,17 +367,29 @@ def search_memory(query: str, limit: int = 8) -> str:
             if s > 0:
                 rows.append((s, cat, key, val))
 
-    if not rows:
-        return (f"Nothing stored about '{query}'." if query
-                else "I have not stored anything about this person yet.")
-
     rows.sort(key=lambda r: (-r[0], r[2]))
-    lines = [f"{cat}/{_pretty(key)}: {val}" for _s, cat, key, val in rows[:max(1, limit)]]
-    head  = (f"Stored facts matching '{query}':" if query
-             else "Everything currently stored:")
-    more  = (f"\n(+{len(rows) - len(lines)} more — search with a narrower keyword)"
-             if len(rows) > len(lines) else "")
-    return head + "\n" + "\n".join(lines) + more
+    fact_lines = [f"{cat}/{_pretty(key)}: {val}" for _s, cat, key, val in rows[:max(1, limit)]]
+
+    # Activity history is evidence of what was discussed/done, not a personal
+    # fact. Search it alongside long-term facts so restart does not erase
+    # references such as "the paper you made yesterday".
+    try:
+        from memory.activity_journal import search as search_activity
+        activity = search_activity(query, limit=max(1, limit))
+    except Exception:
+        activity = []
+    activity_lines = [
+        f"activity/{r.get('kind','event')} [{r.get('ts','')}]: {r.get('text','')}"
+        for r in activity
+    ]
+
+    lines = (fact_lines + activity_lines)[:max(1, limit)]
+    if not lines:
+        return (f"Nothing stored about '{query}'." if query
+                else "I have not stored any facts or durable activity yet.")
+    head = (f"Stored memory/activity matching '{query}':" if query
+            else "Recent stored memory/activity:")
+    return head + "\n" + "\n".join(lines)
 
 
 def all_entries_for_ui() -> list[dict]:

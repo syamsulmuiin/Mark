@@ -71,6 +71,7 @@ from actions.scheduled_workflow import due_workflows
 from actions.background_monitor import (
     add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
 )
+from memory.activity_journal import append as journal_activity, recent_context as durable_recent_context
 from memory.config_manager     import (
     get_media_resolution, get_proactive_audio_enabled,
     get_push_to_talk_enabled, get_thinking_enabled, get_turn_tuning, get_voice,
@@ -267,8 +268,8 @@ def _describe_limits(has_vision: bool, has_mic: bool, has_device_mesh: bool = Fa
         "and offer the nearest thing you can actually do — never mime an action "
         "you cannot take, and never report a result you did not get.",
         ("- You can control this machine and trusted paired devices through the tools listed above." if has_device_mesh else "- You act on this machine only. You cannot reach the user's other devices, accounts or hardware except through the tools listed above."),
-        "- You remember what is in the memory block and what has been said this "
-        "session. Anything else you were told before is gone unless it was saved.",
+        "- You remember the memory block, the current session, and the recent durable activity context. "
+        "For older discussions or completed work, call recall_memory before saying you do not remember.",
     ]
     if has_vision:
         out.append(
@@ -1036,6 +1037,9 @@ class JarvisLive:
         parts = [identity_ctx]
         if mem_str:
             parts.append(mem_str)
+        _durable_recent = durable_recent_context(limit=12)
+        if _durable_recent:
+            parts.append(_durable_recent)
         # A Live resumption handle can expire at the provider's hard session
         # rollover. Keep continuity by carrying our already-captured transcript
         # into the replacement session as context instead of pretending the
@@ -2070,6 +2074,7 @@ class JarvisLive:
                                     self._last_out_logged = ""
                                     self.ui.write_log(f"You: {interrupted_in}")
                                     self._session_log.append(f"User: {interrupted_in}")
+                                    journal_activity("user", interrupted_in, interrupted=True)
                                     if self._dashboard:
                                         asyncio.create_task(self._dashboard.broadcast({
                                             "type": "log", "speaker": "user",
@@ -2089,6 +2094,7 @@ class JarvisLive:
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
+                                journal_activity("user", full_in)
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
                                         "type": "log", "speaker": "user",
@@ -2109,6 +2115,7 @@ class JarvisLive:
                                 self._last_out_logged = full_out
                                 self.ui.write_log(f"{self._asst_name}: {full_out}")
                                 self._session_log.append(f"{self._asst_name}: {full_out}")
+                                journal_activity("assistant", full_out)
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
                                         "type": "log", "speaker": "jarvis",

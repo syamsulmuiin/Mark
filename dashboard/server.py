@@ -743,7 +743,7 @@ class DashboardServer:
     def attachment_work_path(self, attachment_id):
         """Named hard link for assistant processing; shares the verified object bytes."""
         item = self._attachment_inbox.items.get(attachment_id)
-        if not item or not item.get("assistant_upload") or item.get("expires_at", 0) <= time.time():
+        if not item or not item.get("assistant_upload"):
             return None
         obj = self._file_store.by_hash(item["sha256"])
         if not obj:
@@ -790,7 +790,9 @@ class DashboardServer:
         name = _safe_filename(destination_name) if destination_name else "file"
         base = self.get_remote_url().rstrip("/")
         server_storage = destination_device == "server"
-        up = self._new_transfer_ticket("upload", name=name, temporary=not (keep_on_server or server_storage), server_storage=server_storage)
+        # User files and transfers are durable by default. Only processing/cache
+        # material is eligible for temporary-object garbage collection.
+        up = self._new_transfer_ticket("upload", name=name, temporary=False, server_storage=server_storage)
         reply = await self.call_device(source_device, "file.upload", {
             "source": source, "url": f"{base}/api/transfer/upload/{up}", "name": name}, timeout=300)
         if not isinstance(reply, dict) or not reply.get("ok"):
@@ -830,12 +832,12 @@ class DashboardServer:
                 "size":size, "destination_device":destination_device,
                 "saved_to_destination":False}
 
-    async def send_server_file(self, destination_device: str, source: str, destination_name: str = ""):
-        """Send a server-created file to the canonical companion destination.
+    async def send_server_file(self, destination_device: str, source: str, destination_name: str = "", *, save_direct: bool = False, destination: str = ""):
+        """Deliver a server-created file to a companion.
 
-        The destination is explicit on the wire so completion reports cannot
-        silently claim an unspecified folder. Android receives Downloads/Mark;
-        desktop companions retain their own Downloads default.
+        Normal delivery is a durable attachment-inbox item. Files are written to
+        the companion filesystem only when the user explicitly requested direct
+        saving (``save_direct=True``).
         """
         path = Path(str(source or "")).expanduser()
         if not path.is_file():
@@ -843,26 +845,46 @@ class DashboardServer:
         name = _safe_filename(destination_name or path.name)
         tmp = self._file_store.tmp / secrets.token_hex(12)
         shutil.copyfile(path, tmp)
+        # Server-created artifacts remain reusable after delivery/save.
         info = self._file_store.ingest(tmp, name, temporary=False)
+
+        if not save_direct:
+            item = self._attachment_inbox.create(
+                source_device="server", destination_device=destination_device,
+                name=name, sha256=info["sha256"], size=info["size"],
+                assistant_upload=False, server_upload=False)
+            ws = self._device_sockets.get(destination_device)
+            if ws:
+                try:
+                    await ws.send_json({"type":"attachment.new", "attachment":item})
+                    self._attachment_inbox.mark(destination_device, item["id"], "delivered")
+                except Exception:
+                    pass  # Offline/reconnecting recipients recover the durable inbox.
+            return {"ok":True, "status":"queued" if not ws else "notified",
+                    "attachment_id":item["id"], "name":name,
+                    "source":str(path), "sha256":info["sha256"], "size":info["size"],
+                    "destination_device":destination_device, "saved_to_destination":False}
+
         token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
         target = self._mesh.get(destination_device) or {}
         capabilities = set(target.get("capabilities") or [])
-        destination = "Downloads/Mark" if "android.ui.inspect" in capabilities else ""
+        requested_destination = str(destination or "").strip()
+        if not requested_destination and "android.ui.inspect" in capabilities:
+            requested_destination = "Downloads/Mark"
         payload = {
             "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
             "name": name, "sha256": info["sha256"], "size": info["size"]}
-        if destination:
-            payload["destination"] = destination
+        if requested_destination:
+            payload["destination"] = requested_destination
         reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
         if not isinstance(reply, dict) or not reply.get("ok"):
             raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
-        result = {"ok": True, "status": "saved_to_device", "name": name,
-                  "source": str(path), "sha256": info["sha256"], "size": info["size"],
-                  "destination_device": destination_device,
-                  "destination_verified": True,
-                  "result": reply.get("result")}
-        if destination:
-            result["destination"] = destination
+        result = {"ok":True, "status":"saved_to_device", "name":name,
+                  "source":str(path), "sha256":info["sha256"], "size":info["size"],
+                  "destination_device":destination_device, "destination_verified":True,
+                  "saved_to_destination":True, "result":reply.get("result")}
+        if requested_destination:
+            result["destination"] = requested_destination
         return result
 
     async def _send_attachment_inbox(self, ws, device_id):
@@ -870,11 +892,13 @@ class DashboardServer:
                             self._attachment_inbox.for_device(device_id)})
 
     def _release_expired_attachments(self):
-        expired = [(item["id"], item["name"]) for item in self._attachment_inbox.items.values()
-                   if item.get("assistant_upload") and item.get("expires_at", 0) <= time.time()]
-        self._attachment_inbox.expire()
-        for attachment_id, name in expired:
-            (STORAGE_ROOT / "task_inputs" / f"{attachment_id}-{_safe_filename(name)}").unlink(missing_ok=True)
+        """Garbage-collect disposable processing objects only.
+
+        Attachment metadata and user/generated objects are durable by default.
+        This intentionally does not expire inbox/sent history or delete task-input
+        hard links merely because time passed; explicit future deletion/retention
+        policy should be a user action, not implicit attachment delivery behavior.
+        """
         for digest, rec in list(self._file_store.index.get("objects", {}).items()):
             if (rec.get("temporary") and time.time()-float(rec.get("created_at",time.time()))>3600
                     and not self._attachment_inbox.referenced(digest)):

@@ -48,7 +48,7 @@ The desktop companion advertises generic `file.upload` and `file.receive` capabi
 
 
 ### Attachment inbox
-Incoming transfers appear in the companion attachment inbox, including attachments queued while this device was offline. No destination directory is selected by the sender. Open downloads a verified temporary local cache copy; Save As lets the recipient choose a local location; Share uses the native Android share sheet (desktop companions explain where the OS share-sheet integration is unavailable). The source companion can open its native file picker when the source path is omitted. Files remain on the server as single-copy objects for up to 30 days while inbox references exist, unless the user explicitly requests permanent server retention. The legacy file.receive capability remains available for compatibility but is not used by the transfer_file tool.
+Incoming transfers appear in the companion attachment inbox, including attachments queued while this device was offline. No destination directory is selected by the sender. Open downloads a verified temporary local cache copy; Save As lets the recipient choose a local location; Share uses the native Android share sheet (desktop companions explain where the OS share-sheet integration is unavailable). The source companion can open its native file picker when the source path is omitted. Files remain on the server as single-copy objects for up to 30 days while inbox references exist, unless the user explicitly requests permanent server retention. `file.receive` remains available for explicit direct-save requests; normal transfer and server-file delivery use the Attachment Inbox.
 
 
 ### Overflow companion menu and final-turn attachment picker

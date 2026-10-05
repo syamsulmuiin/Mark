@@ -394,6 +394,12 @@ def call(contents, tier: str = FAST, config=None,
                 raise RuntimeError("the Live turn came back empty")
             if cl is None:
                 cl = client(timeout_ms=timeout_ms, key=resolved_key)
+            # Tool-backed one-shot calls use Chat AFC; the SDK warns against
+            # direct Models.generate_content automatic function calling.
+            _has_tools = isinstance(config, dict) and bool(config.get("tools"))
+            if _has_tools:
+                chat = cl.chats.create(model=model, config=config)
+                return chat.send_message(contents)
             kwargs = {"model": model, "contents": contents}
             if config is not None:
                 kwargs["config"] = config

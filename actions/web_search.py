@@ -91,7 +91,9 @@ def _gemini_search(query: str) -> str:
                                config={"tools": [{"google_search": {}}]},
                                timeout_ms=30_000)
         if response is None:
-            raise RuntimeError("every Gemini model on the ladder failed")
+            errors = gemini.last_call_errors()
+            detail = "; ".join(f"{model}: {message}" for model, message in errors)
+            raise RuntimeError(detail or "every Gemini model on the ladder failed")
     except Exception as e:
         _note_gemini_error(e)
         raise

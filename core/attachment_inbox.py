@@ -3,7 +3,6 @@ from __future__ import annotations
 import json, os, secrets, time
 from pathlib import Path
 
-RETENTION_SECONDS = 30 * 86400
 
 class AttachmentInbox:
     def __init__(self, metadata_dir: Path):
@@ -24,7 +23,7 @@ class AttachmentInbox:
         now = time.time()
         item = dict(id=secrets.token_urlsafe(18), source_device=source_device,
                     destination_device=destination_device, name=name, sha256=sha256,
-                    size=int(size), created_at=now, expires_at=now+RETENTION_SECONDS,
+                    size=int(size), created_at=now,
                     assistant_upload=bool(assistant_upload), server_upload=bool(server_upload),
                     status="stored" if server_upload else "assistant_ready" if assistant_upload else "pending")
         self.items[item["id"]] = item
@@ -32,20 +31,18 @@ class AttachmentInbox:
         return dict(item)
 
     def for_device(self, device_id):
-        now = time.time()
         return sorted((dict(item) for item in self.items.values()
-                       if item["destination_device"] == device_id and not item.get("assistant_upload") and item["expires_at"] > now),
+                       if item["destination_device"] == device_id and not item.get("assistant_upload")),
                       key=lambda x: x["created_at"], reverse=True)
 
     def sent_by(self, device_id):
-        now = time.time()
         return sorted((dict(item) for item in self.items.values()
-                       if item["source_device"] == device_id and item["expires_at"] > now),
+                       if item["source_device"] == device_id),
                       key=lambda x: x["created_at"], reverse=True)
 
     def get(self, device_id, attachment_id):
         item = self.items.get(attachment_id)
-        if not item or item["destination_device"] != device_id or item["expires_at"] <= time.time():
+        if not item or item["destination_device"] != device_id:
             return None
         return dict(item)
 
@@ -58,15 +55,5 @@ class AttachmentInbox:
             self._save()
         return item is not None
 
-    def expire(self):
-        now = time.time()
-        expired = [key for key, item in self.items.items() if item["expires_at"] <= now]
-        for key in expired:
-            del self.items[key]
-        if expired:
-            self._save()
-        return expired
-
     def referenced(self, digest):
-        return any(item["sha256"] == digest and item["expires_at"] > time.time()
-                   for item in self.items.values())
+        return any(item["sha256"] == digest for item in self.items.values())

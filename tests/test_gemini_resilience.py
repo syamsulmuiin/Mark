@@ -130,3 +130,49 @@ def test_call_cools_unavailable_model_then_falls_back(monkeypatch, gemini):
     assert calls == ["unhealthy", "healthy"]
     assert gemini._cooling("unhealthy")
     assert gemini._cooldown["unhealthy"] - gemini.time.monotonic() == pytest.approx(60, abs=1)
+
+
+def test_tool_backed_call_uses_chat_afc(monkeypatch, gemini):
+    gemini._LADDERS[gemini.SEARCH] = ("grounded",)
+    calls = []
+
+    class Chat:
+        def send_message(self, contents):
+            calls.append(("send_message", contents))
+            return type("Response", (), {"text": "grounded"})()
+
+    class Chats:
+        def create(self, **kwargs):
+            calls.append(("create", kwargs))
+            return Chat()
+
+    class Models:
+        def generate_content(self, **kwargs):
+            raise AssertionError("tool-backed calls must not use Models.generate_content")
+
+    class Client:
+        chats = Chats()
+        models = Models()
+
+    monkeypatch.setattr(gemini, "client", lambda **_: Client())
+    monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
+    response = gemini.call("current news", tier=gemini.SEARCH, config={"tools": [{"google_search": {}}]})
+    assert response.text == "grounded"
+    assert calls[0][0] == "create"
+    assert calls[1] == ("send_message", "current news")
+
+
+def test_failed_ladder_preserves_errors_for_caller(monkeypatch, gemini):
+    gemini._LADDERS[gemini.SEARCH] = ("quota", "busy")
+
+    class Models:
+        def generate_content(self, **kwargs):
+            raise RuntimeError("429 RESOURCE_EXHAUSTED" if kwargs["model"] == "quota" else "503 UNAVAILABLE")
+
+    class Client:
+        models = Models()
+
+    monkeypatch.setattr(gemini, "client", lambda **_: Client())
+    monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
+    assert gemini.call("x", tier=gemini.SEARCH) is None
+    assert gemini.last_call_errors() == (("quota", "429 RESOURCE_EXHAUSTED"), ("busy", "503 UNAVAILABLE"))

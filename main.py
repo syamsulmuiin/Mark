@@ -1481,14 +1481,19 @@ class JarvisLive:
                         exact=next((d for d in devices if d.get("device_id")==selector and not d.get("revoked")),None)
                         matches=[d for d in devices if str(d.get("name","")).casefold()==selector.casefold() and not d.get("revoked")]
                         target=exact or (matches[0] if len(matches)==1 else None)
-                    if not target or target.get("device_id") not in online:
-                        result="Destination companion is not uniquely identifiable or is offline. Call list_paired_devices first."
-                    elif "file.receive" not in set(target.get("capabilities") or []):
-                        result="Destination companion does not support file.receive."
+                    save_direct=bool(args.get("save_direct",False))
+                    required_capability="file.receive" if save_direct else "attachment.inbox"
+                    if not target:
+                        result="Destination companion is not uniquely identifiable. Call list_paired_devices first."
+                    elif required_capability not in set(target.get("capabilities") or []):
+                        result=f"Destination companion does not support {required_capability}."
+                    elif save_direct and target.get("device_id") not in online:
+                        result="Destination companion is offline; direct saving requires it to be online. Use normal attachment delivery instead."
                     else:
                         result=json.dumps(await self._dashboard.send_server_file(
                             str(target["device_id"]), str(args.get("source") or ""),
-                            str(args.get("destination_name") or "")), ensure_ascii=False)
+                            str(args.get("destination_name") or ""),
+                            save_direct=save_direct, destination=str(args.get("destination") or "")), ensure_ascii=False)
 
             elif name == "call_current_device":
                 if not self._dashboard:

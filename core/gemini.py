@@ -116,6 +116,12 @@ _LADDERS = {
 # list. Live models are not interchangeable with REST text models.
 LIVE_MODELS = get_live_models()
 
+# Last failed ladder is diagnostic state only; callers keep the historical None contract.
+_last_call_errors: tuple[tuple[str, str], ...] = ()
+
+def last_call_errors() -> tuple[tuple[str, str], ...]:
+    return _last_call_errors
+
 # How many one-shot Live sessions may exist at once.
 #
 # THE USER'S CONVERSATION OUTRANKS EVERY SIDE CALL.
@@ -454,6 +460,8 @@ def call(contents, tier: str = FAST, config=None,
     if ladder is None:
         ladder = (tier,) + tuple(m for m in _LADDERS[SMART] if m != tier)
 
+    global _last_call_errors
+    _last_call_errors = ()
     resolved_key = key or api_key()
     if not resolved_key:
         print("[Gemini] no Gemini API key is configured")
@@ -461,6 +469,7 @@ def call(contents, tier: str = FAST, config=None,
 
     cl = None
     tried = [m for m in ladder if not _cooling(m)] or list(ladder)
+    errors = []
     for model in tried:
         try:
             if model == LIVE:
@@ -484,6 +493,7 @@ def call(contents, tier: str = FAST, config=None,
             return cl.models.generate_content(**kwargs)
         except Exception as e:
             msg = str(e)
+            errors.append((model, msg))
             if note_failure(model, msg):
                 if is_quota_error(msg):
                     reason = f"out of quota — skipping it for {_COOLDOWN_SECONDS // 60} minutes"
@@ -494,6 +504,7 @@ def call(contents, tier: str = FAST, config=None,
                 print(f"[Gemini] {model}: {reason}")
             else:
                 print(f"[Gemini] {model}: {type(e).__name__}: {msg[:140]}")
+    _last_call_errors = tuple(errors)
     return None
 
 

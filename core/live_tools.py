@@ -44,7 +44,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "transfer_file",
-        "description": "Send one or more local files from a companion to either permanent server storage (destination_device=server) or the durable inbox of a different paired companion. Use source_device=current for the companion handling this voice request. Do not use the source companion ID as destination when the user says server. For a voice request to send local files, call this tool with source omitted when the path is unknown. The source companion opens one native multi-select picker and continues the selected files as a batch. Do not request a chat upload or invent a content URI. The server verifies upload SHA-256 and size. Server uploads report stored_on_server; companion recipients receive inbox delivery and choose Open, Save As or Share in their own UI. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. Server destination always stores permanently; for companion-to-companion transfers set keep_on_server only when explicitly requested.",
+        "description": "Send one or more local files from a companion to either permanent server storage (destination_device=server) or the durable inbox of a different paired companion. Use source_device=current for the companion handling this voice request. Do not use the source companion ID as destination when the user says server. For a voice request to send local files, call this tool with source omitted when the path is unknown. The source companion opens one native multi-select picker and continues the selected files as a batch. Do not request a chat upload or invent a content URI. The server verifies upload SHA-256 and size. Server uploads report stored_on_server; companion recipients receive inbox delivery and choose Open, Save As or Share in their own UI. Transfer objects and attachment history remain durable on the server by default so they can be reused later. Use exact device ids/names from list_paired_devices. Source must be an accessible path or content URI. keep_on_server is retained for compatibility; durability no longer depends on it.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
@@ -59,13 +59,15 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_server_file",
-        "description": "Send a file already created on the JARVIS server directly to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. The server chooses and reports the exact destination folder; Android uses Downloads/Mark and desktop uses its Downloads folder. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "description": "Send a file already created on the JARVIS server to the current or another paired companion. Use this instead of transfer_file when the source is a server path, generated document, report, or project artifact. By default the file is delivered to the recipient's durable Attachment Inbox; the user can then Open, Save As to any location supported by the companion, or Share it. Set save_direct=true only when the user's current request explicitly asks to save/download the file onto that companion. Do not infer direct saving merely from words such as send, give, transfer, or attach. destination is optional and is used only with save_direct; Android currently supports its canonical Downloads/Mark direct destination, while arbitrary Android locations should use the inbox Save As flow. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "destination_device": {"type":"STRING", "description":"Exact paired destination device ID/name, or current for the companion handling this request."},
                 "source": {"type":"STRING", "description":"Absolute path of the file already present on the server."},
-                "destination_name": {"type":"STRING", "description":"Optional filename to use on the companion."}
+                "destination_name": {"type":"STRING", "description":"Optional filename shown in the attachment inbox or used for direct save."},
+                "save_direct": {"type":"BOOLEAN", "description":"True only when the user explicitly asked to save/download the file onto the companion filesystem. Default false."},
+                "destination": {"type":"STRING", "description":"Optional explicit filesystem destination for save_direct. Omit for the companion's canonical direct-save location."}
             },
             "required": ["destination_device", "source"]
         }

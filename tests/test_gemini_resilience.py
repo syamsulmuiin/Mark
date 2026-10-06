@@ -81,57 +81,40 @@ def test_one_shot_live_compatibility_uses_healthy_model(gemini):
 def test_call_skips_resting_model_and_uses_next(monkeypatch, gemini):
     gemini._LADDERS[gemini.FAST] = ("first", "second")
     gemini._cool("first", seconds=300)
-
     calls = []
-
-    class Response:
-        text = "fallback response"
-
-    class Models:
-        def generate_content(self, **kwargs):
-            calls.append(kwargs["model"])
-            return Response()
-
-    class Client:
-        models = Models()
-
+    class Response: text = "fallback response"
+    class Chat:
+        def send_message(self, contents):
+            calls.append(("send", contents)); return Response()
+    class Chats:
+        def create(self, **kwargs):
+            calls.append(("create", kwargs["model"])); return Chat()
+    class Client: chats = Chats()
     monkeypatch.setattr(gemini, "client", lambda **_: Client())
     monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
-
     response = gemini.call("hello", tier=gemini.FAST)
-
     assert response.text == "fallback response"
-    assert calls == ["second"]
-
-
+    assert calls[0] == ("create", "second")
 def test_call_cools_unavailable_model_then_falls_back(monkeypatch, gemini):
     gemini._LADDERS[gemini.FAST] = ("unhealthy", "healthy")
     calls = []
-
-    class Response:
-        text = "healthy response"
-
-    class Models:
-        def generate_content(self, **kwargs):
-            calls.append(kwargs["model"])
-            if kwargs["model"] == "unhealthy":
-                raise RuntimeError("503 UNAVAILABLE")
+    class Response: text = "healthy response"
+    class Chat:
+        def __init__(self, model): self.model=model
+        def send_message(self, contents):
+            calls.append(self.model)
+            if self.model == "unhealthy": raise RuntimeError("503 UNAVAILABLE")
             return Response()
-
-    class Client:
-        models = Models()
-
+    class Chats:
+        def create(self, **kwargs): return Chat(kwargs["model"])
+    class Client: chats = Chats()
     monkeypatch.setattr(gemini, "client", lambda **_: Client())
     monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
-
     response = gemini.call("hello", tier=gemini.FAST)
-
     assert response.text == "healthy response"
     assert calls == ["unhealthy", "healthy"]
     assert gemini._cooling("unhealthy")
     assert gemini._cooldown["unhealthy"] - gemini.time.monotonic() == pytest.approx(60, abs=1)
-
-
 def test_tool_backed_call_uses_chat_afc(monkeypatch, gemini):
     gemini._LADDERS[gemini.SEARCH] = ("grounded",)
     calls = []
@@ -164,14 +147,13 @@ def test_tool_backed_call_uses_chat_afc(monkeypatch, gemini):
 
 def test_failed_ladder_preserves_errors_for_caller(monkeypatch, gemini):
     gemini._LADDERS[gemini.SEARCH] = ("quota", "busy")
-
-    class Models:
-        def generate_content(self, **kwargs):
-            raise RuntimeError("429 RESOURCE_EXHAUSTED" if kwargs["model"] == "quota" else "503 UNAVAILABLE")
-
-    class Client:
-        models = Models()
-
+    class Chat:
+        def __init__(self, model): self.model=model
+        def send_message(self, contents):
+            raise RuntimeError("429 RESOURCE_EXHAUSTED" if self.model == "quota" else "503 UNAVAILABLE")
+    class Chats:
+        def create(self, **kwargs): return Chat(kwargs["model"])
+    class Client: chats = Chats()
     monkeypatch.setattr(gemini, "client", lambda **_: Client())
     monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
     assert gemini.call("x", tier=gemini.SEARCH) is None

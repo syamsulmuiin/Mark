@@ -359,23 +359,6 @@ def _live_call(contents, config, timeout_ms: int, key: str):
     return _Reply(text) if text else None
 
 
-def _config_has_tools(config) -> bool:
-    """Return True for both mapping and SDK config objects carrying tools.
-
-    google.genai accepts dict configs and GenerateContentConfig-like objects.
-    AFC must use Chat.send_message for either shape; otherwise the SDK warns
-    when Models.generate_content receives automatic function calling tools.
-    """
-    if config is None:
-        return False
-    if isinstance(config, dict):
-        return bool(config.get("tools"))
-    try:
-        return bool(getattr(config, "tools", None))
-    except Exception:
-        return False
-
-
 def call(contents, tier: str = FAST, config=None,
          timeout_ms: int = DEFAULT_TIMEOUT_MS, key: str = ""):
     """Run one generation, walking the ladder until one answers.
@@ -413,16 +396,14 @@ def call(contents, tier: str = FAST, config=None,
                 raise RuntimeError("the Live turn came back empty")
             if cl is None:
                 cl = client(timeout_ms=timeout_ms, key=resolved_key)
-            # Tool-backed one-shot calls use Chat AFC; the SDK warns against
-            # direct Models.generate_content automatic function calling.
-            _has_tools = _config_has_tools(config)
-            if _has_tools:
-                chat = cl.chats.create(model=model, config=config)
-                return chat.send_message(contents)
-            kwargs = {"model": model, "contents": contents}
-            if config is not None:
-                kwargs["config"] = config
-            return cl.models.generate_content(**kwargs)
+            # Use the Chat surface for every REST generation.  The google-genai
+            # SDK explicitly recommends Chat.send_message for automatic function
+            # calling, and using one surface here removes any config-shape blind
+            # spot where a tool/AFC config could accidentally reach Models.
+            # Chat returns the same GenerateContentResponse shape used by callers,
+            # including candidates/grounding metadata and multimodal responses.
+            chat = cl.chats.create(model=model, config=config)
+            return chat.send_message(contents)
         except Exception as e:
             msg = str(e)
             if "429" in msg or "RESOURCE_EXHAUSTED" in msg:

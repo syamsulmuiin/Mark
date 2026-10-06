@@ -11,24 +11,21 @@ def _load(rel, name):
     return module
 
 
-def test_server_and_desktop_detect_tools_in_mapping_and_sdk_style_config():
-    class SDKConfig:
-        def __init__(self, tools):
-            self.tools = tools
-
-    for rel, name in (("core/gemini.py", "server_gemini_afc"),
-                      ("desktop-companion/runtime/core/gemini.py", "desktop_gemini_afc")):
-        module = _load(rel, name)
-        assert module._config_has_tools({"tools": [{"google_search": {}}]})
-        assert module._config_has_tools(SDKConfig([{"google_search": {}}]))
-        assert not module._config_has_tools({})
-        assert not module._config_has_tools(SDKConfig([]))
-        assert not module._config_has_tools(None)
-
-
-def test_tool_backed_calls_route_through_chat_in_both_runtimes():
+def test_all_rest_calls_route_through_chat_in_both_runtimes():
     for rel in ("core/gemini.py", "desktop-companion/runtime/core/gemini.py"):
         text = (ROOT / rel).read_text(encoding="utf-8")
-        assert "_has_tools = _config_has_tools(config)" in text, rel
         assert "cl.chats.create(model=model, config=config)" in text, rel
         assert "chat.send_message(contents)" in text, rel
+        assert ".models.generate_content(" not in text, rel
+        assert ".models.generate_content_stream(" not in text, rel
+
+
+def test_no_direct_models_generation_anywhere_in_runtime_tree():
+    roots = [ROOT / "core", ROOT / "actions", ROOT / "plugins", ROOT / "desktop-companion" / "runtime"]
+    offenders = []
+    for base in roots:
+        for path in base.rglob("*.py"):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if ".models.generate_content(" in text or ".models.generate_content_stream(" in text:
+                offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == []

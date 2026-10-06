@@ -485,7 +485,10 @@ def call(contents, tier: str = FAST, config=None,
         return None
 
     cl = None
-    tried = [m for m in ladder if not _cooling(m)] or list(ladder)
+    tried = [m for m in ladder if not _cooling(m)]
+    if not tried:
+        _last_call_errors = tuple((m, "cooldown") for m in ladder)
+        return None
     errors = []
     for model in tried:
         try:

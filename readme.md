@@ -293,3 +293,8 @@ Android document uploads preserve the displayed filename and extension. Attachme
 Attachment picker delivery now has explicit `received` and `opened` acknowledgements, persisted by the server diagnostic logger. Android and Desktop remember whether the current assistant turn has already completed, so a picker request arriving immediately after the completion event is opened once instead of waiting forever for an event that already occurred. SPEAKING/THINKING resets that completion latch for the next response.
 
 Device-name resolution now prefers an exact device ID. When several non-revoked records share the same display name, exactly one currently-online match may be selected; multiple online matches remain ambiguous and are never guessed. Historical trust records are not silently deleted because identical model names can represent different physical devices.
+
+## Runtime diagnostics
+
+The headless server owns a rotating `runtime/error.log` plus bounded `runtime/interaction.log` diagnostics. JARVIS can inspect these server logs through the read-only `runtime_diagnostics` action without arbitrary filesystem access; credential-like values are redacted and reads are size/line bounded. When the user explicitly asks Mark to diagnose and repair a concrete server problem, self-repair may use this runtime evidence, trace the current source, create a guarded repair plan, and automatically apply a verified LOW/MEDIUM-risk plan. HIGH-risk repair still requires separate explicit approval. Every applied repair remains transactional with validation and rollback on failure.
+

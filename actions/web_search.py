@@ -14,6 +14,13 @@ _QUOTA_COOLDOWN_SEC  = 900          # 15 minutes
 _quota_blocked_until = 0.0
 _quota_lock          = threading.Lock()
 
+# Short circuit repeated DuckDuckGo transport failures such as TLS handshake
+# errors. One concise diagnostic is enough; retries within the same outage only
+# create warning spam and latency.
+_DDG_FAILURE_COOLDOWN_SEC = 300
+_ddg_blocked_until = 0.0
+_ddg_lock = threading.Lock()
+
 
 def _gemini_available() -> bool:
     with _quota_lock:
@@ -96,6 +103,8 @@ def _gemini_search(query: str) -> str:
             raise RuntimeError(detail or "every Gemini model on the ladder failed")
     except Exception as e:
         _note_gemini_error(e)
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            raise _QuotaCooldown(str(e)) from None
         raise
 
     text = ""
@@ -129,7 +138,26 @@ def _get_ddgs():
         return DDGS
 
 
+def _ddg_available() -> bool:
+    with _ddg_lock:
+        return time.monotonic() >= _ddg_blocked_until
+
+
+def _note_ddg_failure(exc: Exception) -> None:
+    global _ddg_blocked_until
+    with _ddg_lock:
+        already = time.monotonic() < _ddg_blocked_until
+        _ddg_blocked_until = time.monotonic() + _DDG_FAILURE_COOLDOWN_SEC
+    if not already:
+        print(
+            "[WebSearch] DDG transport unavailable — skipping it for "
+            f"{_DDG_FAILURE_COOLDOWN_SEC // 60} min ({type(exc).__name__})."
+        )
+
+
 def _ddg_search(query: str, max_results: int = 6) -> list[dict]:
+    if not _ddg_available():
+        return []
     DDGS = _get_ddgs()
     results = []
     try:
@@ -141,12 +169,14 @@ def _ddg_search(query: str, max_results: int = 6) -> list[dict]:
                     "url":     r.get("href",   ""),
                 })
     except Exception as e:
-        print(f"[WebSearch] ⚠️ DDG text() failed: {e}")
+        _note_ddg_failure(e)
     return results
 
 
 def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
     """DDG news search — returns actual articles, not website homepages."""
+    if not _ddg_available():
+        return []
     DDGS = _get_ddgs()
     results = []
     try:
@@ -159,7 +189,7 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
                     "source":  r.get("source", ""),
                 })
     except Exception as e:
-        print(f"[WebSearch] ⚠️ DDG news() failed ({e}) — falling back to text search")
+        _note_ddg_failure(e)
     # Also covers the legacy-package case, where news() returns an empty list
     # instead of raising.
     if not results:

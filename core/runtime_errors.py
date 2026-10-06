@@ -39,6 +39,9 @@ def _is_transport(text: str) -> bool:
         marker in text
         for marker in (
             "connecttimeout",
+            "1011",
+            "internal error encountered",
+            "deadline expired before operation could complete",
             "connection reset",
             "connection refused",
             "connection closed",

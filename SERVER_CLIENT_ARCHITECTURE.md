@@ -251,3 +251,7 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 The desktop companion renders the original animated reactor core without the face mesh or avatar renderer. Android uses the same dark/cyan visual language for voice, pairing and attachment tabs. These UI assets live exclusively in companions; the server remains headless.
 
 The desktop companion handles pairing asynchronously, verifies TLS for public endpoints, and routes binary WebSocket frames exclusively to voice playback. The server reports denied device capabilities as tool results without changing device permissions. Its rotating error log excludes successful transfer and zero-rejection discovery records.
+
+## Server runtime diagnostics and repair continuity
+
+Server diagnostics are local to the headless Mark Server. `runtime_diagnostics` can read only bounded, redacted tails of `runtime/error.log` (including a rotated fallback when necessary) and `runtime/interaction.log`; it does not accept arbitrary filesystem paths. Runtime log evidence is untrusted diagnostic input and never counts as authorization. If the user's current request explicitly authorizes repair, a high-confidence LOW/MEDIUM-risk self-repair plan may continue directly into the guarded transactional apply path. HIGH-risk changes require separate explicit approval. Validation failure triggers rollback instead of leaving a partial repair.

@@ -40,6 +40,7 @@ import re
 import threading
 import time
 import json
+import hashlib
 import sys
 import traceback
 from datetime import datetime
@@ -455,6 +456,7 @@ class JarvisLive:
         self._session_generation    = 0       # increments for every Live connection; stale vision is never replayed
         self._blocked_device_action = None    # exact rejected device action; requires re-inspect/replan before retry
         self._tool_turn_cache = {}          # idempotency: one identical tool+args execution per user turn
+        self._recent_response_audio = set()   # exact PCM replay guard for the current logical user turn
         self._attachment_turn = None          # one logical attachment transaction per user turn
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
@@ -553,7 +555,7 @@ class JarvisLive:
         _server_actions = {
             "browser_control", "code_helper", "dev_agent", "file_processor",
             "flight_finder", "scheduled_workflow", "self_repair_apply",
-            "self_repair_diagnostic", "autonomous_goal", "weather_report", "web_search",
+            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "weather_report", "web_search",
         }
         self._action_registry = discover_actions(
             actions_dir=_base_dir / "actions",
@@ -1267,12 +1269,27 @@ class JarvisLive:
                     _plan_match = re.search(r"^Repair plan:\s*([A-Za-z0-9-]+)\s*$", str(result), re.MULTILINE)
                     self._last_repair_plan_id = _plan_match.group(1) if _plan_match else ""
                     if self._last_repair_plan_id and has_explicit_repair_apply_intent(_last_user):
-                        result += (
-                            "\nNEXT ACTION: The current user request explicitly authorizes repair. "
-                            "Call self_repair_apply now with apply=true and plan_id="
-                            + self._last_repair_plan_id
-                            + ". HIGH-risk still requires explicit high-risk approval."
-                        )
+                        _risk_match = re.search(r"^Risk level:\s*(low|medium|high)\s*$", str(result), re.I | re.MULTILINE)
+                        _risk = (_risk_match.group(1).lower() if _risk_match else "medium")
+                        if _risk == "high" and not has_explicit_high_risk_approval(_last_user):
+                            result += (
+                                "\nRepair plan is HIGH-risk. It was not applied automatically; "
+                                "explicit high-risk approval is required before guarded apply."
+                            )
+                        else:
+                            _apply_args = {
+                                "plan_id": self._last_repair_plan_id,
+                                "apply": True,
+                                "authorization": "APPLY_DIAGNOSTIC_REPAIR",
+                                "attempt": 1,
+                            }
+                            if _risk == "high":
+                                _apply_args["high_risk_approval"] = "HIGH_RISK_REPAIR_APPROVED"
+                            _apply_result = await loop.run_in_executor(
+                                None,
+                                lambda: self._action_registry.run("self_repair_apply", _apply_args, _ctx),
+                            )
+                            result += "\n\nSELF-REPAIR APPLY RESULT\n" + str(_apply_result or "Done.")
 
                 # Diagnostic is handled exactly once above. Returning here prevents
                 # the generic action runner later in this method from executing it again.
@@ -1640,7 +1657,7 @@ class JarvisLive:
                 # Android/Desktop UI operations merely because the request arrived
                 # through a companion; device work must use call_current_device or
                 # legacy.action explicitly.
-                _server_only_actions = {"code_helper", "dev_agent", "web_search", "self_repair_diagnostic", "self_repair_apply"}
+                _server_only_actions = {"code_helper", "dev_agent", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
 
                 # Mixed actions can contain both backend-only operations and operations that
                 # manipulate a device/host UI.  Classify the requested operation instead of
@@ -1794,6 +1811,11 @@ class JarvisLive:
         # Provider/tool replay inside one turn must never repeat side effects.
         # A genuinely new user turn may legitimately request the same action again.
         self._tool_turn_cache.clear()
+        # Reset response replay guards only for a real new user utterance.
+        # Tool-backed Live turns can emit several provider turn_complete events
+        # for the same utterance, so resetting there re-admits duplicate replies.
+        self._last_out_logged = ""
+        self._recent_response_audio.clear()
         self._voice_turn_seq += 1
 
     def _note_voice_activity_end(self) -> None:
@@ -2006,7 +2028,16 @@ class JarvisLive:
                             _audio_data = response.data
                             _SLICE = 2400
                             for _i in range(0, len(_audio_data), _SLICE):
-                                self.audio_in_queue.put_nowait(_audio_data[_i : _i + _SLICE])
+                                _chunk = _audio_data[_i : _i + _SLICE]
+                                _audio_sig = hashlib.blake2s(_chunk, digest_size=12).digest()
+                                if _audio_sig in self._recent_response_audio:
+                                    _trace_event("response_audio_duplicate_suppressed", bytes=len(_chunk))
+                                    continue
+                                self._recent_response_audio.add(_audio_sig)
+                                if len(self._recent_response_audio) > 4096:
+                                    self._recent_response_audio.clear()
+                                    self._recent_response_audio.add(_audio_sig)
+                                self.audio_in_queue.put_nowait(_chunk)
 
                     if response.server_content:
                         sc = response.server_content
@@ -2071,7 +2102,6 @@ class JarvisLive:
                                     self._record_transcript_entry("jarvis", interrupted_out, partial=True)
                                 interrupted_in = " ".join(in_buf).strip()
                                 if interrupted_in:
-                                    self._last_out_logged = ""
                                     self.ui.write_log(f"You: {interrupted_in}")
                                     self._session_log.append(f"User: {interrupted_in}")
                                     journal_activity("user", interrupted_in, interrupted=True)
@@ -2091,7 +2121,6 @@ class JarvisLive:
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
-                                self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 journal_activity("user", full_in)

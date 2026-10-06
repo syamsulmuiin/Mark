@@ -401,7 +401,9 @@ def call(contents, tier: str = FAST, config=None,
         return None
 
     cl = None
-    tried = [m for m in ladder if not _cooling(m)] or list(ladder)
+    tried = [m for m in ladder if not _cooling(m)]
+    if not tried:
+        return None
     for model in tried:
         try:
             if model == LIVE:

@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private val DEVICE_CAPABILITIES = listOf(
             "jarvis.command", "notification", "vibration", "clipboard.write", "open_url",
-            "app.launch", "app.close", "android.settings.open", "audio.volume", "camera.capture",
+            "app.inspect", "app.launch", "app.close", "android.settings.open", "audio.volume", "camera.capture",
             "file.upload", "file.receive", "attachment.inbox", "android.ui.inspect", "android.ui.click",
             "android.ui.text", "android.ui.scroll", "android.ui.global", "android.screen.lock", "android.screen.wake"
         )
@@ -329,7 +329,15 @@ class MainActivity : AppCompatActivity() {
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
             override fun onMessage(w:WebSocket,text:String){ try {
                 val m=JSONObject(text); when(m.optString("type")){
-                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray())).put("capabilities", org.json.JSONArray(DEVICE_CAPABILITIES)).toString()) }
+                    "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; run {
+                        val manifest=JSONObject()
+                        DEVICE_CAPABILITIES.forEach { name ->
+                            val verification=if(name in listOf("app.inspect","camera.capture","file.upload","file.receive","android.ui.inspect","clipboard.write","audio.volume","android.screen.wake")) "direct-evidence" else "post-condition-required"
+                            manifest.put(name,JSONObject().put("health","healthy").put("executor","native-android").put("verification",verification))
+                        }
+                        w.send(JSONObject().put("type","proof").put("signature",sign(ch.toByteArray()))
+                            .put("capabilities", org.json.JSONArray(DEVICE_CAPABILITIES)).put("capability_manifest",manifest).toString())
+                    } }
                     "attachment.inbox"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(attachmentItems){ attachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); attachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog(); refreshAttachmentBadge() } }
                     "attachment.sent"->{ val arr=m.optJSONArray("attachments")?:JSONArray(); synchronized(sentAttachmentItems){ sentAttachmentItems.clear(); for(i in 0 until arr.length()){ val item=arr.getJSONObject(i); sentAttachmentItems[item.getString("id")]=item } }; runOnUiThread { refreshAttachmentDialog() } }
                     "attachment.sent.new", "attachment.sent.update"->{ val item=m.optJSONObject("attachment"); if(item!=null){ synchronized(sentAttachmentItems){ sentAttachmentItems[item.getString("id")]=item }; runOnUiThread { refreshAttachmentDialog() } } }
@@ -544,27 +552,32 @@ class MainActivity : AppCompatActivity() {
                 startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),92)
             }catch(e:Exception){sourcePickerLatch=null;latch.countDown()} }
             Thread {
-                var ok=true; var result="done"
+                var ok=true; var result="done"; var status="SUCCESS"; var verified=true; var reason=""
                 try{
                     if(!latch.await(120,TimeUnit.SECONDS))error("File selection timed out")
                     val selected=pickedSourceUri?:error("File selection cancelled")
                     a.put("source",selected.toString())
                     result=AttachmentTransfer.upload(this,client,a)
-                }catch(e:Exception){ok=false;result=e.message?:e.toString()}
+                }catch(e:Exception){ok=false;status="FAILED";verified=false;reason=e.javaClass.simpleName;result=e.message?:e.toString()}
                 finally{sourcePickerLatch=null;pickedSourceUri=null}
                 w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id"))
-                    .put("ok",ok).put("result",result).toString())
+                    .put("ok",ok).put("status",status).put("verified",verified)
+                    .put("evidence",if(verified) JSONObject().put("verification","server_sha256_and_size_match") else JSONObject.NULL)
+                    .put("reason",reason).put("capability",cap).put("result",result).toString())
             }.start()
             return
         }
-        var ok=true; var result="done"; try { when(cap){
-        "notification"->{ val nm=getSystemService(NotificationManager::class.java); val cid="jarvis"; if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(NotificationChannel(cid,"JARVIS",NotificationManager.IMPORTANCE_DEFAULT)); nm.notify((System.currentTimeMillis()%Int.MAX_VALUE).toInt(),Notification.Builder(this,cid).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("JARVIS").setContentText(a.optString("text")).build()) }
-        "vibration"->{ val v=if(Build.VERSION.SDK_INT>=31)getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") getSystemService(VIBRATOR_SERVICE) as Vibrator; v.vibrate(VibrationEffect.createOneShot(a.optLong("ms",300),VibrationEffect.DEFAULT_AMPLITUDE)) }
-        "clipboard.write"->{ (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("JARVIS",a.optString("text"))) }
-        "open_url"->{ startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(a.getString("url"))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        "app.launch"->{ val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }; val pkg=resolveAppPackage(query)?:error("App not found: $query"); val i=packageManager.getLaunchIntentForPackage(pkg)?:error("App has no launch activity: $pkg"); startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); result="opened $pkg" }
-        "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("home") }
-        "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page" }
+        var ok=true; var result="done"; var status="UNVERIFIED"; var verified=false
+        var reason="post_condition_not_verified"; var evidence:Any?=JSONObject.NULL
+        try { when(cap){
+        "notification"->{ val nm=getSystemService(NotificationManager::class.java); val cid="jarvis"; if(Build.VERSION.SDK_INT>=26)nm.createNotificationChannel(NotificationChannel(cid,"JARVIS",NotificationManager.IMPORTANCE_DEFAULT)); nm.notify((System.currentTimeMillis()%Int.MAX_VALUE).toInt(),Notification.Builder(this,cid).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("JARVIS").setContentText(a.optString("text")).build()); reason="notification_manager_accepted_without_user_visible_post_condition" }
+        "vibration"->{ val v=if(Build.VERSION.SDK_INT>=31)getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") getSystemService(VIBRATOR_SERVICE) as Vibrator; v.vibrate(VibrationEffect.createOneShot(a.optLong("ms",300),VibrationEffect.DEFAULT_AMPLITUDE)); reason="vibration_command_accepted_without_sensor_feedback" }
+        "clipboard.write"->{ (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("JARVIS",a.optString("text"))); val current=(getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?:""; verified=current==a.optString("text"); status=if(verified)"SUCCESS" else "FAILED"; reason=if(verified)"" else "clipboard_readback_mismatch"; evidence=JSONObject().put("readback_match",verified) }
+        "open_url"->{ startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(a.getString("url"))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); reason="external_activity_post_condition_not_observed" }
+        "app.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val pkg=svc.activePackage(); result=pkg; status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("active_package",pkg) }
+        "app.launch"->{ val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }; val pkg=resolveAppPackage(query)?:error("App not found: $query"); val i=packageManager.getLaunchIntentForPackage(pkg)?:error("App has no launch activity: $pkg"); startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); Thread.sleep(350); val observed=JarvisAccessibilityService.instance?.activePackage().orEmpty(); verified=observed==pkg; status=if(verified)"SUCCESS" else "UNVERIFIED"; result="opened $pkg"; reason=if(verified)"" else "foreground_package_not_observed"; evidence=JSONObject().put("expected_package",pkg).put("active_package",observed) }
+        "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val before=svc.activePackage(); result=svc.global("home"); Thread.sleep(250); val after=svc.activePackage(); verified=before.isNotBlank() && after!=before; status=if(verified)"SUCCESS" else "UNVERIFIED"; reason=if(verified)"" else "foreground_package_did_not_change"; evidence=JSONObject().put("before_package",before).put("after_package",after) }
+        "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); Thread.sleep(300); val observed=JarvisAccessibilityService.instance?.activePackage().orEmpty(); verified=observed=="com.android.settings"; status=if(verified)"SUCCESS" else "UNVERIFIED"; result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page"; reason=if(verified)"" else "settings_foreground_not_observed"; evidence=JSONObject().put("active_package",observed) }
         "audio.volume"->{
             val am=getSystemService(AUDIO_SERVICE) as AudioManager
             val stream=AudioManager.STREAM_MUSIC
@@ -576,20 +589,24 @@ class MainActivity : AppCompatActivity() {
                 "set"->{ val max=am.getStreamMaxVolume(stream); val value=a.optInt("value",a.optInt("percent",50)).coerceIn(0,100); am.setStreamVolume(stream,(max*value/100.0).toInt().coerceIn(0,max),AudioManager.FLAG_SHOW_UI) }
                 else->error("Unsupported audio.volume action")
             }
-            result="media volume ${am.getStreamVolume(stream)}/${am.getStreamMaxVolume(stream)}"
+            val current=am.getStreamVolume(stream); val maximum=am.getStreamMaxVolume(stream)
+            result="media volume $current/$maximum"; status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("current",current).put("max",maximum)
         }
-        "camera.capture"->{ result=captureCameraFrame(a.optString("facing","back")) }
-        "file.upload"->{ result=AttachmentTransfer.upload(this,client,a) }
-        "file.receive"->{ result=AttachmentTransfer.receive(this,client,a) }
-        "android.ui.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.inspect(a.optInt("max_nodes",120)).toString() }
-        "android.ui.click"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.click(a.optString("text"),a.optString("view_id")) }
-        "android.ui.text"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.setText(a.getString("text"),a.optString("target_text"),a.optString("view_id")) }
-        "android.ui.scroll"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.scroll(a.optString("direction","down")) }
-        "android.ui.global"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global(a.getString("action")) }
-        "android.screen.lock"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("lock") }
-        "android.screen.wake"->{ val pm=getSystemService(POWER_SERVICE) as PowerManager; if(!pm.isInteractive){ @Suppress("DEPRECATION") val wl=pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,"jarvis:wake"); wl.acquire(3000) }; result="screen awake; device authentication is still required" }
-        else->{ok=false;result="Unsupported capability: $cap"}
-    }}catch(e:Exception){ok=false;result=e.message?:e.toString()}; w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id")).put("ok",ok).put("result",result).toString()) }
+        "camera.capture"->{ result=captureCameraFrame(a.optString("facing","back")); status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("capture","jpeg_returned") }
+        "file.upload"->{ result=AttachmentTransfer.upload(this,client,a); status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("verification","server_sha256_and_size_match") }
+        "file.receive"->{ result=AttachmentTransfer.receive(this,client,a); status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("verification","download_sha256_and_size_match") }
+        "android.ui.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.inspect(a.optInt("max_nodes",120)).toString(); status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("observation","accessibility_tree_returned") }
+        "android.ui.click"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val before=svc.snapshotFingerprint(); result=svc.click(a.optString("text"),a.optString("view_id")); Thread.sleep(220); val after=svc.snapshotFingerprint(); verified=before.isNotBlank() && after.isNotBlank() && before!=after; status=if(verified)"SUCCESS" else "UNVERIFIED"; reason=if(verified)"" else "click_dispatched_without_observable_ui_change"; evidence=JSONObject().put("ui_changed",verified).put("active_package",svc.activePackage()) }
+        "android.ui.text"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val value=a.getString("text"); result=svc.setText(value,a.optString("target_text"),a.optString("view_id")); Thread.sleep(120); verified=svc.containsVisibleText(value); status=if(verified)"SUCCESS" else "UNVERIFIED"; reason=if(verified)"" else "text_dispatched_without_accessibility_readback"; evidence=JSONObject().put("text_readback_match",verified).put("active_package",svc.activePackage()) }
+        "android.ui.scroll"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val before=svc.snapshotFingerprint(); result=svc.scroll(a.optString("direction","down")); Thread.sleep(180); val after=svc.snapshotFingerprint(); verified=before.isNotBlank() && after.isNotBlank() && before!=after; status=if(verified)"SUCCESS" else "UNVERIFIED"; reason=if(verified)"" else "scroll_dispatched_without_observable_ui_change"; evidence=JSONObject().put("ui_changed",verified).put("active_package",svc.activePackage()) }
+        "android.ui.global"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val before=svc.snapshotFingerprint(); result=svc.global(a.getString("action")); Thread.sleep(220); val after=svc.snapshotFingerprint(); verified=before!=after; status=if(verified)"SUCCESS" else "UNVERIFIED"; reason=if(verified)"" else "global_action_without_observable_ui_change"; evidence=JSONObject().put("ui_changed",verified).put("active_package",svc.activePackage()) }
+        "android.screen.lock"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("lock"); reason="lock_action_requires_system_state_observation" }
+        "android.screen.wake"->{ val pm=getSystemService(POWER_SERVICE) as PowerManager; if(!pm.isInteractive){ @Suppress("DEPRECATION") val wl=pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,"jarvis:wake"); wl.acquire(3000) }; verified=pm.isInteractive; status=if(verified)"SUCCESS" else "FAILED"; reason=if(verified)"" else "screen_not_interactive_after_wake"; result="screen awake; device authentication is still required"; evidence=JSONObject().put("interactive",pm.isInteractive) }
+        else->{ok=false;status="FAILED";reason="unsupported_capability";result="Unsupported capability: $cap"}
+    }}catch(e:Exception){ok=false;status="FAILED";verified=false;reason=e.javaClass.simpleName;result=e.message?:e.toString()}
+        w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id")).put("ok",ok)
+            .put("status",status).put("verified",verified).put("evidence",evidence).put("reason",reason)
+            .put("capability",cap).put("result",result).toString()) }
 
     private fun refreshAttachmentBadge(){
         val count=synchronized(attachmentItems){ attachmentItems.values.count { it.optString("status","pending") != "saved" } }

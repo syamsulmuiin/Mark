@@ -255,3 +255,22 @@ The desktop companion handles pairing asynchronously, verifies TLS for public en
 ## Server runtime diagnostics and repair continuity
 
 Server diagnostics are local to the headless Mark Server. `runtime_diagnostics` can read only bounded, redacted tails of `runtime/error.log` (including a rotated fallback when necessary) and `runtime/interaction.log`; it does not accept arbitrary filesystem paths. Runtime log evidence is untrusted diagnostic input and never counts as authorization. If the user's current request explicitly authorizes repair, a high-confidence LOW/MEDIUM-risk self-repair plan may continue directly into the guarded transactional apply path. HIGH-risk changes require separate explicit approval. Validation failure triggers rollback instead of leaving a partial repair.
+
+## Verified capability execution
+
+Companion execution uses an evidence-bearing result contract while retaining `ok/result` compatibility:
+
+```text
+status = SUCCESS | FAILED | UNVERIFIED | WAITING | BLOCKED
+verified = true only when the post-condition was actually observed
+evidence = structured read-back / hash / state observation
+reason = why verification failed or was unavailable
+```
+
+Examples of direct evidence include file SHA-256/size verification, Android volume read-back, clipboard read-back, camera/screen capture bytes, and accessibility-tree inspection. App launch, URL open, generic click/type/scroll, and legacy desktop automation remain `UNVERIFIED` until a separate post-action inspection establishes the requested state.
+
+Capability manifests are descriptive only. They never grant authorization. DeviceMesh persists health/latency/failure telemetry and CapabilityRegistry may use that evidence to prefer a healthier executor.
+
+## Capability evolution boundary
+
+The server may compose VERIFIED existing capabilities without generating code. If a genuinely missing capability is explicitly eligible for evolution, Mark's generated-skill path is limited to pure computation with no external authority. Filesystem, network, process, shell, credentials, dependency installation, and direct device control must continue to use existing authorized capabilities. Generated code is never imported into the server process; it is revalidated and executed through the restricted runner, and an integrity mismatch quarantines it.

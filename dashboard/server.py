@@ -672,11 +672,20 @@ class DashboardServer:
         call_id = secrets.token_urlsafe(12)
         fut = asyncio.get_running_loop().create_future()
         self._device_pending_calls[call_id] = fut
+        started = time.monotonic()
         try:
             _interaction_event("capability_call", device_id=device_id, capability=capability)
             await ws.send_json({"type":"capability.call", "call_id":call_id, "capability":capability, "args":args or {}})
-            return await asyncio.wait_for(fut, timeout=timeout)
+            reply = await asyncio.wait_for(fut, timeout=timeout)
+            elapsed_ms=(time.monotonic()-started)*1000.0
+            status=str(reply.get("status") or "").upper()
+            success=bool(reply.get("ok")) and status not in {"FAILED","BLOCKED","WAITING"}
+            self._mesh.record_capability_result(device_id,capability,success,elapsed_ms,reply.get("reason") or "",
+                                                verified=(reply.get("verified") is True) if success else None)
+            return reply
         except Exception as exc:
+            elapsed_ms=(time.monotonic()-started)*1000.0
+            self._mesh.record_capability_result(device_id,capability,False,elapsed_ms,type(exc).__name__)
             decision = classify_error(Boundary.COMPANION_SOCKET, exc)
             _interaction_event(
                 "capability_failed",

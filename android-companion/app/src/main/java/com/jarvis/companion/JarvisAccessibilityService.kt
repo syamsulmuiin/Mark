@@ -106,6 +106,29 @@ class JarvisAccessibilityService : AccessibilityService() {
         return "scrolled $direction"
     }
 
+    fun activePackage(): String = rootInActiveWindow?.packageName?.toString().orEmpty()
+
+    fun containsVisibleText(value: String): Boolean {
+        val wanted = normalize(value)
+        if (wanted.isBlank()) return false
+        val root = rootInActiveWindow ?: return false
+        val all = mutableListOf<AccessibilityNodeInfo>(); collectNodes(root, all)
+        return all.any { normalize(it.text?.toString().orEmpty()) == wanted || normalize(it.contentDescription?.toString().orEmpty()) == wanted }
+    }
+
+    fun snapshotFingerprint(maxNodes: Int = 120): String {
+        val root = rootInActiveWindow ?: return ""
+        val parts = mutableListOf<String>(); var count = 0
+        fun walk(n: AccessibilityNodeInfo) {
+            if (count >= maxNodes) return
+            val text=n.text?.toString().orEmpty(); val desc=n.contentDescription?.toString().orEmpty(); val id=n.viewIdResourceName.orEmpty()
+            if (text.isNotBlank() || desc.isNotBlank() || id.isNotBlank()) { parts += "$id|$text|$desc"; count++ }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it) }
+        }
+        walk(root)
+        return (root.packageName?.toString().orEmpty()+"\n"+parts.joinToString("\n")).hashCode().toString(16)
+    }
+
     fun inspect(maxNodes: Int = 120): JSONObject {
         val root = rootInActiveWindow ?: error("No active Android window")
         val arr = JSONArray(); var count = 0

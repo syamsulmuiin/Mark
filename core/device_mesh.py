@@ -182,6 +182,50 @@ class DeviceMesh:
             if device_id not in self._trusted: raise KeyError(device_id)
             self._trusted[device_id]["capabilities"] = sorted(set(map(str, capabilities)))
             self._atomic(self.trust_path, self._trusted); return self._trusted[device_id]
+
+    def set_capability_manifest(self, device_id, manifest):
+        """Persist non-authoritative capability metadata reported by a companion.
+
+        Authorization still comes exclusively from the capability name allowlist;
+        manifest metadata only informs routing/diagnostics and cannot grant access.
+        """
+        with self._lock:
+            if device_id not in self._trusted: raise KeyError(device_id)
+            clean={}
+            if isinstance(manifest,dict):
+                for name,meta in manifest.items():
+                    name=str(name).strip()
+                    if not name or name not in self._trusted[device_id].get("capabilities",[]):continue
+                    clean[name]=dict(meta) if isinstance(meta,dict) else {}
+            self._trusted[device_id]["capability_manifest"]=clean
+            self._atomic(self.trust_path,self._trusted);return clean
+
+    def record_capability_result(self, device_id, capability, success, latency_ms=0, error="", *, verified=None):
+        """Record execution health separately from post-condition verification.
+
+        UNVERIFIED is a successful execution whose external post-condition has not
+        yet been observed; it must not poison device routing as a transport/action
+        failure. Verification coverage is tracked independently.
+        """
+        with self._lock:
+            rec=self._trusted.get(device_id)
+            if not rec:return None
+            health=rec.setdefault("capability_health",{}).setdefault(str(capability),{
+                "success_count":0,"failure_count":0,"verified_count":0,"unverified_count":0,
+                "avg_latency_ms":0.0,"health":"healthy","last_error":""})
+            key="success_count" if success else "failure_count";health[key]=int(health.get(key,0))+1
+            if success and verified is not None:
+                vkey="verified_count" if bool(verified) else "unverified_count"
+                health[vkey]=int(health.get(vkey,0))+1
+            total=int(health.get("success_count",0))+int(health.get("failure_count",0))
+            if latency_ms:
+                prev=max(0,total-1);health["avg_latency_ms"]=((float(health.get("avg_latency_ms",0))*prev)+float(latency_ms))/max(1,total)
+            if error and not success:health["last_error"]=str(error)[:500]
+            elif success:health["last_error"]=""
+            if int(health.get("failure_count",0))>=3 and int(health.get("failure_count",0))>int(health.get("success_count",0)):health["health"]="degraded"
+            if success and health.get("health")=="degraded" and int(health.get("success_count",0))>=int(health.get("failure_count",0)):health["health"]="healthy"
+            self._atomic(self.trust_path,self._trusted);return dict(health)
+
     def revoke(self, device_id):
         with self._lock:
             if device_id in self._trusted:

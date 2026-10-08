@@ -298,3 +298,28 @@ Device-name resolution now prefers an exact device ID. When several non-revoked 
 
 The headless server owns a rotating `runtime/error.log` plus bounded `runtime/interaction.log` diagnostics. JARVIS can inspect these server logs through the read-only `runtime_diagnostics` action without arbitrary filesystem access; credential-like values are redacted and reads are size/line bounded. When the user explicitly asks Mark to diagnose and repair a concrete server problem, self-repair may use this runtime evidence, trace the current source, create a guarded repair plan, and automatically apply a verified LOW/MEDIUM-risk plan. HIGH-risk repair still requires separate explicit approval. Every applied repair remains transactional with validation and rollback on failure.
 
+
+## Capability Evolution and Verified Execution
+
+Mark treats a successful function return and a verified real-world outcome as different things. Native companions keep the legacy `ok` / `result` fields for compatibility and additionally return a structured action envelope with `status`, `verified`, `evidence`, and `reason`. The canonical statuses are `SUCCESS`, `FAILED`, `UNVERIFIED`, `WAITING`, and `BLOCKED`. A command that was dispatched but whose post-condition was not observed is `UNVERIFIED`, not `SUCCESS`.
+
+Paired companions also report a capability manifest and persistent per-capability health telemetry. The manifest cannot grant permission: authorization continues to come exclusively from the paired-device capability allowlist. Health, latency, failure counts, and verification semantics are routing/diagnostic evidence only.
+
+The autonomy layer now resolves missing capabilities in this order:
+
+1. select an existing authorized capability;
+2. use a VERIFIED/TRUSTED declarative composite skill when one provides the requested capability;
+3. when evolution is explicitly allowed, synthesize only a low-risk **pure** generated skill;
+4. reject the goal if none of those paths can be made safe.
+
+Generated skills are deliberately narrow. `core/skill_crucible.py` rejects filesystem, network, process, shell, credential, dynamic-import, and dependency-install authority. Candidate code is statically checked, tested in an isolated Python runner, lifecycle-promoted through `EXPERIMENTAL -> CANDIDATE -> VERIFIED`, hashed, and stored in the dynamic skill registry. It is never imported into the Mark server process. Runtime hash mismatch quarantines the skill. `TRUSTED` promotion still requires explicit human approval.
+
+This does not replace Safe Self-Repair. Repair restores broken known behavior; Capability Evolution creates a new low-risk capability when existing authorized capabilities cannot satisfy a goal. Both remain bounded by Mark's authority and verification model.
+
+### Verified capability execution and evolution hardening
+
+Companion capability results distinguish execution from post-condition verification. `UNVERIFIED` means the command returned but the requested external state has not yet been independently observed; it is not counted as a transport/action failure. Device capability telemetry separately tracks execution success/failure, verification coverage, and latency so routing can prefer healthy executors with stronger observable evidence without inventing task completion.
+
+Android Companion uses its user-enabled Accessibility bridge for generic package/UI-state observations after supported actions. Desktop Companion exposes process-backed `app.inspect` and uses process read-back where possible for application launch/close; actions without a reliable cross-platform post-condition remain `UNVERIFIED`.
+
+Generated capabilities remain pure LOW-risk computation. Repeated runtime failures may quarantine a generated skill. Recovery never edits or reactivates quarantined source in place: Mark synthesizes a fresh candidate, reruns the full Skill Crucible, retires the old skill only after the replacement is VERIFIED, and performs at most one recovery retry for that invocation.

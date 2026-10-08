@@ -28,7 +28,12 @@ def log_unhandled(kind, value, traceback):
     error_log.error('Unhandled desktop exception', exc_info=(kind, value, traceback))
     sys.__excepthook__(kind, value, traceback)
 sys.excepthook=log_unhandled
-NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.launch','app.close','desktop.command','audio.volume','camera.capture','screen.capture','file.upload','file.receive','attachment.inbox','legacy.action']
+NATIVE_CAPABILITIES=['jarvis.command','notifications.receive','open_url','app.inspect','app.launch','app.close','desktop.command','audio.volume','camera.capture','screen.capture','file.upload','file.receive','attachment.inbox','legacy.action']
+CAPABILITY_MANIFEST={name:{'health':'healthy','executor':'native-desktop','verification':'structured-v1'} for name in NATIVE_CAPABILITIES}
+for _name in ('open_url','app.launch','app.close','desktop.command','audio.volume','legacy.action'):
+    CAPABILITY_MANIFEST[_name]['verification']='post-condition-required'
+for _name in ('app.inspect','camera.capture','screen.capture','file.upload','file.receive'):
+    CAPABILITY_MANIFEST[_name]['verification']='direct-evidence'
 def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
 def unb64(s): return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
 def load():
@@ -201,7 +206,7 @@ class App:
         if typ=='challenge':
             ch=m['challenge']; expected=self.st.get('server_key','')
             if not verify(expected,f"{self.st['device_id']}:{ch}".encode(),m.get('server_signature','')): self.note('Server identity verification failed'); self.disconnect(); return
-            self.ws.send(json.dumps({'type':'proof','signature':b64(priv(self.st).sign(ch.encode())),'capabilities':list(NATIVE_CAPABILITIES)}))
+            self.ws.send(json.dumps({'type':'proof','signature':b64(priv(self.st).sign(ch.encode())),'capabilities':list(NATIVE_CAPABILITIES),'capability_manifest':CAPABILITY_MANIFEST}))
         elif typ=='ready':
             self.root.after(0,self.root.show_dashboard)
             self.start_audio()
@@ -331,6 +336,27 @@ class App:
     def send(self):
         text=self.cmd.get().strip()
         if text and self.ws: self.ws.send(json.dumps({'type':'jarvis.command','text':text})); self.note('YOU: '+text); self.cmd.set('')
+    @staticmethod
+    def _app_processes(name):
+        """Return bounded process evidence for a natural application query."""
+        import psutil
+        wanted=str(name or '').strip().casefold().removesuffix('.exe')
+        if not wanted:return []
+        compact=''.join(ch for ch in wanted if ch.isalnum())
+        matches=[]
+        for proc in psutil.process_iter(['pid','name','exe']):
+            try:
+                pname=str(proc.info.get('name') or '').casefold().removesuffix('.exe')
+                pcompact=''.join(ch for ch in pname if ch.isalnum())
+                if wanted==pname or (compact and compact==pcompact):
+                    matches.append({'pid':int(proc.info['pid']),'name':str(proc.info.get('name') or '')})
+            except (psutil.NoSuchProcess,psutil.AccessDenied,psutil.ZombieProcess):
+                continue
+        return matches[:20]
+    def _inspect_app(self,name):
+        matches=self._app_processes(name)
+        return {'query':str(name or ''),'running':bool(matches),'processes':matches}
+
     def _launch_app(self, name):
         name=str(name or '').strip()
         if not name: raise ValueError('app name is required')
@@ -531,15 +557,29 @@ class App:
     def capability(self,m):
         import webbrowser
         cap=m.get('capability'); a=m.get('args') or {}; ok=True; result='done'
+        status='UNVERIFIED'; verified=False; evidence=None; reason='post_condition_not_verified'
         try:
-            if cap=='open_url': webbrowser.open(str(a['url'])); result='opened URL'
-            elif cap=='camera.capture': result=self._capture_camera(a)
-            elif cap=='screen.capture': result=self._capture_screen()
-            elif cap=='file.upload': result=self._file_upload(a)
-            elif cap=='file.receive': result=self._file_receive(a)
-            elif cap=='app.launch': result=self._launch_app(a.get('app') or a.get('name'))
-            elif cap=='app.close': result=self._close_app(a.get('app') or a.get('name'))
-            elif cap=='desktop.command': result=self._desktop_command(a)
+            if cap=='open_url':
+                opened=bool(webbrowser.open(str(a['url']))); result='opened URL' if opened else 'browser did not confirm URL open'
+                ok=opened; status='UNVERIFIED' if opened else 'FAILED'; reason='external_browser_state_not_observed' if opened else 'browser_open_failed'
+            elif cap=='camera.capture':
+                result=self._capture_camera(a); status='SUCCESS'; verified=True; evidence={'capture':'jpeg_returned'}; reason=''
+            elif cap=='screen.capture':
+                result=self._capture_screen(); status='SUCCESS'; verified=True; evidence={'capture':'screen_bytes_returned'}; reason=''
+            elif cap=='file.upload':
+                result=self._file_upload(a); status='SUCCESS'; verified=True; evidence={'verification':'server_sha256_and_size_match'}; reason=''
+            elif cap=='file.receive':
+                result=self._file_receive(a); status='SUCCESS'; verified=True; evidence={'verification':'download_sha256_and_size_match'}; reason=''
+            elif cap=='app.inspect':
+                info=self._inspect_app(a.get('app') or a.get('name')); result=json.dumps(info); status='SUCCESS'; verified=True; evidence={'running':info['running'],'process_count':len(info['processes'])}; reason=''
+            elif cap=='app.launch':
+                name=a.get('app') or a.get('name'); result=self._launch_app(name); time.sleep(.35); info=self._inspect_app(name)
+                verified=bool(info['running']); status='SUCCESS' if verified else 'UNVERIFIED'; evidence={'running':info['running'],'process_count':len(info['processes'])}; reason='' if verified else 'launch_accepted_but_process_name_not_observed'
+            elif cap=='app.close':
+                name=a.get('app') or a.get('name'); result=self._close_app(name); time.sleep(.25); info=self._inspect_app(name)
+                verified=not bool(info['running']); status='SUCCESS' if verified else 'UNVERIFIED'; evidence={'running':info['running'],'process_count':len(info['processes'])}; reason='' if verified else 'close_returned_but_matching_process_still_observed'
+            elif cap=='desktop.command':
+                result=self._desktop_command(a); status='UNVERIFIED'; reason='desktop_command_requires_post_action_inspection'
             elif cap=='audio.volume':
                 from local_runtime import invoke
                 action=str(a.get('action') or 'up').strip().lower()
@@ -551,14 +591,22 @@ class App:
                     result=invoke('computer_settings', {'action':mapped[action]}, player=self.root)
                 else:
                     raise ValueError('Unsupported audio.volume action')
+                # The legacy local action currently returns its own result but does
+                # not expose a platform-neutral read-back API on every OS.
+                status='UNVERIFIED'; reason='volume_command_returned_without_cross_platform_readback'
             elif cap=='legacy.action':
                 from local_runtime import invoke
                 tool=str(a.get('tool') or '').strip()
                 if not tool:raise ValueError('Missing local tool name in legacy.action request')
                 result=invoke(tool, a.get('parameters') or {}, player=self.root)
-            else: ok=False; result='unsupported capability: '+str(cap)
-        except Exception as e:ok=False; result=str(e); self.fault('Capability '+str(cap),e)
-        self.ws.send(json.dumps({'type':'capability.result','call_id':m.get('call_id',''),'ok':ok,'result':result}))
+                status='UNVERIFIED'; reason='legacy_action_has_no_structured_post_condition'
+            else:
+                ok=False; status='FAILED'; reason='unsupported_capability'; result='unsupported capability: '+str(cap)
+        except Exception as e:
+            ok=False; status='FAILED'; verified=False; reason=type(e).__name__; result=str(e); self.fault('Capability '+str(cap),e)
+        self.ws.send(json.dumps({'type':'capability.result','call_id':m.get('call_id',''),'ok':ok,
+                                 'status':status,'verified':verified,'evidence':evidence,
+                                 'reason':reason,'capability':cap,'result':result}))
     def disconnect(self):
         self._lan_base=None
         self.running=False

@@ -43,22 +43,29 @@ class CapabilityRegistry:
     def all(self): return [asdict(x) for x in self._items.values()]
     def get(self,name,device_id="server"):return self._items.get((name,device_id))
 
-    def select(self,name,origin_device="",requested_target="",platform="",granted_permissions=()):
+    def candidates(self,name,origin_device="",requested_target="",platform="",granted_permissions=(),exclude_device_ids=()):
         target=requested_target or origin_device or ""
-        allowed=set(granted_permissions or ())
-        cands=[c for c in self._items.values() if c.name==name and c.available and c.health!="offline"]
+        allowed=set(granted_permissions or ()); excluded=set(exclude_device_ids or ())
+        cands=[c for c in self._items.values() if c.name==name and c.available and c.health!="offline" and c.device_id not in excluded]
         if platform:cands=[c for c in cands if c.platform==platform]
         cands=[c for c in cands if set(c.permissions).issubset(allowed)]
         if target:
             local=[c for c in cands if c.device_id==target]
             if local:cands=local
-        return max(cands,key=lambda c:c.score(),default=None)
+        return sorted(cands,key=lambda c:c.score(),reverse=True)
 
-    def record(self,name,device_id,success,latency_ms=0,error=""):
+    def select(self,name,origin_device="",requested_target="",platform="",granted_permissions=(),exclude_device_ids=()):
+        cands=self.candidates(name,origin_device,requested_target,platform,granted_permissions,exclude_device_ids)
+        return cands[0] if cands else None
+
+    def record(self,name,device_id,success,latency_ms=0,error="",verified=None):
         c=self._items.get((name,device_id))
         if c:
             if success:c.success_count+=1
             else:c.failure_count+=1
+            if success and verified is not None:
+                if bool(verified):c.verified_count+=1
+                else:c.unverified_count+=1
             if latency_ms:
                 total=max(1,c.success_count+c.failure_count)
                 previous=max(0,total-1)

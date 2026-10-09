@@ -44,6 +44,7 @@ BASE_DIR    = Path(__file__).resolve().parent.parent
 from core.device_mesh import DeviceMesh
 from core.file_store import ObjectStore
 from core.attachment_inbox import AttachmentInbox
+from core.server_export_policy import approve_server_export, validate_delivery_name
 from core.cloudflare_tunnel import NamedTunnel, enabled as cloudflare_enabled, public_url as cloudflare_public_url
 from core.runtime_errors import Boundary, classify_error
 from core.network_config import DASHBOARD_PORT, LAN_HTTPS_PORT, DISCOVERY_PORT
@@ -663,6 +664,18 @@ class DashboardServer:
         """Stable companion origin for the current interaction/tool routing."""
         return self._origin_device_id
 
+    def autonomy_devices(self):
+        """Non-secret device records for CapabilityRegistry construction.
+
+        Pairing allowlists remain authoritative; `online` is runtime socket state.
+        """
+        online=set(self._device_sockets.keys())
+        out=[]
+        for item in self._mesh.list_devices():
+            rec=dict(item); rec["online"]=rec.get("device_id") in online
+            out.append(rec)
+        return out
+
     async def call_device(self, device_id: str, capability: str, args: dict | None = None, timeout: float = 30.0):
         """Invoke an explicitly permitted capability on a connected paired node."""
         if not self._mesh.authorized(device_id, capability):
@@ -848,10 +861,10 @@ class DashboardServer:
         the companion filesystem only when the user explicitly requested direct
         saving (``save_direct=True``).
         """
-        path = Path(str(source or "")).expanduser()
-        if not path.is_file():
-            raise FileNotFoundError(f"Server file not found: {path}")
-        name = _safe_filename(destination_name or path.name)
+        approved = approve_server_export(source, base_dir=BASE_DIR)
+        path = approved.path
+        requested_name = validate_delivery_name(path, destination_name)
+        name = _safe_filename(requested_name)
         tmp = self._file_store.tmp / secrets.token_hex(12)
         shutil.copyfile(path, tmp)
         # Server-created artifacts remain reusable after delivery/save.
@@ -861,7 +874,8 @@ class DashboardServer:
             item = self._attachment_inbox.create(
                 source_device="server", destination_device=destination_device,
                 name=name, sha256=info["sha256"], size=info["size"],
-                assistant_upload=False, server_upload=False)
+                assistant_upload=False, server_upload=False,
+                source_path=approved.source_path)
             ws = self._device_sockets.get(destination_device)
             if ws:
                 try:
@@ -871,7 +885,8 @@ class DashboardServer:
                     pass  # Offline/reconnecting recipients recover the durable inbox.
             return {"ok":True, "status":"queued" if not ws else "notified",
                     "attachment_id":item["id"], "name":name,
-                    "source":str(path), "sha256":info["sha256"], "size":info["size"],
+                    "source":approved.source_path, "source_path":approved.source_path,
+                    "sha256":info["sha256"], "size":info["size"],
                     "destination_device":destination_device, "saved_to_destination":False}
 
         token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
@@ -889,7 +904,8 @@ class DashboardServer:
         if not isinstance(reply, dict) or not reply.get("ok"):
             raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
         result = {"ok":True, "status":"saved_to_device", "name":name,
-                  "source":str(path), "sha256":info["sha256"], "size":info["size"],
+                  "source":approved.source_path, "source_path":approved.source_path,
+                  "sha256":info["sha256"], "size":info["size"],
                   "destination_device":destination_device, "destination_verified":True,
                   "saved_to_destination":True, "result":reply.get("result")}
         if requested_destination:

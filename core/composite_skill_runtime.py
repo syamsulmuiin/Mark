@@ -38,7 +38,7 @@ class CompositeSkillRuntime:
                 return {"status": result["status"], "verified": False,
                         "reason": result.get("reason") or "composite_step_failed",
                         "step": index, "evidence": evidence, "skill_id": skill_id}
-            self.capabilities.record(name, cap.device_id, result.get("verified") is True)
+            self.capabilities.record(name, cap.device_id, True, verified=result.get("verified") is True)
         all_verified = bool(evidence) and all(x["result"].get("verified") is True for x in evidence)
         status = SUCCESS if all_verified else UNVERIFIED
         self.skills.record(skill_id, all_verified, time.monotonic()-started,

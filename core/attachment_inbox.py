@@ -19,12 +19,14 @@ class AttachmentInbox:
         temp.write_text(json.dumps(self.items, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temp, self.path)
 
-    def create(self, *, source_device, destination_device, name, sha256, size, assistant_upload=False, server_upload=False):
+    def create(self, *, source_device, destination_device, name, sha256, size, assistant_upload=False, server_upload=False, source_path=""):
+
         now = time.time()
         item = dict(id=secrets.token_urlsafe(18), source_device=source_device,
                     destination_device=destination_device, name=name, sha256=sha256,
                     size=int(size), created_at=now,
                     assistant_upload=bool(assistant_upload), server_upload=bool(server_upload),
+                    source_path=str(source_path or ""),
                     status="stored" if server_upload else "assistant_ready" if assistant_upload else "pending")
         self.items[item["id"]] = item
         self._save()

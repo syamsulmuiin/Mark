@@ -19,8 +19,8 @@ def _json(text):
     return obj
 
 class SkillSynthesizer:
-    def synthesize(self,capability:str,purpose:str="",parameters:dict|None=None):
-        prompt=json.dumps({"capability":capability,"purpose":purpose,"parameters":parameters or {"type":"OBJECT","properties":{}}},ensure_ascii=False)
+    def synthesize(self,capability:str,purpose:str="",parameters:dict|None=None,context=None):
+        prompt=json.dumps({"capability":capability,"purpose":purpose,"parameters":parameters or {"type":"OBJECT","properties":{}},"verified_context":context or []},ensure_ascii=False)
         response=gemini.call(prompt,tier=gemini.SMART,config={"system_instruction":_SYSTEM,"response_mime_type":"application/json"},timeout_ms=30000)
         if response is None:raise RuntimeError("skill_synthesis_model_unavailable")
         data=_json(getattr(response,'text','') or '')

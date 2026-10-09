@@ -2640,6 +2640,29 @@ class JarvisLive:
             self._dashboard = DashboardServer()
             self._dashboard.set_interrupt_callback(self.interrupt)
             self._dashboard.set_attachment_result_callback(self._on_attachment_result)
+            # Bind autonomous_goal to the same real execution boundaries used by
+            # ordinary tool calls. This does not create a parallel device path:
+            # companion execution still goes through DashboardServer.call_device
+            # and its pairing/capability authorization.
+            from actions import autonomous_goal as _autonomous_goal
+            def _autonomy_device_executor(cap, action_args, goal):
+                if not self._loop: return {"status":"FAILED","reason":"server_event_loop_unavailable"}
+                fut=asyncio.run_coroutine_threadsafe(
+                    self._dashboard.call_device(cap.device_id,cap.name,action_args or {},timeout=30.0),self._loop)
+                try:return fut.result(timeout=35.0)
+                except Exception as exc:return {"status":"FAILED","reason":f"{type(exc).__name__}: {exc}"}
+            def _autonomy_server_executor(cap, action_args, goal):
+                # Never recurse through the autonomy tool itself. Self-repair apply
+                # also keeps its dedicated approval/transaction path.
+                if cap.name in {"autonomous_goal","self_repair_apply"}:
+                    return {"status":"BLOCKED","reason":"capability_requires_dedicated_authority_path"}
+                return self._action_registry.run(cap.name,action_args or {},{})
+            _autonomous_goal.configure_runtime(
+                devices_provider=self._dashboard.autonomy_devices,
+                server_actions_provider=lambda:self._action_registry.names()-{"autonomous_goal","self_repair_apply"},
+                device_executor=_autonomy_device_executor,
+                server_executor=_autonomy_server_executor,
+            )
             self._dashboard.assert_port_available()
             self._dashboard_task = asyncio.create_task(self._dashboard.serve())
             # Give the task a bounded startup window. If it returns/raises before

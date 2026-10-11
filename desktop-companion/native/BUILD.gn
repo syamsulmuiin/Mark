@@ -1,0 +1,6 @@
+# Build from an official WebRTC source checkout: //mark_apm:mark_webrtc_apm
+shared_library("mark_webrtc_apm") {
+  sources = [ "mark_webrtc_apm.cc" ]
+  deps = [ "//modules/audio_processing" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+}

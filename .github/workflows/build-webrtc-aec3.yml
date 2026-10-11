@@ -9,10 +9,8 @@ on:
     paths:
       - '.github/workflows/build-webrtc-aec3.yml'
       - 'desktop-companion/native/**'
-
 permissions:
   contents: read
-
 jobs:
   windows-aec3:
     runs-on: windows-2022
@@ -22,89 +20,69 @@ jobs:
       - name: Prepare depot_tools
         shell: pwsh
         run: |
-          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$env:RUNNER_TEMP\depot_tools"
-          "$env:RUNNER_TEMP\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$env:RUNNER_TEMP/depot_tools"
+          "$env:RUNNER_TEMP/depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Append
           'DEPOT_TOOLS_WIN_TOOLCHAIN=0' | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Checkout WebRTC and dependencies
+      - name: Checkout WebRTC
         shell: cmd
         working-directory: ${{ runner.temp }}
         run: |
           call fetch --nohooks webrtc
+          if errorlevel 1 exit /b 1
           cd src
           call gclient sync --no-history
-      - name: Select installed Windows SDK
-        shell: pwsh
-        run: |
-          $root = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Include'
-          $installed = @(Get-ChildItem $root -Directory -ErrorAction Stop | Where-Object { Test-Path (Join-Path $_.FullName 'um') } | Sort-Object { [version]$_.Name } -Descending)
-          if ($installed.Count -eq 0) { throw "No usable Windows SDK under $root" }
-          $sdk = $installed[0].Name
-          Write-Host "Using Windows SDK $sdk"
-          "WINDOWS_SDK_VERSION=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "WindowsSDKVersion=$sdk\\" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "UCRTVersion=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if errorlevel 1 exit /b 1
       - name: Build native adapter
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/Include'
+          $installed = @(Get-ChildItem $sdkRoot -Directory | Where-Object { (Test-Path (Join-Path $_.FullName 'um')) -and (Test-Path (Join-Path $_.FullName 'ucrt')) } | Sort-Object { [version]$_.Name } -Descending)
+          if ($installed.Count -eq 0) { throw 'No complete Windows SDK found' }
+          $sdk = $installed[0].Name
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = (& $vswhere -latest -products '*' -property installationPath | Select-Object -First 1)
+          if (-not $vs) { throw 'Visual Studio not found' }
+          $devcmd = Join-Path $vs 'Common7/Tools/VsDevCmd.bat'
+          $envLines = & cmd.exe /d /s /c "`"`"$devcmd`" -arch=x64 -host_arch=x64 -winsdk=$sdk && set`""
+          if ($LASTEXITCODE -ne 0) { throw 'VsDevCmd failed' }
+          foreach ($line in $envLines) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+            }
+          }
+          Write-Host "Using SDK $sdk, toolchain SDK $env:WindowsSDKVersion"
           Copy-Item -Path 'desktop-companion/native' -Destination "$env:RUNNER_TEMP/src/mark_apm" -Recurse -Force
           Set-Location "$env:RUNNER_TEMP/src"
-          New-Item -ItemType Directory -Force -Path 'out/mark_aec3' | Out-Null
+          Add-Content -Path BUILD.gn -Value @'
+
+          group("mark_apm_build") {
+            deps = [ "//mark_apm:mark_webrtc_apm" ]
+          }
+          '@
+          New-Item -ItemType Directory -Force -Path out/mark_aec3 | Out-Null
           @(
             'is_debug = false'
             'is_component_build = false'
             'target_cpu = "x64"'
             'rtc_include_tests = false'
-            "windows_sdk_version = `"$env:WINDOWS_SDK_VERSION`""
-          ) | Set-Content -Path 'out/mark_aec3/args.gn' -Encoding ascii
-          $env:WindowsSDKVersion = "$env:WINDOWS_SDK_VERSION\"
-          $env:UCRTVersion = "$env:WINDOWS_SDK_VERSION"
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vs = (& $vswhere -latest -products '*' -property installationPath).Trim()
-          if (-not $vs) { throw 'Visual Studio installation not found' }
-          $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
-          $lines = & cmd /c "`"$devcmd`" -arch=x64 -host_arch=x64 -winsdk=$env:WINDOWS_SDK_VERSION && set"
-          if ($LASTEXITCODE -ne 0) { throw 'VsDevCmd initialization failed' }
-          foreach ($line in $lines) {
-            if ($line -match '^([^=]+)=(.*)
-          & gn gen out/mark_aec3 --root-target=//mark_apm:mark_webrtc_apm
-          if ($LASTEXITCODE -ne 0) { throw "gn gen failed: $LASTEXITCODE" }
-          & autoninja -C out/mark_aec3 mark_apm/mark_webrtc_apm
-          if ($LASTEXITCODE -ne 0) { throw "autoninja failed: $LASTEXITCODE" }
+            "windows_sdk_version = `"$sdk`""
+          ) | Set-Content out/mark_aec3/args.gn -Encoding ascii
+          & gn gen out/mark_aec3
+          if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
+          & autoninja -C out/mark_aec3 mark_apm_build
+          if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }
       - name: Package binary and checksum
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force dist | Out-Null
-          $dll = Get-ChildItem "$env:RUNNER_TEMP\src\out\mark_aec3" -Filter 'mark_webrtc_apm.dll' -Recurse | Select-Object -First 1
+          $dll = Get-ChildItem "$env:RUNNER_TEMP/src/out/mark_aec3" -Filter mark_webrtc_apm.dll -Recurse | Select-Object -First 1
           if (-not $dll) { throw 'Native DLL not produced' }
           Copy-Item $dll.FullName dist/mark_webrtc_apm.dll
           $hash = (Get-FileHash dist/mark_webrtc_apm.dll -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  mark_webrtc_apm.dll" | Set-Content dist/SHA256SUMS
-          @{windows_x64_sha256=$hash; source_revision=(git -C "$env:RUNNER_TEMP\src" rev-parse HEAD)} | ConvertTo-Json | Set-Content dist/build-info.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mark-webrtc-aec3-windows-x64
-          path: dist/
-          if-no-files-found: error
-) {
-              [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
-            }
-          }
-          Write-Host "VS toolchain SDK: $env:WindowsSDKVersion"
-          & gn gen out/mark_aec3 --root-target=//mark_apm:mark_webrtc_apm
-          if ($LASTEXITCODE -ne 0) { throw "gn gen failed: $LASTEXITCODE" }
-          & autoninja -C out/mark_aec3 mark_apm/mark_webrtc_apm
-          if ($LASTEXITCODE -ne 0) { throw "autoninja failed: $LASTEXITCODE" }
-      - name: Package binary and checksum
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          $dll = Get-ChildItem "$env:RUNNER_TEMP\src\out\mark_aec3" -Filter 'mark_webrtc_apm.dll' -Recurse | Select-Object -First 1
-          if (-not $dll) { throw 'Native DLL not produced' }
-          Copy-Item $dll.FullName dist/mark_webrtc_apm.dll
-          $hash = (Get-FileHash dist/mark_webrtc_apm.dll -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  mark_webrtc_apm.dll" | Set-Content dist/SHA256SUMS
-          @{windows_x64_sha256=$hash; source_revision=(git -C "$env:RUNNER_TEMP\src" rev-parse HEAD)} | ConvertTo-Json | Set-Content dist/build-info.json
+          git -C "$env:RUNNER_TEMP/src" rev-parse HEAD | Set-Content dist/WEBRTC_REVISION
       - uses: actions/upload-artifact@v4
         with:
           name: mark-webrtc-aec3-windows-x64

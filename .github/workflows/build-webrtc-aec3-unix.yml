@@ -1,0 +1,81 @@
+name: Build Unix WebRTC AEC3
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-webrtc-aec3-unix.yml'
+      - 'desktop-companion/native/**'
+  pull_request:
+    paths:
+      - '.github/workflows/build-webrtc-aec3-unix.yml'
+      - 'desktop-companion/native/**'
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            label: linux-x64
+            extension: so
+          - os: macos-15
+            label: macos-arm64
+            extension: dylib
+          - os: macos-15-intel
+            label: macos-x64
+            extension: dylib
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 clang lld ninja-build pkg-config
+      - name: Checkout WebRTC
+        shell: bash
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
+          echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
+      - name: Sync source
+        shell: bash
+        run: |
+          export PATH="$RUNNER_TEMP/depot_tools:$PATH"
+          cd "$RUNNER_TEMP"
+          fetch --nohooks webrtc
+          cd src
+          gclient sync --no-history
+      - name: Compile AEC3
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/depot_tools:$PATH"
+          cp -R desktop-companion/native "$RUNNER_TEMP/src/mark_apm"
+          cd "$RUNNER_TEMP/src"
+          mkdir -p out/mark_aec3
+          cat > out/mark_aec3/args.gn <<'EOF'
+          is_debug = false
+          is_component_build = false
+          rtc_include_tests = false
+          EOF
+          gn gen out/mark_aec3
+          autoninja -C out/mark_aec3 mark_apm:mark_webrtc_apm
+      - name: Verify and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          binary="$(find "$RUNNER_TEMP/src/out/mark_aec3" -name '*mark_webrtc_apm*.${{ matrix.extension }}' -type f | head -n 1)"
+          test -n "$binary"
+          cp "$binary" "dist/libmark_webrtc_apm.${{ matrix.extension }}"
+          cd dist
+          if command -v sha256sum >/dev/null; then sha256sum *.${{ matrix.extension }} > SHA256SUMS; else shasum -a 256 *.${{ matrix.extension }} > SHA256SUMS; fi
+          git -C "$RUNNER_TEMP/src" rev-parse HEAD > WEBRTC_REVISION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mark-aec3-${{ matrix.label }}
+          path: dist/
+          if-no-files-found: error

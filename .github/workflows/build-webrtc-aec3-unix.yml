@@ -61,7 +61,7 @@ jobs:
           is_component_build = false
           rtc_include_tests = false
           EOF
-          gn gen out/mark_aec3
+          gn gen out/mark_aec3 --root-target=//mark_apm:mark_webrtc_apm
           autoninja -C out/mark_aec3 mark_apm/mark_webrtc_apm
       - name: Verify and package
         shell: bash

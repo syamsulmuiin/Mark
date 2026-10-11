@@ -55,15 +55,24 @@ jobs:
           }
           $env:WindowsSDKVersion = "$sdk\"
           $env:UCRTVersion = $sdk
-          foreach ($key in @('INCLUDE', 'LIB', 'LIBPATH')) {
-            $old = [Environment]::GetEnvironmentVariable($key, 'Process')
-            if ($old) {
-              $updated = $old -replace '10\.0\.28000\.0', $sdk
-              [Environment]::SetEnvironmentVariable($key, $updated, 'Process')
-            }
+          $env:WindowsSdkDir = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/'
+          $env:WindowsSDKLibVersion = "$sdk\"
+          $env:UniversalCRTSdkDir = $env:WindowsSdkDir
+          $env:WindowsSdkVerBinPath = Join-Path $env:WindowsSdkDir "bin/$sdk/"
+          $sdkInclude = Join-Path $env:WindowsSdkDir "Include/$sdk"
+          $sdkLib = Join-Path $env:WindowsSdkDir "Lib/$sdk"
+          foreach ($sub in @('um','ucrt','shared','winrt')) {
+            if (-not (Test-Path (Join-Path $sdkInclude $sub))) { throw "Incomplete SDK include: $sub" }
           }
-          Write-Host "Using SDK $sdk, toolchain SDK $env:WindowsSDKVersion"
-          Write-Host "INCLUDE=$env:INCLUDE"
+          foreach ($sub in @('um/x64','ucrt/x64')) {
+            if (-not (Test-Path (Join-Path $sdkLib $sub))) { throw "Incomplete SDK library: $sub" }
+          }
+          $existingInclude = @($env:INCLUDE -split ';' | Where-Object { $_ -and ($_ -notmatch 'Windows Kits[/\\]10[/\\]include') })
+          $existingLib = @($env:LIB -split ';' | Where-Object { $_ -and ($_ -notmatch 'Windows Kits[/\\]10[/\\]lib') })
+          $env:INCLUDE = ((@('ucrt','shared','um','winrt' | ForEach-Object { Join-Path $sdkInclude $_ }) + $existingInclude) -join ';')
+          $env:LIB = ((@('ucrt/x64','um/x64' | ForEach-Object { Join-Path $sdkLib $_ }) + $existingLib) -join ';')
+          Write-Host "Detected SDK $sdk with Visual Studio toolchain"
+          Write-Host "SDK include directory: $sdkInclude"
           Copy-Item -Path 'desktop-companion/native' -Destination "$env:RUNNER_TEMP/src/mark_apm" -Recurse -Force
           Set-Location "$env:RUNNER_TEMP/src"
           Add-Content -Path BUILD.gn -Value @'

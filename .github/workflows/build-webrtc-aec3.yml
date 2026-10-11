@@ -53,7 +53,17 @@ jobs:
               [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
             }
           }
+          $env:WindowsSDKVersion = "$sdk\"
+          $env:UCRTVersion = $sdk
+          foreach ($key in @('INCLUDE', 'LIB', 'LIBPATH')) {
+            $old = [Environment]::GetEnvironmentVariable($key, 'Process')
+            if ($old) {
+              $updated = $old -replace '10\.0\.28000\.0', $sdk
+              [Environment]::SetEnvironmentVariable($key, $updated, 'Process')
+            }
+          }
           Write-Host "Using SDK $sdk, toolchain SDK $env:WindowsSDKVersion"
+          Write-Host "INCLUDE=$env:INCLUDE"
           Copy-Item -Path 'desktop-companion/native' -Destination "$env:RUNNER_TEMP/src/mark_apm" -Recurse -Force
           Set-Location "$env:RUNNER_TEMP/src"
           Add-Content -Path BUILD.gn -Value @'

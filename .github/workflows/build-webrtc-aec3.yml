@@ -59,10 +59,39 @@ jobs:
           ) | Set-Content -Path 'out/mark_aec3/args.gn' -Encoding ascii
           $env:WindowsSDKVersion = "$env:WINDOWS_SDK_VERSION\"
           $env:UCRTVersion = "$env:WINDOWS_SDK_VERSION"
-          $env:INCLUDE = ''
-          $env:LIB = ''
-          $env:LIBPATH = ''
-          & gn gen out/mark_aec3
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = (& $vswhere -latest -products '*' -property installationPath).Trim()
+          if (-not $vs) { throw 'Visual Studio installation not found' }
+          $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $lines = & cmd /c "`"$devcmd`" -arch=x64 -host_arch=x64 -winsdk=$env:WINDOWS_SDK_VERSION && set"
+          if ($LASTEXITCODE -ne 0) { throw 'VsDevCmd initialization failed' }
+          foreach ($line in $lines) {
+            if ($line -match '^([^=]+)=(.*)
+          & gn gen out/mark_aec3 --root-target=//mark_apm:mark_webrtc_apm
+          if ($LASTEXITCODE -ne 0) { throw "gn gen failed: $LASTEXITCODE" }
+          & autoninja -C out/mark_aec3 mark_apm/mark_webrtc_apm
+          if ($LASTEXITCODE -ne 0) { throw "autoninja failed: $LASTEXITCODE" }
+      - name: Package binary and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $dll = Get-ChildItem "$env:RUNNER_TEMP\src\out\mark_aec3" -Filter 'mark_webrtc_apm.dll' -Recurse | Select-Object -First 1
+          if (-not $dll) { throw 'Native DLL not produced' }
+          Copy-Item $dll.FullName dist/mark_webrtc_apm.dll
+          $hash = (Get-FileHash dist/mark_webrtc_apm.dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  mark_webrtc_apm.dll" | Set-Content dist/SHA256SUMS
+          @{windows_x64_sha256=$hash; source_revision=(git -C "$env:RUNNER_TEMP\src" rev-parse HEAD)} | ConvertTo-Json | Set-Content dist/build-info.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mark-webrtc-aec3-windows-x64
+          path: dist/
+          if-no-files-found: error
+) {
+              [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+            }
+          }
+          Write-Host "VS toolchain SDK: $env:WindowsSDKVersion"
+          & gn gen out/mark_aec3 --root-target=//mark_apm:mark_webrtc_apm
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed: $LASTEXITCODE" }
           & autoninja -C out/mark_aec3 mark_apm/mark_webrtc_apm
           if ($LASTEXITCODE -ne 0) { throw "autoninja failed: $LASTEXITCODE" }

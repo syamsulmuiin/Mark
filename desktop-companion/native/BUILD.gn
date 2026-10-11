@@ -4,7 +4,9 @@ shared_library("mark_webrtc_apm") {
   deps = [
     "//modules/audio_processing",
     "//api/environment:environment_factory",
+    "//api/audio:builtin_audio_processing_builder",
   ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
   configs -= [ "//build/config/compiler:chromium_code" ]
+  cflags_cc = [ "-Wno-chromium-style" ]
 }

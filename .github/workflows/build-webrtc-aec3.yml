@@ -57,9 +57,14 @@ jobs:
             'rtc_include_tests = false'
             "windows_sdk_version = `"$env:WINDOWS_SDK_VERSION`""
           ) | Set-Content -Path 'out/mark_aec3/args.gn' -Encoding ascii
+          $env:WindowsSDKVersion = "$env:WINDOWS_SDK_VERSION\"
+          $env:UCRTVersion = "$env:WINDOWS_SDK_VERSION"
+          $env:INCLUDE = ''
+          $env:LIB = ''
+          $env:LIBPATH = ''
           & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed: $LASTEXITCODE" }
-          & autoninja -C out/mark_aec3 mark_apm:mark_webrtc_apm
+          & autoninja -C out/mark_aec3 mark_apm/mark_webrtc_apm
           if ($LASTEXITCODE -ne 0) { throw "autoninja failed: $LASTEXITCODE" }
       - name: Package binary and checksum
         shell: pwsh

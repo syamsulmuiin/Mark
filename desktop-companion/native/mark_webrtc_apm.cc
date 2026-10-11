@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include "modules/audio_processing/include/audio_processing.h"
+#include "api/environment/environment_factory.h"
 
 #ifdef _WIN32
 #define MARK_EXPORT extern "C" __declspec(dllexport)
@@ -16,11 +17,10 @@ struct MarkAPM {
 };
 
 static std::unique_ptr<webrtc::AudioProcessing> NewAPM() {
-  auto apm = webrtc::AudioProcessingBuilder().Create();
+  auto apm = webrtc::AudioProcessing::Create(webrtc::CreateEnvironment());
   if (!apm) return nullptr;
   webrtc::AudioProcessing::Config config;
   config.echo_canceller.enabled = true;
-  config.echo_canceller.mobile_mode = false;
   config.high_pass_filter.enabled = true;
   apm->ApplyConfig(config);
   return apm;

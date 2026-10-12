@@ -1,7 +1,7 @@
 // Mark native AEC3 wrapper; build inside a compatible WebRTC checkout.
 #include <algorithm>
 #include <cstdint>
-#include "rtc_base/scoped_ref_ptr.h"
+#include "api/scoped_refptr.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/environment/environment_factory.h"
 #include "api/audio/builtin_audio_processing_builder.h"

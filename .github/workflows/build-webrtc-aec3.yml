@@ -114,6 +114,25 @@ jobs:
           } else {
             Write-Host 'No hardcoded SDK version in setup_toolchain.py'
           }
+          # Verify the SDK's own Win32 type declarations before compiling WebRTC.
+          $typeHeader = Join-Path $sdkInclude 'um/minwinbase.h'
+          if (-not (Test-Path $typeHeader)) { throw "Missing Windows SDK header: $typeHeader" }
+          $typeMatch = Select-String -Path $typeHeader -Pattern 'FILE_INFO_BY_HANDLE_CLASS' -SimpleMatch
+          Write-Host "SDK type declaration matches in minwinbase.h: $(@($typeMatch).Count)"
+          $headerProbe = Join-Path $env:RUNNER_TEMP 'mark-win32-header-probe.cc'
+          @'
+          #include <windows.h>
+          #include <fileapi.h>
+          int main() {
+            FILE_INFO_BY_HANDLE_CLASS kind = FileBasicInfo;
+            return static_cast<int>(kind);
+          }
+          '@ | Set-Content -Path $headerProbe -Encoding ascii
+          $clang = Join-Path $env:RUNNER_TEMP 'src/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe'
+          if (-not (Test-Path $clang)) { throw "Missing WebRTC clang-cl: $clang" }
+          & $clang /nologo /std:c++20 /Zs $headerProbe
+          if ($LASTEXITCODE -ne 0) { throw "Windows SDK header preflight failed ($LASTEXITCODE)" }
+          Write-Host 'Windows SDK header preflight passed'
           & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
           & autoninja -C out/mark_aec3 mark_apm_build

@@ -95,6 +95,18 @@ jobs:
           if (-not (Test-Path $sdkBin)) { throw "Missing SDK tools: $sdkBin" }
           $env:PATH = "$sdkBin;$env:PATH"
           Write-Host "GN SDK selection: $sdk"
+          # setup_toolchain.py starts a fresh VS environment; override its SDK
+          # selection at the invocation boundary rather than editing WebRTC.
+          $setup = 'build/toolchain/win/setup_toolchain.py'
+          $source = Get-Content $setup -Raw
+          $probe = 'def _LoadToolchainEnv('
+          if (-not $source.Contains($probe)) { throw 'WebRTC toolchain API changed: cannot locate _LoadToolchainEnv' }
+          $badVersion = '10.0.28000.0'
+          if ($source.Contains($badVersion)) {
+            Write-Host "Found explicit SDK reference in $setup"
+          } else {
+            Write-Host 'No hardcoded SDK version in setup_toolchain.py; SDK may originate in VsDevCmd environment'
+          }
           & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
           & autoninja -C out/mark_aec3 mark_apm_build

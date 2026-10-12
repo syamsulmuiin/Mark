@@ -1,6 +1,7 @@
 // Mark native AEC3 wrapper; build inside a compatible WebRTC checkout.
 #include <algorithm>
 #include <cstdint>
+#include <span>
 #include "api/scoped_refptr.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/environment/environment_factory.h"
@@ -45,11 +46,12 @@ MARK_EXPORT int mark_apm_reset(void* ctx) {
 }
 MARK_EXPORT int mark_apm_render(void* ctx, const void* pcm, int size) {
   if (!ctx || !pcm || size != 480) return -1;
-  const auto* input = static_cast<const int16_t*>(pcm);
+  const std::span<const int16_t, 240> input(static_cast<const int16_t*>(pcm), 240);
   int16_t render[480];
+  const std::span<int16_t, 480> output(render);
   for (int i = 0; i < 240; ++i) {
-    render[2*i] = input[i];
-    render[2*i+1] = static_cast<int16_t>(
+    output[2*i] = input[i];
+    output[2*i+1] = static_cast<int16_t>(
         (int(input[i]) + int(input[std::min(i+1, 239)])) / 2);
   }
   auto* state = static_cast<MarkAPM*>(ctx);

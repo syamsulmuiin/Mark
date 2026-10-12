@@ -103,9 +103,11 @@ jobs:
           if (-not $source.Contains($probe)) { throw 'WebRTC toolchain API changed: cannot locate _LoadToolchainEnv' }
           $badVersion = '10.0.28000.0'
           if ($source.Contains($badVersion)) {
-            Write-Host "Found explicit SDK reference in $setup"
+            $patched = $source.Replace($badVersion, $sdk)
+            Set-Content -Path $setup -Value $patched -Encoding utf8
+            Write-Host "Patched WebRTC toolchain SDK reference: $badVersion -> $sdk"
           } else {
-            Write-Host 'No hardcoded SDK version in setup_toolchain.py; SDK may originate in VsDevCmd environment'
+            Write-Host 'No hardcoded SDK version in setup_toolchain.py'
           }
           & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }

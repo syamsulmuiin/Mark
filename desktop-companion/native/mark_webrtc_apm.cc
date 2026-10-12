@@ -13,11 +13,11 @@
 #endif
 
 struct MarkAPM {
-  rtc::scoped_refptr<webrtc::AudioProcessing> apm;
+  webrtc::scoped_refptr<webrtc::AudioProcessing> apm;
   int delay_ms;
 };
 
-static rtc::scoped_refptr<webrtc::AudioProcessing> NewAPM() {
+static webrtc::scoped_refptr<webrtc::AudioProcessing> NewAPM() {
   auto apm = webrtc::BuiltinAudioProcessingBuilder().Build(webrtc::CreateEnvironment());
   if (!apm) return nullptr;
   webrtc::AudioProcessing::Config config;

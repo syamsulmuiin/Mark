@@ -1,7 +1,7 @@
 // Mark native AEC3 wrapper; build inside a compatible WebRTC checkout.
 #include <algorithm>
 #include <cstdint>
-#include <memory>
+#include "rtc_base/scoped_ref_ptr.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "api/environment/environment_factory.h"
 #include "api/audio/builtin_audio_processing_builder.h"
@@ -13,11 +13,11 @@
 #endif
 
 struct MarkAPM {
-  std::unique_ptr<webrtc::AudioProcessing> apm;
+  rtc::scoped_refptr<webrtc::AudioProcessing> apm;
   int delay_ms;
 };
 
-static std::unique_ptr<webrtc::AudioProcessing> NewAPM() {
+static rtc::scoped_refptr<webrtc::AudioProcessing> NewAPM() {
   auto apm = webrtc::BuiltinAudioProcessingBuilder().Build(webrtc::CreateEnvironment());
   if (!apm) return nullptr;
   webrtc::AudioProcessing::Config config;
@@ -30,7 +30,7 @@ static std::unique_ptr<webrtc::AudioProcessing> NewAPM() {
 MARK_EXPORT void* mark_apm_create(int delay_ms) {
   auto apm = NewAPM();
   if (!apm) return nullptr;
-  return new MarkAPM{std::move(apm), std::clamp(delay_ms, 0, 500)};
+  return new MarkAPM{apm, std::clamp(delay_ms, 0, 500)};
 }
 MARK_EXPORT void mark_apm_destroy(void* ctx) {
   delete static_cast<MarkAPM*>(ctx);
@@ -40,7 +40,7 @@ MARK_EXPORT int mark_apm_reset(void* ctx) {
   auto* state = static_cast<MarkAPM*>(ctx);
   auto fresh = NewAPM();
   if (!fresh) return -2;
-  state->apm = std::move(fresh);
+  state->apm = fresh;
   return 0;
 }
 MARK_EXPORT int mark_apm_render(void* ctx, const void* pcm, int size) {

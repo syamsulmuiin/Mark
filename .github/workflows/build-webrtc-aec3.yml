@@ -31,7 +31,12 @@ jobs:
           if errorlevel 1 exit /b 1
           cd src
           call gclient sync --no-history
-          if errorlevel 1 exit /b 1
+          if errorlevel 1 (
+            echo Initial sync failed. Removing stale libgav1 checkout before retry.
+            if exist third_party\libgav1 rmdir /s /q third_party\libgav1
+            call gclient sync --no-history
+            if errorlevel 1 exit /b 1
+          )
       - name: Build native adapter
         shell: pwsh
         run: |

@@ -89,6 +89,12 @@ jobs:
             'rtc_include_tests = false'
             "windows_sdk_version = `"$sdk`""
           ) | Set-Content out/mark_aec3/args.gn -Encoding ascii
+          # WebRTC invokes a fresh VS environment during GN generation. Ensure the
+          # selected SDK is also the default SDK seen by that subprocess.
+          $sdkBin = Join-Path $env:WindowsSdkDir "bin/$sdk/x64"
+          if (-not (Test-Path $sdkBin)) { throw "Missing SDK tools: $sdkBin" }
+          $env:PATH = "$sdkBin;$env:PATH"
+          Write-Host "GN SDK selection: $sdk"
           & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
           & autoninja -C out/mark_aec3 mark_apm_build

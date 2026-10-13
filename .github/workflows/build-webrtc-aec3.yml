@@ -135,6 +135,35 @@ jobs:
           & $clang /nologo /std:c++20 /Zs $headerProbe
           if ($LASTEXITCODE -ne 0) { throw "Windows SDK header preflight failed ($LASTEXITCODE)" }
           Write-Host 'Windows SDK header preflight passed'
+          # --nohooks skips Chromium's lastchange hook; generate its required
+          # commit timestamp from the checked-out WebRTC revision instead.
+          $lastchangeTime = 'build/util/LASTCHANGE.committime'
+          if (-not (Test-Path $lastchangeTime)) {
+            $commitEpoch = (& git log -1 --format=%ct).Trim()
+            if ($LASTEXITCODE -ne 0 -or $commitEpoch -notmatch '^\d+
+          if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
+          & autoninja -C out/mark_aec3 mark_apm_build
+          if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }
+      - name: Package binary and checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $dll = Get-ChildItem "$env:RUNNER_TEMP/src/out/mark_aec3" -Filter mark_webrtc_apm.dll -Recurse | Select-Object -First 1
+          if (-not $dll) { throw 'Native DLL not produced' }
+          Copy-Item $dll.FullName dist/mark_webrtc_apm.dll
+          $hash = (Get-FileHash dist/mark_webrtc_apm.dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  mark_webrtc_apm.dll" | Set-Content dist/SHA256SUMS
+          git -C "$env:RUNNER_TEMP/src" rev-parse HEAD | Set-Content dist/WEBRTC_REVISION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mark-webrtc-aec3-windows-x64
+          path: dist/
+          if-no-files-found: error
+) { throw 'Unable to resolve WebRTC commit timestamp' }
+            Set-Content -Path $lastchangeTime -Value $commitEpoch -Encoding ascii
+            Write-Host "Generated $lastchangeTime from WebRTC HEAD"
+          }
           & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
           & autoninja -C out/mark_aec3 mark_apm_build

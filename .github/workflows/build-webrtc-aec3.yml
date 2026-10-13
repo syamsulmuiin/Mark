@@ -30,11 +30,13 @@ jobs:
           call fetch --nohooks webrtc
           if errorlevel 1 exit /b 1
           cd src
-          call gclient sync --no-history
+          rem Limit concurrent fetches to reduce transient Chromium Git failures.
+          rem Disable hooks because only GN compilation is needed in this job.
+          call gclient sync --no-history --nohooks --jobs=4
           if errorlevel 1 (
-            echo Initial sync failed. Removing stale libgav1 checkout before retry.
-            if exist third_party\libgav1 rmdir /s /q third_party\libgav1
-            call gclient sync --no-history
+            echo Initial sync failed; retrying with one worker after cleanup.
+            for /d %%D in (third_party\clang-format\_gclient_* third_party\libgav1\_gclient_* third_party\_gclient_*) do if exist "%%D" rmdir /s /q "%%D"
+            call gclient sync --no-history --nohooks --jobs=1
             if errorlevel 1 exit /b 1
           )
       - name: Build native adapter

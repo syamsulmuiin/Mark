@@ -140,7 +140,11 @@ jobs:
           $lastchangeTime = 'build/util/LASTCHANGE.committime'
           if (-not (Test-Path $lastchangeTime)) {
             $commitEpoch = (& git log -1 --format=%ct).Trim()
-            if ($LASTEXITCODE -ne 0 -or $commitEpoch -notmatch '^\d+
+            if ($LASTEXITCODE -ne 0 -or $commitEpoch -notmatch '^[0-9]+$') { throw 'Unable to resolve WebRTC commit timestamp' }
+            Set-Content -Path $lastchangeTime -Value $commitEpoch -Encoding ascii
+            Write-Host "Generated $lastchangeTime from WebRTC HEAD"
+          }
+          & gn gen out/mark_aec3
           if ($LASTEXITCODE -ne 0) { throw "gn gen failed ($LASTEXITCODE)" }
           & autoninja -C out/mark_aec3 mark_apm_build
           if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }

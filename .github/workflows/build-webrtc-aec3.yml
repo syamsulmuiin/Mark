@@ -116,6 +116,16 @@ jobs:
           } else {
             Write-Host 'No hardcoded SDK version in setup_toolchain.py'
           }
+          # WebRTC HEAD targets a newer Windows SDK (NTDDI_WIN11_BR), while
+          # windows-2022 supplies SDK 26100 (Windows 11 24H2 / GE).
+          # Align the generated compiler define with the installed SDK.
+          $winConfig = 'build/config/win/BUILD.gn'
+          $winSource = Get-Content $winConfig -Raw
+          if ($winSource.Contains('NTDDI_WIN11_BR')) {
+            $winSource = $winSource.Replace('NTDDI_WIN11_BR', 'NTDDI_WIN11_GE')
+            Set-Content -Path $winConfig -Value $winSource -Encoding utf8
+            Write-Host 'Aligned NTDDI_VERSION with installed Windows SDK (WIN11_GE)'
+          }
           # Verify the SDK's own Win32 type declarations before compiling WebRTC.
           $typeHeader = Join-Path $sdkInclude 'um/minwinbase.h'
           if (-not (Test-Path $typeHeader)) { throw "Missing Windows SDK header: $typeHeader" }

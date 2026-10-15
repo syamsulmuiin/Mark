@@ -107,6 +107,5 @@ def get_text_fallback_model() -> str:
     return _model_setting("ASSISTANT_TEXT_FALLBACK_MODEL", "text_fallback_model", DEFAULT_TEXT_FALLBACK_MODEL)
 
 def get_chat_models() -> tuple[str, ...]:
-    """Separate Chat/SMART ladder; defaults to reversed fast text preferences."""
-    configured = _csv_models(_model_setting("ASSISTANT_CHAT_MODELS", "chat_models"))
-    return tuple(dict.fromkeys(configured)) if configured else tuple(reversed(get_text_models()))
+    """Chat and Flash share the same provider text-model ladder."""
+    return get_text_models()

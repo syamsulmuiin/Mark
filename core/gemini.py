@@ -101,6 +101,7 @@ from core.model_config import (
     get_cooldown_policy,
     get_live_models,
     get_text_models,
+    get_chat_models,
 )
 
 _TEXT_MODELS = get_text_models()
@@ -108,7 +109,7 @@ _LADDERS = {
     # One-shot helper calls remain REST-only so they cannot compete with the
     # user's interactive Live conversation for a connection slot.
     FAST: _TEXT_MODELS,
-    SMART: tuple(reversed(_TEXT_MODELS)),
+    SMART: get_chat_models(),
     SEARCH: _TEXT_MODELS,
 }
 
@@ -232,7 +233,7 @@ def note_failure(model: str, error: str) -> bool:
     if is_permission_error(error):
         _cool(model, _PERMISSION_SECONDS)
         return True
-    if is_gone_error(error):
+    if is_gone_error(error) or ("1008" in str(error) and "requested entity was not found" in str(error).lower()):
         _cool(model, _GONE_SECONDS)
         return True
     return False

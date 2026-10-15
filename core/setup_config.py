@@ -43,8 +43,7 @@ def interactive_setup(force: bool=False) -> bool:
         from core.model_config import DEFAULT_LIVE_MODEL, DEFAULT_LIVE_FALLBACK_MODEL, DEFAULT_TEXT_MODEL, DEFAULT_TEXT_FALLBACK_MODEL
         selections = (
             ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
-            ("text_models", "Flash / fast text", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
-            ("chat_models", "Chat / smart text", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
+            ("text_models", "Text / Chat", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
         )
         current = load_config()
         for field, label, default in selections:

@@ -197,12 +197,74 @@ def write_candidate(rel: str, text: str) -> None:
     _atomic_write(BASE_DIR / normalize_rel(rel), text)
 
 
+def _imported_modules(path: Path) -> set[str]:
+    """Collect statically visible imports without executing source."""
+    import ast
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, SyntaxError):
+        return set()
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            modules.add(node.module)
+    return modules
+
+
+def select_related_tests(root: Path, changed_files: list[str]) -> list[str]:
+    """Conservative direct/reverse import graph; full suite still runs afterward."""
+    import ast
+    root = Path(root)
+    tests = root / "tests"
+    if not tests.is_dir():
+        return []
+    source_modules = set()
+    for rel in changed_files:
+        path = Path(str(rel))
+        if path.suffix != ".py":
+            continue
+        parts = path.with_suffix("").parts
+        if parts and parts[0] in {"core", "actions", "dashboard", "memory", "plugins"}:
+            source_modules.add(".".join(parts))
+        elif path.name == "main.py":
+            source_modules.add("main")
+    if not source_modules:
+        return []
+    py_files = [p for directory in ("core", "actions", "dashboard", "memory", "plugins", "tests")
+                for p in (root / directory).rglob("*.py") if (root / directory).is_dir()]
+    py_files += [root / "main.py"] if (root / "main.py").is_file() else []
+    graph = {}
+    for p in py_files:
+        module = ".".join(p.relative_to(root).with_suffix("").parts)
+        graph[module] = _imported_modules(p)
+    impacted = set(source_modules)
+    while True:
+        next_impacted = impacted | {module for module, imports in graph.items()
+            if any(used == changed or used.startswith(changed + ".")
+                   for used in imports for changed in impacted)}
+        if next_impacted == impacted:
+            break
+        impacted = next_impacted
+    selected = []
+    for p in sorted(tests.glob("test_*.py")):
+        module = ".".join(p.relative_to(root).with_suffix("").parts)
+        if module in impacted or any(used == changed or used.startswith(changed + ".")
+                                     for used in graph.get(module, ()) for changed in impacted):
+            selected.append(p.relative_to(root).as_posix())
+    return selected
+
+
 def _run_validators(root: Path, changed_files: list[str], timeout: int) -> tuple[bool, list[dict]]:
+    related = select_related_tests(root, changed_files)
     commands = [
         [sys.executable, "-c", "import core.repair_engine, actions.self_repair_apply, actions.self_repair_diagnostic"],
         [sys.executable, "-m", "compileall", "-q", "actions", "core", "dashboard", "main.py"],
         [sys.executable, "-m", "pytest", "-q"],
     ]
+    if related:
+        commands.insert(2, [sys.executable, "-m", "pytest", "-q", *related])
     results = []
     for cmd in commands:
         started = time.monotonic()

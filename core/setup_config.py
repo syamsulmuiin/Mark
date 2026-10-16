@@ -36,6 +36,28 @@ def interactive_setup(force: bool=False) -> bool:
     if not key:
         print("Setup cancelled: API key was empty."); return False
     save_config(key, platform.system())
+    print("\nMODEL SELECTION (optional; press Enter for recommended defaults)")
+    print("Live requires an audio-capable Live API model; text-only models cannot be used for Live.")
+    print("Use comma-separated model IDs in priority order; unavailable models will be skipped.")
+    try:
+        from core.model_config import DEFAULT_LIVE_MODEL, DEFAULT_LIVE_FALLBACK_MODEL, DEFAULT_TEXT_MODEL, DEFAULT_TEXT_FALLBACK_MODEL
+        selections = (
+            ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
+            ("text_models", "Text / Chat", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
+        )
+        current = load_config()
+        for field, label, default in selections:
+            value = input(f"{label} models [{current.get(field) or default}]: ").strip()
+            if value:
+                current[field] = ",".join(dict.fromkeys(x.strip() for x in value.split(",") if x.strip()))
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CONFIG_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(current, indent=4, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, CONFIG_FILE)
+        try: os.chmod(CONFIG_FILE, 0o600)
+        except Exception: pass
+    except (EOFError, KeyboardInterrupt):
+        print("Model selection skipped; using saved/default models.")
     print("\nRemote access lets paired devices reach JARVIS outside your home/LAN.")
     try: remote=input("Enable Cloudflare remote access? [Y/n]: ").strip().lower()
     except (EOFError, KeyboardInterrupt): remote="n"

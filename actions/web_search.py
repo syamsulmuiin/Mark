@@ -169,7 +169,18 @@ def _ddg_search(query: str, max_results: int = 6) -> list[dict]:
                     "url":     r.get("href",   ""),
                 })
     except Exception as e:
-        _note_ddg_failure(e)
+        # DDGS can route text searches through multiple backends. A failed
+        # default transport should not disable search before trying another.
+        try:
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=max_results, backend="bing"):
+                    results.append({
+                        "title": r.get("title", ""),
+                        "snippet": r.get("body", ""),
+                        "url": r.get("href", ""),
+                    })
+        except Exception as fallback_error:
+            _note_ddg_failure(fallback_error)
     return results
 
 

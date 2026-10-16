@@ -3,7 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 ACTIVE_IDENTITY_FILES = [
-    ROOT / "readme.md",
+    ROOT / "README.md",
     ROOT / "SERVER_CLIENT_ARCHITECTURE.md",
     ROOT / "CONTRIBUTING.md",
     ROOT / "setup.py",

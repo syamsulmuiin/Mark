@@ -16,6 +16,14 @@ jobs:
           - os: ubuntu-22.04
             label: linux-x64
             extension: so
+          - os: ubuntu-22.04
+            label: linux-arm64
+            extension: so
+            target_cpu: arm64
+          - os: ubuntu-22.04
+            label: linux-armhf
+            extension: so
+            target_cpu: arm
           - os: macos-15
             label: macos-arm64
             extension: dylib
@@ -67,7 +75,11 @@ jobs:
           is_debug = false
           is_component_build = false
           rtc_include_tests = false
+
           EOF
+          if [ -n "${{ matrix.target_cpu }}" ]; then
+            echo 'target_cpu = "${{ matrix.target_cpu }}"' >> out/mark_aec3/args.gn
+          fi
           cat >> BUILD.gn <<'EOF'
 
           group("mark_apm_build") {

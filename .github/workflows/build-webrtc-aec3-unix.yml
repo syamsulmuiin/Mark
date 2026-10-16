@@ -63,6 +63,20 @@ jobs:
             fi
             sleep $((attempt * 20))
           done
+      - name: Install Linux target sysroot
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/depot_tools:$PATH"
+          cd "$RUNNER_TEMP/src"
+          case "${{ matrix.label }}" in
+            linux-x64)  arch=amd64 ;;
+            linux-arm64) arch=arm64 ;;
+            linux-armhf) arch=arm ;;
+            *) echo "::error::Unsupported Linux target"; exit 1 ;;
+          esac
+          python3 build/linux/sysroot_scripts/install-sysroot.py --arch="$arch"
       - name: Compile AEC3
         shell: bash
         run: |

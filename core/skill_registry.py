@@ -28,7 +28,7 @@ class SkillRegistry:
         r={"skill_id":uuid.uuid4().hex,"name":name,"purpose":purpose,"steps":steps or [],"permissions":list(permissions),"risk_level":risk_level,
            "supported_platforms":list(platforms),"knowledge_reference":list(knowledge_reference),"status":"EXPERIMENTAL","operational_state":"DISABLED" if skill_type=="GENERATED" else "ACTIVE",
            "skill_type":skill_type,"output_capability":str(output_capability or name),"provenance":provenance or {},"history":[],
-           "metrics":{"success_count":0,"failure_count":0,"rollback_count":0,"failure_patterns":[],"execution_time":[],"environments_tested":[],"last_validation":None,"known_limitations":[],"last_failure":None},"created_at":_now()}
+           "metrics":{"success_count":0,"failure_count":0,"consecutive_failures":0,"rollback_count":0,"failure_patterns":[],"execution_time":[],"environments_tested":[],"last_validation":None,"known_limitations":[],"last_failure":None},"created_at":_now()}
         self._save(r);return r
 
     def _save(self,r):
@@ -66,11 +66,19 @@ class SkillRegistry:
             m["last_failure"]={"at":_now(),"reason":failure}
             if failure not in m["failure_patterns"]:m["failure_patterns"].append(failure)
         if environment and environment not in m["environments_tested"]:m["environments_tested"].append(environment)
-        # Runtime health is separate from trust level. Repeated failure can
-        # quarantine a skill but never silently demotes/promotes lifecycle trust.
-        failures=int(m.get("failure_count",0)); successes=int(m.get("success_count",0))
-        if failures>=3 and failures>successes and r.get("operational_state")=="ACTIVE":r["operational_state"]="DEGRADED"
-        if failures>=5 and failures>=max(1,successes*2):r["operational_state"]="QUARANTINED"
+        # React to consecutive failures rather than lifetime totals: a healthy
+        # skill should not be quarantined for unrelated historical failures.
+        # A successful call resets the streak but never automatically lifts
+        # an existing quarantine (that requires explicit review).
+        streak = 0 if success else int(m.get("consecutive_failures", 0)) + 1
+        m["consecutive_failures"] = streak
+        if r.get("operational_state") in {"ACTIVE", "DEGRADED"}:
+            if streak >= 5:
+                r["operational_state"] = "QUARANTINED"
+                r["history"].append({"operational_to": "QUARANTINED", "at": _now(), "reason": "five consecutive execution failures"})
+            elif streak >= 3 and r.get("operational_state") == "ACTIVE":
+                r["operational_state"] = "DEGRADED"
+                r["history"].append({"operational_to": "DEGRADED", "at": _now(), "reason": "three consecutive execution failures"})
         self._save(r);return r
 
     def find_similar(self,capabilities):

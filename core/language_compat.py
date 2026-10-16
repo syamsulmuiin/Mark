@@ -48,9 +48,9 @@ def has_explicit_repair_apply_intent(text: str) -> bool:
     utterance = text or ""
     # A prohibition is not approval. The Live model may still request the tool,
     # but only an affirmative user instruction may authorize a write.
-    if re.search(r"\\b(jangan|tidak|belum|tanpa|do\\s+not|don\\x27t|not|without)\\b.{0,55}\\b(apply|implement|repair|fix|lakukan|terapkan|perbaiki|lanjutkan)\\b", utterance, re.I):
+    if re.search(r"\b(jangan|tidak|belum|tanpa|do\s+not|don't|not|without)\b.{0,90}\b(apply|implement|repair|fix|lakukan|terapkan|perbaiki|lanjutkan)\b", utterance, re.I):
         return False
-    if re.search(r"\\b(before|sebelum)\\b.{0,55}\\b(approve|setuju|menyetujui|persetujuan)\\b", utterance, re.I):
+    if re.search(r"\b(before|sebelum)\b.{0,90}\b(approve|setuju|menyetujui|persetujuan)\b", utterance, re.I):
         return False
     return bool(_REPAIR_APPLY_RE.search(utterance))
 

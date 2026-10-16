@@ -253,6 +253,8 @@ def select_related_tests(root: Path, changed_files: list[str]) -> list[str]:
     graph = {}
     for p in py_files:
         module = ".".join(p.relative_to(root).with_suffix("").parts)
+        if p.name == "__init__.py":
+            module = module.removesuffix(".__init__")
         graph[module] = _imported_modules(p, module)
     impacted = set(source_modules)
     while True:

@@ -244,10 +244,15 @@ def recover_incomplete_transactions() -> list[str]:
     for manifest_path in sorted(TX_DIR.glob("*/manifest.json")):
         try:
             obj = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if obj.get("status") not in {"PREPARED", "CANDIDATE_WRITTEN"}:
+            status = obj.get("status")
+            if status not in {"PREPARED", "CANDIDATE_WRITTEN"}:
                 continue
             txid = str(obj.get("id") or manifest_path.parent.name)
-            rollback(txid)
+            if status == "PREPARED":
+                # No production write has started: do not overwrite unrelated edits.
+                set_status(txid, "ROLLED_BACK", restored=[])
+            else:
+                rollback(txid)
             recovered.append(txid)
             audit("transaction_recovered_after_interruption", transaction=txid)
         except Exception as exc:

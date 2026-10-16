@@ -129,9 +129,11 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
         _record_failure({"problem": str(params.get("problem", "")), "hypothesis": str(params.get("root_cause", "")), "files_changed": [], "test_result": sandbox_results, "failure_reason": "sandbox validation failed before production write", "rollback": [], "confidence": "EXPERIMENTAL", "validation_status": "failed"})
         return f"Repair candidate failed sandbox validation; production files were not modified. Transaction: {txid}."
     try:
+        # Persist write intent before the first edit so crash recovery knows
+        # when restoring snapshots is necessary.
+        set_status(txid, "CANDIDATE_WRITTEN", changed_files=[x[0] for x in prepared])
         for rel, candidate in prepared:
             write_candidate(rel, candidate)
-        set_status(txid, "CANDIDATE_WRITTEN", changed_files=[x[0] for x in prepared])
         ok, results = validate_repository([x[0] for x in prepared])
         if not ok:
             restored = rollback(txid)

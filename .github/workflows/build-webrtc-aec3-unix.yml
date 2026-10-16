@@ -41,9 +41,20 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/depot_tools:$PATH"
           cd "$RUNNER_TEMP"
-          fetch --nohooks webrtc
-          cd src
-          gclient sync --no-history
+          # Chromium mirrors can intermittently return HTTP 503. Retry the
+          # source/dependency sync with bounded backoff and reduced concurrency.
+          for attempt in 1 2 3; do
+            if [ -d src/.git ]; then
+              (cd src && gclient sync --no-history --nohooks --jobs=2) && break
+            else
+              fetch --nohooks webrtc && (cd src && gclient sync --no-history --nohooks --jobs=2) && break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::WebRTC source sync failed after 3 attempts"
+              exit 1
+            fi
+            sleep $((attempt * 20))
+          done
       - name: Compile AEC3
         shell: bash
         run: |

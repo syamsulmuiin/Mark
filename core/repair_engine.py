@@ -197,19 +197,34 @@ def write_candidate(rel: str, text: str) -> None:
     _atomic_write(BASE_DIR / normalize_rel(rel), text)
 
 
-def _imported_modules(path: Path) -> set[str]:
-    """Collect statically visible imports without executing source."""
+def _imported_modules(path: Path, module: str = "") -> set[str]:
+    """Collect static imports, including package-relative imports, without execution."""
     import ast
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, SyntaxError):
         return set()
     modules = set()
+    package = module.split(".")[:-1]
+    if path.name == "__init__.py":
+        package = module.split(".")
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             modules.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            modules.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                if node.level > len(package):
+                    continue
+                prefix = package[:len(package) - node.level + 1]
+                base = ".".join(prefix + ([node.module] if node.module else []))
+            else:
+                base = node.module or ""
+            if base:
+                modules.add(base)
+            # from . import sibling / from pkg import child
+            for alias in node.names:
+                if alias.name != "*" and base:
+                    modules.add(base + "." + alias.name)
     return modules
 
 
@@ -238,7 +253,7 @@ def select_related_tests(root: Path, changed_files: list[str]) -> list[str]:
     graph = {}
     for p in py_files:
         module = ".".join(p.relative_to(root).with_suffix("").parts)
-        graph[module] = _imported_modules(p)
+        graph[module] = _imported_modules(p, module)
     impacted = set(source_modules)
     while True:
         next_impacted = impacted | {module for module, imports in graph.items()

@@ -170,6 +170,10 @@ def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
         return "Dry-run diagnosis could not identify source files confidently. No source changes were made."
 
     context = _read_context(selected)
+    # Explain the affected validation surface before suggesting any patch.
+    # Import here to keep diagnostic read-only and avoid extra startup coupling.
+    from core.repair_engine import select_related_tests
+    related_tests = select_related_tests(BASE_DIR, selected)
     prior = search_knowledge(problem, limit=5)
     prior_context = json.dumps(prior, ensure_ascii=False)[:12000] if prior else "(none)"
     prompt = f"""You are a senior engineer performing READ-ONLY self-repair diagnosis on Mark/JARVIS.
@@ -201,7 +205,7 @@ STRICT DRY-RUN RULES:
 - Follow the complete relevant dependency path before concluding.
 - Prefer the smallest root-cause patch.
 
-Inspected source:{context}
+Related regression tests (static import dependencies; not proof of coverage):\n{json.dumps(related_tests, ensure_ascii=False)}\n\nInspected source:{context}
 
 Return ONLY valid JSON with exactly these keys:
 {{
@@ -265,6 +269,8 @@ Return ONLY valid JSON with exactly these keys:
         f"Risk level: {obj.get('risk_level', 'unknown')}",
         "Inspected: " + ", ".join(obj.get("files_inspected", selected)),
         "Would change: " + (", ".join(proposed) if proposed else "none"),
+        "Related tests: " + (", ".join(related_tests) if related_tests else "none detected; full suite still required"),
+        "Validation gate: focused dependency tests, then mandatory full server test suite in sandbox and after apply.",
     ]
     if plan_id:
         lines.append("Repair plan: " + plan_id)

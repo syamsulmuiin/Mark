@@ -10,10 +10,10 @@ import os
 import json
 from pathlib import Path
 
-DEFAULT_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
-DEFAULT_LIVE_FALLBACK_MODEL = "gemini-2.5-flash-native-audio-preview-09-2025"
-DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
-DEFAULT_TEXT_FALLBACK_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_LIVE_MODEL = "gemini-3.8-live"
+DEFAULT_LIVE_FALLBACK_MODEL = "gemini-3.1-flash-live-preview"
+DEFAULT_TEXT_MODEL = "gemini-3.8-flash"
+DEFAULT_TEXT_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 
 # Ordered from the measured fast/stable models toward rolling or historically
 # unavailable aliases. The ladder is intentionally configurable without changing

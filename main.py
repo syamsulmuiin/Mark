@@ -1244,7 +1244,8 @@ class JarvisLive:
                 # Safety/UX gate: model routing alone must never turn a vague error
                 # observation into a long diagnostic tool run.  Require explicit
                 # diagnostic/repair intent in the user's actual latest utterance and
-                # enough symptom detail to diagnose something concrete.
+                # enough context to diagnose; an explicit request to inspect recent server logs
+                # is itself concrete diagnostic intent even without a pasted traceback.
                 _last_user = (self._current_user_transcript or next((x[5:].strip() for x in reversed(self._session_log) if x.startswith("User:")), ""))
                 _intent = has_explicit_diagnostic_intent(_last_user)
                 _generic = is_generic_error_report(_last_user)
@@ -1254,7 +1255,7 @@ class JarvisLive:
                     "user noticed an error and wants diagnosis",
                     "potential error",
                 }
-                if not _intent or _generic or _invented_generic:
+                if not _intent or (_invented_generic and not _last_user.strip()):
                     result = (
                         "Diagnostic was not started. The user has not yet provided explicit diagnostic intent "
                         "with a concrete symptom. Respond conversationally first: acknowledge the issue, ask what "

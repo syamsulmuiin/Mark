@@ -12,7 +12,12 @@ from core.action_result import make,SUCCESS,FAILED,BLOCKED
 class DynamicSkillRegistry:
     def __init__(self,base_dir,skills):
         self.root=Path(base_dir)/"evolved_skills";self.root.mkdir(parents=True,exist_ok=True);self.skills=skills
-    def _dir(self,sid):return self.root/str(sid)
+    def _dir(self,sid):
+        # Skill IDs are storage keys, never filesystem paths supplied by a model.
+        sid = str(sid)
+        if not sid or sid in {'.', '..'} or not all(ch.isalnum() or ch in '-_' for ch in sid):
+            raise ValueError('invalid_skill_id')
+        return self.root/sid
     def install_verified(self,record,source,manifest,validation):
         if record.get('status') not in {'VERIFIED','TRUSTED'}:raise PermissionError('generated skill must be VERIFIED before runtime registration')
         if record.get('skill_type')!='GENERATED':raise ValueError('not a generated skill')

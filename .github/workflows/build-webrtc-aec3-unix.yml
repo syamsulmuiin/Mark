@@ -49,19 +49,17 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/depot_tools:$PATH"
           cd "$RUNNER_TEMP"
-          # Chromium mirrors can intermittently return HTTP 503. Retry the
-          # source/dependency sync with bounded backoff and reduced concurrency.
+          # Retry from a clean checkout after transient Chromium Git HTTP 503s.
           for attempt in 1 2 3; do
-            if [ -d src/.git ]; then
-              (cd src && gclient sync --no-history --nohooks --jobs=2) && break
-            else
-              fetch --nohooks webrtc && (cd src && gclient sync --no-history --nohooks --jobs=2) && break
+            rm -rf "$RUNNER_TEMP/src" "$RUNNER_TEMP/.gclient" "$RUNNER_TEMP/.gclient_entries" "$RUNNER_TEMP/_bad_scm"
+            if fetch --nohooks webrtc && (cd src && gclient sync --no-history --nohooks --jobs=2); then
+              break
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "::error::WebRTC source sync failed after 3 attempts"
               exit 1
             fi
-            sleep $((attempt * 20))
+            sleep $((attempt * 30))
           done
       - name: Install Linux target sysroot
         if: runner.os == 'Linux'
@@ -76,7 +74,11 @@ jobs:
             linux-armhf) arch=arm ;;
             *) echo "::error::Unsupported Linux target"; exit 1 ;;
           esac
-          python3 build/linux/sysroot_scripts/install-sysroot.py --arch="$arch"
+          # ARM cross-builds also compile host-side tools for amd64.
+          python3 build/linux/sysroot_scripts/install-sysroot.py --arch=amd64
+          if [ "$arch" != amd64 ]; then
+            python3 build/linux/sysroot_scripts/install-sysroot.py --arch="$arch"
+          fi
       - name: Compile AEC3
         shell: bash
         run: |

@@ -1,10 +1,7 @@
 name: Build Unix WebRTC AEC3
+# Optional native AEC3 build: manual only. Normal pushes must not fetch Chromium.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/build-webrtc-aec3-unix.yml'
-      - 'desktop-companion/native/**'
 permissions:
   contents: read
 jobs:

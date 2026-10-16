@@ -2,6 +2,19 @@ name: Build Unix WebRTC AEC3
 # Optional native AEC3 build: manual only. Normal pushes must not fetch Chromium.
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build only the selected failing platform; all is explicit'
+        required: true
+        type: choice
+        default: linux-arm64
+        options:
+          - linux-arm64
+          - linux-armhf
+          - macos-arm64
+          - macos-x64
+          - linux-x64
+          - all
 permissions:
   contents: read
 jobs:
@@ -27,6 +40,7 @@ jobs:
           - os: macos-15-intel
             label: macos-x64
             extension: dylib
+    if: ${{ inputs.target == 'all' || inputs.target == matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     steps:

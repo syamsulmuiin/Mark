@@ -56,11 +56,11 @@ def test_note_failure_assigns_category_specific_cooldowns(gemini, monkeypatch):
 
 
 def test_ladders_use_configured_text_primary_and_fallback_only(gemini):
-    assert gemini._LADDERS[gemini.FAST] == ("gemini-2.5-flash", "gemini-2.5-flash-lite")
-    assert set(gemini._LADDERS[gemini.SMART]) == {"gemini-2.5-flash", "gemini-2.5-flash-lite"}
+    assert gemini._LADDERS[gemini.FAST] == ("gemini-3.8-flash", "gemini-3.5-flash-lite")
+    assert set(gemini._LADDERS[gemini.SMART]) == {"gemini-3.8-flash", "gemini-3.5-flash-lite"}
     assert gemini.LIVE_MODELS == (
-        "gemini-2.5-flash-native-audio-preview-12-2025",
-        "gemini-2.5-flash-native-audio-preview-09-2025",
+        "gemini-3.8-live",
+        "gemini-3.1-flash-live-preview",
     )
 
 

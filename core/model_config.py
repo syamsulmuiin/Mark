@@ -82,7 +82,7 @@ def get_live_models() -> tuple[str, ...]:
     configured = _csv_models(_model_setting("ASSISTANT_LIVE_MODELS", "live_models"))
     if configured:
         return configured
-    return (get_live_model(), get_live_fallback_model())
+    return tuple(dict.fromkeys((get_live_model(), get_live_fallback_model())))
 
 
 def get_text_models() -> tuple[str, ...]:
@@ -95,7 +95,7 @@ def get_text_models() -> tuple[str, ...]:
     primary_override = _model_setting("ASSISTANT_TEXT_MODEL", "text_model")
     fallback_override = _model_setting("ASSISTANT_TEXT_FALLBACK_MODEL", "text_fallback_model")
     if primary_override or fallback_override:
-        return tuple(dict.fromkeys([primary_override, fallback_override, *DEFAULT_TEXT_MODELS]))
+        return tuple(dict.fromkeys(model for model in (primary_override, fallback_override, *DEFAULT_TEXT_MODELS) if model))
     return DEFAULT_TEXT_MODELS
 
 

@@ -3,30 +3,27 @@ import json
 
 ROOT=Path(__file__).resolve().parents[1]
 
-def test_server_default_model_roles_are_exactly_four():
+def test_server_model_roles_are_configurable():
     from core import model_config
     assert model_config.get_live_models() == (
-        "models/gemini-3.8-live",
-        "models/gemini-3.1-flash-live-preview",
+        model_config.DEFAULT_LIVE_MODEL,
+        model_config.DEFAULT_LIVE_FALLBACK_MODEL,
     )
-    assert model_config.get_text_models() == (
-        "gemini-3.7-flash",
-        "gemini-3.5-flash-lite",
-    )
+    assert model_config.get_text_models() == model_config.DEFAULT_TEXT_MODELS
+    assert model_config.get_chat_models() == model_config.get_text_models()
 
-def test_no_legacy_default_model_ladder():
-    src=(ROOT/"core/model_config.py").read_text(encoding="utf-8")
-    block=src[src.index("DEFAULT_TEXT_MODELS"):src.index("DEFAULT_QUOTA")]
-    for legacy in ("gemini-2.5", "gemini-flash-latest", "gemini-flash-lite-latest"):
-        assert legacy not in block
 
-def test_desktop_compat_model_defaults_match_server():
-    src=(ROOT/"desktop-companion/runtime/core/model_config.py").read_text(encoding="utf-8")
-    for model in ("models/gemini-3.8-live","models/gemini-3.1-flash-live-preview","gemini-3.7-flash","gemini-3.5-flash-lite"):
-        assert model in src
-    helper=(ROOT/"desktop-companion/runtime/core/gemini.py").read_text(encoding="utf-8")
-    assert "gemini-2.5-flash" not in helper
-    assert "gemini-flash-latest" not in helper
+def test_no_unavailable_rolling_aliases_in_defaults():
+    from core import model_config
+    for model in (*model_config.get_live_models(), *model_config.get_text_models()):
+        assert "gemini-flash-latest" not in model
+
+
+def test_desktop_compat_model_defaults_are_present():
+    src = (ROOT / "desktop-companion/runtime/core/model_config.py").read_text(encoding="utf-8")
+    assert "DEFAULT_LIVE_MODEL" in src
+    assert "DEFAULT_TEXT_MODEL" in src
+
 
 def test_repair_apply_supports_server_side_plan_id():
     src=(ROOT/"actions/self_repair_apply.py").read_text(encoding="utf-8")

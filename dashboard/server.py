@@ -642,7 +642,13 @@ class DashboardServer:
             return False
         self._approval_pending.pop(request_id, None)
         if self._approval_result_callback:
-            self._approval_result_callback(request_id, msg["accepted"])
+            try:
+                self._approval_result_callback(request_id, msg["accepted"])
+            except Exception:
+                _interaction_event("approval_callback_error", device_id=device_id)
+                return False
+        _interaction_event("approval_resolved", device_id=device_id,
+                           outcome="accepted" if msg["accepted"] else "rejected")
         return True
 
     async def send_active_approval(self, request_id: str, title: str, detail: str,
@@ -671,6 +677,7 @@ class DashboardServer:
         except Exception:
             self._approval_pending.pop(request_id, None)
             return None
+        _interaction_event("approval_sent", device_id=device_id)
         return device_id
 
     async def send_device_audio(self, pcm: bytes) -> None:
@@ -1310,7 +1317,12 @@ class DashboardServer:
                         if self._interrupt_callback:
                             self._interrupt_callback()
                     elif msg.get("type") == "approval.response":
-                        self.accept_approval_reply(device_id, websocket, msg)
+                        valid = self.accept_approval_reply(device_id, websocket, msg)
+                        await websocket.send_json({
+                            "type": "approval.ack",
+                            "request_id": str(msg.get("request_id") or ""),
+                            "status": ("accepted" if msg.get("accepted") else "rejected") if valid else "expired_or_invalid",
+                        })
                     elif msg.get("type") == "jarvis.heartbeat":
                         await websocket.send_json({"type": "jarvis.heartbeat.ack", "ts": msg.get("ts")})
                     elif msg.get("type") == "attachment.picker.received":

@@ -1257,6 +1257,15 @@ class JarvisLive:
                 from core.llm_proposal_handoff import ProposalHandoff
                 if not hasattr(self, "_text_proposal_handoff"):
                     self._text_proposal_handoff = ProposalHandoff()
+                # Reject proposals that cannot be displayed in full on the
+                # confirmation surface; never approve hidden/truncated arguments.
+                _args_preview = json.dumps(
+                    proposed["args"], ensure_ascii=False, sort_keys=True
+                )
+                if len(_args_preview) > 3000:
+                    raise ValueError("Proposed arguments are too long to review")
+                if confirm_gate.pending_request() is not None:
+                    raise RuntimeError("Another user confirmation is pending")
                 proposal_token = self._text_proposal_handoff.stage(proposed)
                 # Only the existing HUD/paired-companion confirmation gate may
                 # authorize execution. The Live model cannot call this callback.
@@ -1276,18 +1285,20 @@ class JarvisLive:
                     detail=(
                         "Text LLM proposed this action (not yet executed).\n"
                         + "Tool: " + proposed["tool"] + "\n"
-                        + "Arguments: " + json.dumps(
-                            proposed["args"], ensure_ascii=False, sort_keys=True
-                        )[:3000] + "\n"
+                        + "Arguments: " + _args_preview + "\n"
                         + "Approve only if you requested this action."
                     ),
                     run=_run_approved_proposal,
                 )
-                answer = {
-                    "result": proposed,
-                    "approval_required": True,
-                    "confirmation": _approval_message,
-                }
+                if not _approval_message.startswith("[CONFIRMATION_PENDING]"):
+                    self._text_proposal_handoff.clear()
+                    answer = {"error": _approval_message, "executed": False}
+                else:
+                    answer = {
+                        "result": proposed,
+                        "approval_required": True,
+                        "confirmation": _approval_message,
+                    }
             except Exception as exc:
                 answer = {"error": f"Text action proposal failed: {type(exc).__name__}: {exc}"}
             if not self.ui.muted:

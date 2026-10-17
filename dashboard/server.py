@@ -489,6 +489,8 @@ class DashboardServer:
         self._device_sockets: dict[str, WebSocket] = {}
         self._device_pending_calls: dict[str, asyncio.Future] = {}
         self._active_voice_device: str | None = None
+        self._approval_pending: dict[str, dict] = {}
+        self._approval_result_callback = None
         # Stable origin for device-local routing. Keep separate from the voice
         # transport target so tool routing can never steal or clear audio state.
         self._origin_device_id: str | None = None
@@ -621,6 +623,28 @@ class DashboardServer:
         for device_id in dead_devices:
             self._device_sockets.pop(device_id, None)
 
+    def set_approval_result_callback(self, callback) -> None:
+        """Callback receives (request_id, accepted) after strict validation."""
+        self._approval_result_callback = callback
+
+    def accept_approval_reply(self, device_id: str, websocket, msg: dict) -> bool:
+        """Consume a reply only from the original socket, before expiry."""
+        request_id = str(msg.get("request_id") or "")
+        pending = self._approval_pending.get(request_id)
+        if not pending or pending["device_id"] != device_id:
+            return False
+        if pending["socket"] is not websocket or self._device_sockets.get(device_id) is not websocket:
+            return False
+        if time.monotonic() >= pending["expires"]:
+            self._approval_pending.pop(request_id, None)
+            return False
+        if type(msg.get("accepted")) is not bool:
+            return False
+        self._approval_pending.pop(request_id, None)
+        if self._approval_result_callback:
+            self._approval_result_callback(request_id, msg["accepted"])
+        return True
+
     async def send_active_approval(self, request_id: str, title: str, detail: str,
                                    timeout_seconds: int = 15) -> str | None:
         """Send an approval only to the authenticated active voice companion.
@@ -632,6 +656,12 @@ class DashboardServer:
         if not device_id or device_id not in self._device_sockets:
             return None
         ws = self._device_sockets[device_id]
+        if not request_id or request_id in self._approval_pending:
+            return None
+        self._approval_pending[request_id] = {
+            "device_id": device_id, "socket": ws,
+            "expires": time.monotonic() + timeout_seconds,
+        }
         try:
             await ws.send_json({
                 "type": "approval.request", "request_id": request_id,
@@ -639,6 +669,7 @@ class DashboardServer:
                 "timeout_seconds": timeout_seconds,
             })
         except Exception:
+            self._approval_pending.pop(request_id, None)
             return None
         return device_id
 
@@ -1278,6 +1309,8 @@ class DashboardServer:
                         _interaction_event("device_interrupt", device_id=device_id)
                         if self._interrupt_callback:
                             self._interrupt_callback()
+                    elif msg.get("type") == "approval.response":
+                        self.accept_approval_reply(device_id, websocket, msg)
                     elif msg.get("type") == "jarvis.heartbeat":
                         await websocket.send_json({"type": "jarvis.heartbeat.ack", "ts": msg.get("ts")})
                     elif msg.get("type") == "attachment.picker.received":
@@ -1385,6 +1418,9 @@ class DashboardServer:
                 print(f"[ERROR DeviceWebSocket] device={device_id} error={type(exc).__name__}: {exc}")
             finally:
                 _interaction_event("device_disconnect", device_id=device_id, reason=disconnect_reason)
+                for approval_id, approval in list(self._approval_pending.items()):
+                    if approval["socket"] is websocket:
+                        self._approval_pending.pop(approval_id, None)
                 if self._device_sockets.get(device_id) is websocket:
                     self._device_sockets.pop(device_id, None)
                 if self._active_voice_device == device_id:

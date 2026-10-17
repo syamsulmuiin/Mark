@@ -1,4 +1,4 @@
-"""Minimal OpenAI-compatible text adapter for future Mark chat/tool routing.
+"""OpenAI-compatible text adapter for Mark chat and reasoning routing.
 
 This module does not replace Gemini Live or support function/tool calls.
 Credentials and model names are explicit; no implicit provider fallback.

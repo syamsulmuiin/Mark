@@ -7,8 +7,10 @@ from __future__ import annotations
 from core.chat_router import generate_chat_text
 
 
-def generate(prompt: str, *, config: dict | None = None) -> str:
+def generate(prompt: str, *, config: dict | None = None, timeout: float | None = None) -> str:
     """Generate plain text with the configured chat provider."""
+    if timeout is not None:
+        return generate_chat_text(prompt, config=config, timeout=timeout)
     return generate_chat_text(prompt, config=config)
 
 

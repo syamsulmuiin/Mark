@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from core import gemini
+from core import reasoning as gemini
 from core.repair_engine import PROTECTED_EXACT, PROTECTED_PREFIXES, search_knowledge
 from actions.runtime_diagnostics import collect_runtime_evidence
 
@@ -39,16 +39,8 @@ def _source_files() -> list[str]:
 
 
 def _diagnostic_json(prompt: str, timeout_ms: int) -> dict:
-    """Prefer REST reasoning; use bounded Live fallback only for provider exhaustion/outage."""
-    obj = gemini.as_json(prompt, tier=gemini.SMART, timeout_ms=timeout_ms, default={}) or {}
-    if obj:
-        return obj
-    errors = gemini.last_call_errors() if hasattr(gemini, "last_call_errors") else ()
-    if errors and all(
-            err == "cooldown" or gemini.is_quota_error(err) or gemini.is_unavailable_error(err)
-            for _model, err in errors):
-        return gemini.as_json(prompt, tier=gemini.LIVE, timeout_ms=timeout_ms, default={}) or {}
-    return {}
+    """Use the selected text provider; never consume voice quota as fallback."""
+    return gemini.as_json(prompt, tier=gemini.SMART, timeout_ms=timeout_ms, default={}) or {}
 
 
 def _json_obj(raw: str) -> dict:

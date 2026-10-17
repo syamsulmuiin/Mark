@@ -18,7 +18,7 @@ API_CONFIG_PATH  = BASE_DIR / "config" / "api_keys.json"
 PROJECTS_DIR     = ARTIFACT_ROOT / "projects"
 MAX_FIX_ATTEMPTS = 5
 # Model choice, timeout and fallback ladder all live in core/gemini.py.
-from core import gemini
+from core import reasoning as gemini
 
 MODEL_PLANNER    = gemini.SMART
 MODEL_WRITER     = gemini.SMART

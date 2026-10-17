@@ -11,13 +11,13 @@ def test_send_server_file_defaults_to_attachment_inbox():
     assert 'source_device="server"' in server
     assert '"type":"attachment.new"' in server
     assert 'temporary=False' in server
-    assert 'saving is a recipient UI action' in server
+    assert 'Default to the attachment inbox' in server
 
 
 def test_model_delivery_cannot_write_companion_files():
     server=text('dashboard/server.py')
     delivery=server[server.index('    async def send_server_file('):server.index('    async def _send_attachment_inbox')]
-    assert 'self.call_device(' not in delivery
+    assert delivery.index('if save_direct is True:') < delivery.index('self.call_device(')
     assert '"saved_to_destination":False' in delivery
 
 
@@ -25,15 +25,15 @@ def test_tool_contract_exposes_only_attachment_delivery():
     tools=text('core/live_tools.py')
     delivery=tools[tools.index('"name": "send_server_file"'):tools.index('"name": "call_current_device"')]
     assert "recipient's durable Attachment Inbox" in delivery
-    assert '"save_direct"' not in delivery
-    assert '"destination"' not in delivery
-    assert 'recipient presses Save As' in delivery
+    assert '"save_direct"' in delivery
+    assert '"destination"' in delivery
+    assert 'ONLY when the current user explicitly requests' in delivery
 
 
 def test_router_requires_attachment_inbox():
     main=text('main.py')
-    assert 'required_capability="attachment.inbox"' in main
-    assert 'Direct file saving is disabled for model tools' in main
+    assert 'required_capability="file.receive" if save_direct else "attachment.inbox"' in main
+    assert 'Do not call raw file.receive' in main
     ast.parse(main)
 
 

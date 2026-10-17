@@ -42,13 +42,14 @@ object AttachmentTransfer {
             return JSONObject().put("name",displayName).put("stored_name",server.optString("name",displayName)).put("sha256",hash).put("size",total).toString()
         }
     }
-    fun receive(activity: Activity, client: OkHttpClient, args: JSONObject): String {
-        if(Build.VERSION.SDK_INT<29) error("file.receive to shared Downloads is unsupported on Android below 10 without legacy storage permission")
+    fun receive(activity: Activity, client: OkHttpClient, args: JSONObject, selectedUri: Uri? = null): String {
+        if(!args.optBoolean("explicit_save",false)) error("Explicit user save request required")
+        if(selectedUri==null && Build.VERSION.SDK_INT<29) error("Use Save As to select a document on Android below 10")
         val name=args.optString("name","file").replace(Regex("[\\/]+"),"_")
         val destination=args.optString("destination").trim()
-        if(destination != "Downloads/Mark") error("Unsupported or unspecified destination: $destination")
-        val values=ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME,name); put(MediaStore.MediaColumns.MIME_TYPE,"application/octet-stream"); put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/Mark") }
-        val outUri=activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)?:error("Cannot create destination file")
+        if(selectedUri==null && destination != "Downloads/Mark") error("Unsupported or unspecified destination: $destination")
+        val values=ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME,name); put(MediaStore.MediaColumns.MIME_TYPE,if(name.endsWith(".log",true)||name.endsWith(".txt",true))"text/plain" else "application/octet-stream"); put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/Mark") }
+        val outUri=selectedUri ?: activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)?:error("Cannot create destination file")
         val digest=MessageDigest.getInstance("SHA-256"); var total=0L
         try {
             client.newCall(Request.Builder().url(args.getString("url")).get().build()).execute().use { r ->
@@ -58,7 +59,15 @@ object AttachmentTransfer {
             }
             val hash=digest.digest().joinToString(""){"%02x".format(it)}
             if(hash!=args.getString("sha256")||total!=args.getLong("size")) error("Downloaded file failed SHA-256/size verification")
-            return JSONObject().put("saved_to","Downloads/Mark/$name").put("uri",outUri.toString()).put("sha256",hash).put("size",total).toString()
+            val savedDigest=MessageDigest.getInstance("SHA-256"); var savedSize=0L
+            activity.contentResolver.openInputStream(outUri)?.use { src ->
+                val buf=ByteArray(1024*1024)
+                while(true){val n=src.read(buf);if(n<=0)break;savedDigest.update(buf,0,n);savedSize+=n}
+            }?:error("Cannot verify saved file")
+            val savedHash=savedDigest.digest().joinToString(""){"%02x".format(it)}
+            if(savedHash!=hash || savedSize!=total)error("Saved file failed SHA-256/size verification")
+            return JSONObject().put("saved_to",if(selectedUri!=null)"user_selected_document" else "Downloads/Mark/$name")
+                .put("uri",outUri.toString()).put("sha256",savedHash).put("size",savedSize).toString()
         } catch(e:Exception){ activity.contentResolver.delete(outUri,null,null); throw e }
     }
 }

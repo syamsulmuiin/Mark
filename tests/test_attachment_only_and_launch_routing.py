@@ -26,7 +26,8 @@ def _method(path, cls_name, method_name, namespace):
 
 
 @pytest.mark.parametrize('online',[True,False])
-def test_legacy_direct_save_still_delivers_attachment_without_device_write(tmp_path,online):
+@pytest.mark.parametrize('direct_flag',[False, 'false', None])
+def test_default_delivery_stays_attachment_despite_destination_argument(tmp_path,online,direct_flag):
     runtime=tmp_path/'runtime';runtime.mkdir()
     source=runtime/'error.log';source.write_text('diagnostic evidence')
     messages=[]
@@ -41,7 +42,7 @@ def test_legacy_direct_save_still_delivers_attachment_without_device_write(tmp_p
                '_safe_filename':lambda name:name,'_interaction_event':lambda *a,**k:None}
     method=_method('dashboard/server.py','DashboardServer','send_server_file',namespace)
     result=asyncio.run(method(host,'phone','runtime/error.log','friendly.txt',
-                             save_direct=True,destination='Downloads/Mark'))
+                             save_direct=direct_flag,destination='Downloads/Mark'))
     assert result['ok'] is True
     assert result['saved_to_destination'] is False
     assert result['name']=='friendly.log'
@@ -59,7 +60,7 @@ def test_generic_device_call_cannot_bypass_attachment_policy():
     host=NS(_device_action_signature=signature,_blocked_device_action=None)
     sig,error=method(host,'phone','file.receive',{'url':'https://example.invalid/file'})
     assert sig=='signature'
-    assert 'Send an attachment' in error
+    assert 'send_server_file' in error
 
 
 def test_unverified_or_failed_device_json_blocks_blind_retry():

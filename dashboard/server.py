@@ -946,8 +946,8 @@ class DashboardServer:
     async def send_server_file(self, destination_device: str, source: str, destination_name: str = "", *, save_direct: bool = False, destination: str = ""):
         """Deliver a server-created file to a companion.
 
-        Always deliver to the durable attachment inbox. Legacy save_direct and
-        destination arguments are ignored; saving is a recipient UI action.
+        Default to the attachment inbox on all companions. Only an explicit
+        save_direct=True request invokes file.receive at the requested destination.
         """
         approved = approve_server_export(source, base_dir=BASE_DIR)
         path = approved.path
@@ -958,10 +958,29 @@ class DashboardServer:
         # Server-created artifacts remain reusable after delivery/save.
         info = self._file_store.ingest(tmp, name, temporary=False)
 
-        # Keep legacy keyword arguments compatible, but never let model output
-        # write to a companion filesystem. Only recipient-side Save As saves.
-        if save_direct:
-            _interaction_event("direct_save_redirected_to_inbox", device_id=destination_device)
+        if save_direct is True:
+            requested_destination = str(destination or "").strip()
+            payload = {
+                "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" +
+                       self._new_transfer_ticket("download", sha256=info["sha256"], name=name),
+                "name": name, "sha256": info["sha256"], "size": info["size"],
+                "explicit_save": True,
+            }
+            # No forced Downloads destination on either platform. If absent,
+            # the native Save As dialog is used for this explicit save request.
+            if requested_destination:
+                payload["destination"] = requested_destination
+            reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
+            if (not isinstance(reply, dict) or reply.get("ok") is not True
+                    or reply.get("verified") is not True
+                    or str(reply.get("status") or "").upper() != "SUCCESS"):
+                reason = str(reply.get("reason") or reply.get("result") or "unknown") if isinstance(reply, dict) else "unknown"
+                raise RuntimeError("Direct save failed or was not verified: " + reason)
+            return {"ok": True, "status": "saved_to_device", "name": name,
+                    "source": approved.source_path, "source_path": approved.source_path, "sha256": info["sha256"], "size": info["size"],
+                    "destination_device": destination_device, "saved_to_destination": True,
+                    "destination_verified": True, "result": reply.get("result")}
+
         item = self._attachment_inbox.create(
             source_device="server", destination_device=destination_device,
             name=name, sha256=info["sha256"], size=info["size"],

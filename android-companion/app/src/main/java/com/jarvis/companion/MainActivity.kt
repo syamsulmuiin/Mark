@@ -97,6 +97,8 @@ class MainActivity : AppCompatActivity() {
     private var companionBack: ImageButton? = null
     private var sourcePickerLatch: CountDownLatch? = null
     private var pickedSourceUri: Uri? = null
+    private var destinationPickerLatch: CountDownLatch? = null
+    private var pickedDestinationUri: Uri? = null
     private var pendingPickerRequestId: String? = null
     @Volatile private var assistantTurnComplete = false
     @Volatile private var intentionalVoiceEnd = false
@@ -726,6 +728,47 @@ class MainActivity : AppCompatActivity() {
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
     private fun executeCapability(w:WebSocket,m:JSONObject){ val cap=m.optString("capability"); val a=m.optJSONObject("args")?:JSONObject()
+        if(cap=="file.receive" && a.optString("destination")!="Downloads/Mark"){
+            var ok=false; var result="Save cancelled"; var reason="save_cancelled"
+            val latch=CountDownLatch(1); var ownsPicker=false
+            try {
+                if(!a.optBoolean("explicit_save",false)) error("Explicit user save request required")
+                synchronized(this){
+                    if(destinationPickerLatch!=null) error("Another save location request is pending")
+                    destinationPickerLatch=latch; pickedDestinationUri=null; ownsPicker=true
+                }
+                runOnUiThread { try {
+                    val requested=a.optString("destination").trim()
+                    val requestedFile=requested.isNotBlank() && !requested.endsWith("/") && !requested.startsWith("content://") && requested.substringAfterLast('/').contains('.')
+                    val title=if(requestedFile)requested.substringAfterLast('/') else a.optString("name","file")
+                    val location=if(requestedFile)requested.substringBeforeLast('/',"") else requested
+                    val saveIntent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType(attachmentMime(title)).putExtra(Intent.EXTRA_TITLE,title)
+                    if(Build.VERSION.SDK_INT>=26){
+                        val relative=location.removePrefix("/storage/emulated/0/").removePrefix("/sdcard/").trim('/')
+                        val initial=when {
+                            location.startsWith("content://")->Uri.parse(location)
+                            relative.isNotBlank() && !location.startsWith("/")->android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents","primary:$relative")
+                            location.startsWith("/storage/emulated/0/") || location.startsWith("/sdcard/")->android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents","primary:$relative")
+                            else->null
+                        }
+                        if(initial!=null)saveIntent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,initial)
+                    }
+                    startActivityForResult(saveIntent,94)
+                }catch(e:Exception){latch.countDown()} }
+                if(!latch.await(120,TimeUnit.SECONDS)) error("Save location selection timed out")
+                val selected=pickedDestinationUri?:error("Save location selection cancelled")
+                result=AttachmentTransfer.receive(this,client,a,selected)
+                ok=true; reason=""
+            }catch(e:Exception){result=e.message?:e.toString();reason=e.javaClass.simpleName}
+            finally{if(ownsPicker){destinationPickerLatch=null;pickedDestinationUri=null}}
+            w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id"))
+                .put("capability",cap).put("ok",ok).put("verified",ok)
+                .put("status",if(ok)"SUCCESS" else "FAILED").put("reason",reason)
+                .put("evidence",if(ok)JSONObject().put("verification","download_sha256_and_size_match") else JSONObject.NULL)
+                .put("result",result).toString())
+            return
+        }
         if(cap=="file.upload" && a.optString("source").isBlank()){
             val latch=CountDownLatch(1); sourcePickerLatch=latch; pickedSourceUri=null
             runOnUiThread { try {
@@ -971,6 +1014,10 @@ class MainActivity : AppCompatActivity() {
                     else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
                 } else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
             }
+        }
+        if(requestCode==94){
+            if(resultCode==RESULT_OK)pickedDestinationUri=data?.data
+            destinationPickerLatch?.countDown()
         }
         if(requestCode==91){
             if(resultCode==RESULT_OK && data?.data!=null){ pendingSaveUri=data.data; pendingAttachment?.let { requestAttachment(it.first,"save") } }

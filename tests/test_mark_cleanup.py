@@ -8,7 +8,7 @@ def test_android_and_server_share_canonical_download_destination():
     dashboard = (ROOT / "dashboard/server.py").read_text(encoding="utf-8")
     tools = (ROOT / "core/live_tools.py").read_text(encoding="utf-8")
     assert 'Downloads/Mark' in android
-    assert 'self.call_device(destination_device, "file.receive"' not in dashboard
+    assert 'if save_direct is True:' in dashboard
     assert 'Attachment Inbox' in tools
     assert 'Downloads/MARK-LIV' not in android + dashboard + tools
 

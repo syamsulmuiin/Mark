@@ -59,13 +59,15 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_server_file",
-        "description": "Send a file already present under the trusted server export roots runtime/ or storage/ to the current or another paired companion. Project source, config, and arbitrary server paths are rejected even if destination_name tries to disguise the file. Use this instead of transfer_file for runtime diagnostics, generated documents, reports, or stored artifacts. By default the file is delivered to the recipient's durable Attachment Inbox; the user can then Open, Save As to any location supported by the companion, or Share it. Never automatically save to Downloads or open a location picker. Saving happens only when the recipient presses Save As in the attachment UI. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "description": "Send a file already present under the trusted server export roots runtime/ or storage/ to the current or another paired companion. Project source, config, and arbitrary server paths are rejected even if destination_name tries to disguise the file. Use this instead of transfer_file for runtime diagnostics, generated documents, reports, or stored artifacts. By default the file is delivered to the recipient's durable Attachment Inbox; the user can then Open, Save As to any location supported by the companion, or Share it. Default to attachment delivery on Android and desktop. Set save_direct=true ONLY when the current user explicitly requests saving/downloading directly on that companion. A filename or words such as send, attach or give do not authorize direct saving. For an explicit direct save, pass the exact user-requested destination; if no location is given or Android needs a document grant, the companion opens its native Save As dialog. Never invent a Downloads destination. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "destination_device": {"type":"STRING", "description":"Exact paired destination device ID/name, or current for the companion handling this request."},
                 "source": {"type":"STRING", "description":"Path under runtime/ or storage/. The server resolves the canonical real path and rejects traversal/symlink escapes."},
-                "destination_name": {"type":"STRING", "description":"Optional display filename. It may rename the file but must preserve the original file extension/type."}
+                "destination_name": {"type":"STRING", "description":"Optional display filename. It may rename the file but must preserve the original file extension/type."},
+                "save_direct": {"type":"BOOLEAN", "description":"Default false. True only for an explicit current user request to save/download directly onto the companion."},
+                "destination": {"type":"STRING", "description":"Exact requested file path or existing folder for explicit direct saving. For a new desktop directory, end its path with /. Ignored unless save_direct=true. If omitted, the companion asks the user via Save As."}
             },
             "required": ["destination_device", "source"]
         }

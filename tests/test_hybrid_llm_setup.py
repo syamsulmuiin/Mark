@@ -78,7 +78,8 @@ def test_text_provider_setup_saves_model_and_key(tmp_path, monkeypatch):
     assert saved["llm_mode"] == "hybrid"
     assert saved["deepseek_api_key"] == "text-secret"
     assert saved["gemini_api_key"] == "live-secret"
-    assert saved["text_models"] == "deepseek-chat"
+    assert saved["chat_models"] == "deepseek-chat"
+    assert "text_models" not in saved
 
 
 def test_text_provider_without_model_does_not_change_config(tmp_path, monkeypatch):

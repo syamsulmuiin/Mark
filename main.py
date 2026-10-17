@@ -2639,6 +2639,32 @@ class JarvisLive:
             from dashboard.server import DashboardServer
             from core.network_config import DASHBOARD_PORT
             self._dashboard = DashboardServer()
+            # Companion approval is tied to the same pending gate as the HUD,
+            # but its random request ID is never a model-supplied tool argument.
+            def _approval_reply(request_id, accepted):
+                confirm_gate.resolve(accepted, expected_request_id=request_id)
+
+            def _show_companion_approval(title, detail):
+                pending = confirm_gate.pending_request()
+                if not pending:
+                    raise RuntimeError("approval request expired")
+                device_id = self._dashboard.active_voice_device
+                if not device_id or device_id not in self._dashboard._device_sockets:
+                    raise RuntimeError("no active connected companion for approval")
+                async def _deliver():
+                    owner = await self._dashboard.send_active_approval(
+                        pending["request_id"], title, detail,
+                        timeout_seconds=int(pending["timeout_seconds"]))
+                    if owner is None:
+                        confirm_gate.resolve(False, expected_request_id=pending["request_id"])
+                self._loop.create_task(_deliver())
+
+            self._dashboard.set_approval_result_callback(_approval_reply)
+            confirm_gate.bind(
+                show=_show_companion_approval,
+                hide=self.ui.hide_confirm,
+                log=self.ui.write_log,
+            )
             self._dashboard.set_interrupt_callback(self.interrupt)
             self._dashboard.set_attachment_result_callback(self._on_attachment_result)
             # Bind autonomous_goal to the same real execution boundaries used by

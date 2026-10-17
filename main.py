@@ -1012,7 +1012,24 @@ class JarvisLive:
         # Registries already guard normal name collisions, but deduplicating at
         # the final API boundary also protects against a stale/third-party
         # registry returning an inline declaration such as list_paired_devices.
-        _decl_candidates = (TOOL_DECLARATIONS
+        # The Live model handles speech; delegate substantive text reasoning to
+        # the independently selected text provider on explicit tool invocation.
+        _delegate_decl = {
+            "name": "delegate_to_text_llm",
+            "description": (
+                "Delegate reasoning, analysis, planning or a complex text question "
+                "to the configured Text LLM. Return its answer to the user in voice. "
+                "This tool does not execute actions; use normal tools for actions."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "prompt": {"type": "STRING", "description": "Complete question or task context for the Text LLM"}
+                },
+                "required": ["prompt"],
+            },
+        }
+        _decl_candidates = ([_delegate_decl] + TOOL_DECLARATIONS
                             + self._action_registry.get_tool_declarations()
                             + self._plugin_registry.get_tool_declarations())
         _all_decls = []
@@ -1179,6 +1196,22 @@ class JarvisLive:
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
+
+        if name == "delegate_to_text_llm":
+            from core.llm_text import generate as generate_text
+            prompt = str(args.get("prompt") or "").strip()
+            if not prompt:
+                answer = {"error": "A non-empty prompt is required"}
+            else:
+                try:
+                    response_text = await asyncio.to_thread(generate_text, prompt)
+                    answer = {"result": response_text}
+                except Exception as exc:
+                    # Do not silently switch to Gemini when another Text LLM fails.
+                    answer = {"error": f"Configured Text LLM failed: {type(exc).__name__}: {exc}"}
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(id=fc.id, name=name, response=answer)
 
         if name == "save_memory":
             category = args.get("category", "notes")

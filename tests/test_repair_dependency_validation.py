@@ -30,3 +30,19 @@ def test_missing_or_unparseable_imports_do_not_execute_code(tmp_path):
     _write(tmp_path, "core/leaf.py", "VALUE = 1\n")
     _write(tmp_path, "tests/test_bad.py", "not valid python !!!\n")
     assert select_related_tests(tmp_path, ["core/leaf.py"]) == []
+
+
+def test_relative_imports_include_indirect_dependents(tmp_path):
+    _write(tmp_path, "core/__init__.py", "")
+    _write(tmp_path, "core/leaf.py", "VALUE = 1\n")
+    _write(tmp_path, "core/service.py", "from .leaf import VALUE\n")
+    _write(tmp_path, "actions/consumer.py", "from core import service\n")
+    _write(tmp_path, "tests/test_consumer.py", "from actions.consumer import service\n")
+    assert select_related_tests(tmp_path, ["core/leaf.py"]) == ["tests/test_consumer.py"]
+
+
+def test_relative_package_import_from_init(tmp_path):
+    _write(tmp_path, "core/__init__.py", "from . import leaf\n")
+    _write(tmp_path, "core/leaf.py", "VALUE = 1\n")
+    _write(tmp_path, "tests/test_package.py", "import core\n")
+    assert select_related_tests(tmp_path, ["core/leaf.py"]) == ["tests/test_package.py"]

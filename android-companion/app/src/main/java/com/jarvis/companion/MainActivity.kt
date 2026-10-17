@@ -487,8 +487,9 @@ class MainActivity : AppCompatActivity() {
             setTextColor(navy)
             setPadding(0,0,0,dp(10))
         }
+        val detailParts=detail.split("\n\nTechnical details:\n",limit=2)
         val description=TextView(this).apply {
-            text=detail
+            text=detailParts[0]
             textSize=15f
             setTextColor(slate)
             setPadding(0,0,0,dp(18))
@@ -502,6 +503,30 @@ class MainActivity : AppCompatActivity() {
         panel.addView(eyebrow)
         panel.addView(heading)
         panel.addView(description)
+        if(detailParts.size==2){
+            val technical=TextView(this).apply {
+                text=detailParts[1]
+                textSize=12f
+                typeface=Typeface.MONOSPACE
+                setTextColor(navy)
+                setTextIsSelectable(true)
+                visibility=View.GONE
+                setPadding(0,0,0,dp(12))
+            }
+            val toggle=TextView(this).apply {
+                text="Lihat detail teknis dan isi lengkap"
+                textSize=14f
+                setTextColor(teal)
+                setPadding(0,dp(8),0,dp(12))
+                setOnClickListener {
+                    val show=technical.visibility!=View.VISIBLE
+                    technical.visibility=if(show) View.VISIBLE else View.GONE
+                    text=if(show) "Sembunyikan detail teknis" else "Lihat detail teknis dan isi lengkap"
+                }
+            }
+            panel.addView(toggle)
+            panel.addView(technical)
+        }
         panel.addView(countdown)
         var completed=false
         fun finish(accepted:Boolean){

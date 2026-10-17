@@ -3,6 +3,8 @@ import sys
 import json
 import re
 import time
+import hashlib
+import uuid
 from pathlib import Path
 from core.artifact_paths import ARTIFACT_ROOT
 
@@ -16,9 +18,8 @@ BASE_DIR           = get_base_dir()
 API_CONFIG_PATH    = BASE_DIR / "config" / "api_keys.json"
 ARTIFACTS         = ARTIFACT_ROOT / "code"
 MAX_BUILD_ATTEMPTS = 3
-# Model choice lives in core/gemini.py, and so does the timeout and the
-# fallback ladder. Writing a model name here is what left this file hanging
-# forever whenever that one alias was unwell.
+# Text reasoning follows the selected provider via core.reasoning.
+# Provider failure never authorizes a switch to another provider.
 from core import reasoning as gemini
 
 
@@ -35,7 +36,7 @@ def _get_gemini(tier: str = gemini.SMART):
         def generate_content(self, contents):
             resp = gemini.call(contents, tier=tier, timeout_ms=60000)
             if resp is None:
-                raise RuntimeError("every Gemini model on the ladder failed")
+                raise RuntimeError("the configured Text provider returned no response")
             return resp
 
     return _W()
@@ -187,7 +188,9 @@ Code:"""
     response = model.generate_content(prompt)
     code     = _clean_code(response.text)
     path     = _resolve_save_path(output_path, lang)
-    _save_file(path, code)
+    status = _save_file(path, code)
+    if not status.startswith("Saved to:"):
+        raise OSError(status)
     return code, path
 
 
@@ -300,7 +303,38 @@ def _build(description, language, output_path, args, timeout, speak=None, player
     if speak: speak(msg)
     return f"{msg}\n\nLast code saved to: {path}"
 
-def _write_action(description, language, output_path, player) -> str:
+def _write_action(description, language, output_path, player, literal_code="") -> str:
+    if literal_code:
+        # A supplied report/code body is content to save, not a generation prompt.
+        path = _resolve_save_path(output_path, language)
+        try:
+            path.resolve().relative_to(ARTIFACT_ROOT.resolve())
+            text_artifact = path.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json"}
+        except (ValueError, OSError):
+            text_artifact = False
+        if text_artifact:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            original = path
+            # Exclusive creation prevents overwriting an earlier generated attachment.
+            while True:
+                try:
+                    with path.open("x", encoding="utf-8", newline="") as fh:
+                        fh.write(literal_code)
+                    break
+                except FileExistsError:
+                    path = original.with_name(original.stem + "-" + uuid.uuid4().hex[:12] + original.suffix)
+            status = "Saved to: " + str(path)
+        else:
+            status = _save_file(path, literal_code)
+        if not status.startswith("Saved to:"):
+            return json.dumps({"ok": False, "status": "FAILED", "error": "File write failed"})
+        data = path.read_bytes()
+        if data != literal_code.encode("utf-8"):
+            return json.dumps({"ok": False, "status": "FAILED", "error": "File readback mismatch"})
+        return json.dumps({"ok": True, "status": "SUCCESS", "verified": True,
+                           "file_path": str(path.resolve()), "size": len(data),
+                           "sha256": hashlib.sha256(data).hexdigest(),
+                           "instruction": "Use this exact file_path for send_server_file. Do not guess a storage path."})
     if not description:
         return "Please describe what you want me to write, sir."
     if player:
@@ -551,7 +585,7 @@ def code_helper(
     language    = p.get("language", "python").strip()
     output_path = p.get("output_path", "").strip()
     file_path   = p.get("file_path", "").strip()
-    code        = p.get("code", "").strip()
+    code        = p.get("code", "")
     args        = p.get("args", [])
     timeout     = int(p.get("timeout", 30))
 
@@ -560,7 +594,7 @@ def code_helper(
         print(f"[Code] 🤖 Auto-detected: {action}")
 
     if action == "write":
-        return _write_action(description, language, output_path, player)
+        return _write_action(description, language, output_path or file_path, player, code)
 
     elif action == "edit":
         return _edit_action(
@@ -613,11 +647,11 @@ TOOL = {
             },
             "file_path": {
                 "type": "STRING",
-                "description": "Path to existing file for edit/explain/run/build"
+                "description": "Path to existing file for edit/explain/run/build; write also accepts this as an output_path alias"
             },
             "code": {
                 "type": "STRING",
-                "description": "Raw code string for explain"
+                "description": "Exact file contents for write (saved without regeneration), or code to explain/optimize"
             },
             "args": {
                 "type": "STRING",

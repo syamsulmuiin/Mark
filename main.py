@@ -1302,8 +1302,8 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        _trace_event("tool_started", tool=name)
-        print(f"[JARVIS] 🔧 {name}  {args}")
+        _trace_event("tool_requested", tool=name)
+        print(f"[JARVIS] 🔧 {name} argument_names={sorted(args)}")
         self.ui.set_state("THINKING")
 
 
@@ -1313,8 +1313,12 @@ class JarvisLive:
             declarations = (TOOL_DECLARATIONS
                             + self._action_registry.get_tool_declarations()
                             + self._plugin_registry.get_tool_declarations())
+            _proposal_stage = "generation"
             try:
+                _trace_event("text_action_proposal", stage="started")
                 proposed = await asyncio.to_thread(propose_action, task, declarations)
+                _trace_event("text_action_proposal", stage="validated", tool=proposed["tool"])
+                _proposal_stage = "review"
                 from core.action_policy import requires_confirmation
                 if not requires_confirmation(proposed["tool"], proposed["args"]):
                     from types import SimpleNamespace
@@ -1323,7 +1327,7 @@ class JarvisLive:
                         id=None, name=proposed["tool"], args=proposed["args"]))
                     # Reply to the provider's original function call, not the nested action.
                     return types.FunctionResponse(id=fc.id, name=name,
-                                                  response=action_response.response)
+                        response={"approval_required": False, "approval_sent": False, **action_response.response})
                 import hashlib
                 _proposal_key = hashlib.sha256(json.dumps({
                     "tool": proposed["tool"], "args": proposed["args"],
@@ -1337,7 +1341,7 @@ class JarvisLive:
                 _args_preview = json.dumps(
                     proposed["args"], ensure_ascii=False, sort_keys=True
                 )
-                if len(_args_preview) > 3000:
+                if len(_args_preview) > 12000:
                     raise ValueError("Proposed arguments are too long to review")
                 if confirm_gate.pending_request() is not None:
                     raise RuntimeError("Another user confirmation is pending")
@@ -1369,18 +1373,15 @@ class JarvisLive:
                         raise RuntimeError("Approved action failed or its outcome was not verified")
                     return str(payload)
 
-                # Request from a worker: the companion show callback can wait
-                # for delivery without deadlocking the main asyncio loop.
+                from core.approval_presentation import present_action
+                _approval_title, _approval_detail = present_action(
+                    proposed["tool"], proposed["args"], proposed.get("reason", ""))
+                # Delivery must succeed before the model may ask the user to confirm.
+                _proposal_stage = "delivery"
                 _approval_message = await asyncio.to_thread(
                     confirm_gate.request,
                     key="text_proposal:" + _proposal_key,
-                    title="Execute proposed action: " + proposed["tool"],
-                    detail=(
-                        "Text LLM proposed this action (not yet executed).\n"
-                        + "Tool: " + proposed["tool"] + "\n"
-                        + "Arguments: " + _args_preview + "\n"
-                        + "Approve only if you requested this action."
-                    ),
+                    title=_approval_title, detail=_approval_detail,
                     run=_run_approved_proposal,
                 )
                 if _approval_message.startswith("[CONFIRMATION_COMPLETED]"):
@@ -1389,15 +1390,24 @@ class JarvisLive:
                               "confirmation": _approval_message}
                 elif not _approval_message.startswith("[CONFIRMATION_PENDING]"):
                     self._text_proposal_handoff.clear()
-                    answer = {"error": _approval_message, "executed": False}
+                    _trace_event("text_action_proposal", stage="not_delivered", tool=proposed["tool"])
+                    answer = {"error": _approval_message, "executed": False,
+                              "approval_sent": False, "approval_required": False,
+                              "instruction": "No approval dialog was delivered. Explain this failure; do not ask the user to approve."}
                 else:
                     answer = {
                         "result": proposed,
-                        "approval_required": True,
+                        "approval_required": True, "approval_sent": True,
                         "confirmation": _approval_message,
                     }
             except Exception as exc:
-                answer = {"error": f"Text action proposal failed: {type(exc).__name__}: {exc}"}
+                _trace_event("text_action_proposal", stage="failed", operation_stage=_proposal_stage,
+                             error_type=type(exc).__name__)
+                self.ui.write_log("SYS: Approval was not displayed: proposal or delivery failed (" + type(exc).__name__ + ").")
+                answer = {"error": "Text action proposal failed: " + type(exc).__name__,
+                          "executed": False, "approval_sent": False, "approval_required": False,
+                          "failure_stage": _proposal_stage,
+                          "instruction": "No dialog was displayed. Report the failure, do not claim approval is pending, and do not retry unchanged arguments."}
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(id=fc.id, name=name, response=answer)
@@ -1438,10 +1448,13 @@ class JarvisLive:
             _approval_ctx = getattr(self, "_approved_text_action_context", None)
             _expected = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
             if _approval_ctx is None or _approval_ctx.get() != _expected:
+                _trace_event("tool_blocked", tool=name, reason="proposal_required")
                 return types.FunctionResponse(id=fc.id, name=name, response={
-                    "error": "This action requires propose_text_action and user confirmation.",
-                    "executed": False, "approval_required": True})
+                    "error": "Call propose_text_action first. No approval dialog has been displayed yet.",
+                    "instruction": "Do not ask the user to approve until propose_text_action returns approval_sent=true.",
+                    "executed": False, "approval_required": True, "approval_sent": False})
 
+        _trace_event("tool_started", tool=name)
         if name == "save_memory":
             category = args.get("category", "notes")
             key      = args.get("key", "")
@@ -2064,7 +2077,8 @@ class JarvisLive:
             task_state.action_finished(name, result)
         return types.FunctionResponse(
             id=fc.id, name=name,
-            response={"result": result},
+            response={"result": result, **(confirm_gate.response_metadata(str(result))
+                      if name == "test_flash_approval" else {})},
             **_extra
         )
 
@@ -2675,6 +2689,7 @@ class JarvisLive:
                 "incidental speech, acknowledgements that do not request the floor, or ambiguous audio. "
                 "When uncertain return IGNORE."
             )
+            _trace_event("auxiliary_model_request", provider="gemini", purpose="barge_in_audio", tier="FAST")
             part = types.Part.from_bytes(data=pcm, mime_type="audio/pcm;rate=16000")
             verdict = await asyncio.to_thread(
                 _gemini.text, [part, prompt], _gemini.FAST, None, 10_000, "", "IGNORE"
@@ -3066,7 +3081,8 @@ class JarvisLive:
                     _trace_event("llm_routing", live_provider=llm_live.provider(_routing),
                                  live_model=live_model, text_provider=_routing.get("llm_provider", "gemini"),
                                  text_models=(_routing.get("provider_models") or {}).get(_routing.get("llm_provider"))
-                                             or _routing.get("chat_models") or _routing.get("text_models") or "default")
+                                             or _routing.get("chat_models") or _routing.get("text_models") or "default",
+                                 text_provider_fallback=False, barge_in_provider="gemini")
                     if self._recovery_context_pending:
                         self.ui.write_log("SYS: Reconnected — conversation context recovered locally.")
                         self._recovery_context_pending = False

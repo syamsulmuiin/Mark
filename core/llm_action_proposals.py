@@ -5,11 +5,18 @@ This module deliberately never executes actions or accepts model-authored approv
 from __future__ import annotations
 
 import json
+import re
 
 
 def validate_proposal(raw: str, allowed_tools: set[str]) -> dict:
     if not isinstance(raw, str) or len(raw) > 32000:
         raise ValueError("Invalid proposal response")
+    raw = raw.strip()
+    if raw.startswith("```"):
+        fenced = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL | re.IGNORECASE)
+        if not fenced:
+            raise ValueError("Proposal must be a single JSON object")
+        raw = fenced.group(1).strip()
     try:
         proposal = json.loads(raw)
     except (ValueError, TypeError) as exc:
@@ -41,7 +48,7 @@ def propose_action(task: str, declarations: list[dict], *, config: dict | None =
     names = sorted({
         d["name"] for d in declarations
         if isinstance(d, dict) and isinstance(d.get("name"), str)
-        and d["name"] not in {"delegate_to_text_llm", "plan_with_text_llm", "propose_text_action"}
+        and d["name"] not in {"delegate_to_text_llm", "plan_with_text_llm", "propose_text_action", "task_continuity"}
     })
     if not names:
         raise ValueError("No available tools")
@@ -52,7 +59,8 @@ def propose_action(task: str, declarations: list[dict], *, config: dict | None =
     prompt = (
         "Propose exactly ONE next action for the user request. Return ONLY JSON "
         "with keys tool (one of the available names), args (object), reason (string). "
-        "Do not invent approvals, permissions or results. Do not execute the action.\n"
+        "Do not invent approvals, permissions or results. Do not execute the action. "
+        "Choose an operational step for the request, not bookkeeping or task tracking.\n"
         "Available tool schemas (follow required argument names and types): "
         + json.dumps(schemas, ensure_ascii=False) + "\n"
         "User request: " + task

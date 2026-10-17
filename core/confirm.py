@@ -43,7 +43,7 @@ from typing import Callable, Optional
 # A pending confirmation is abandoned after this long. Chosen to outlast a
 # normal "hang on, let me look at the screen" pause without leaving a live
 # shutdown button sitting on the HUD for the rest of the day.
-TIMEOUT_SECONDS = 90.0
+TIMEOUT_SECONDS = 15.0
 
 
 @dataclass
@@ -94,6 +94,11 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
                 f"not available, so I have not done it.")
 
     with _lock:
+        # A new request must never silently replace an unanswered approval.
+        # An expired request is discarded; the old callback can no longer run.
+        if _pending is not None and time.monotonic() - _pending.at <= TIMEOUT_SECONDS:
+            return ("Another confirmation is still pending. "
+                    "Wait for the user to approve, reject, or let it expire.")
         _pending = _Pending(key=key, title=title, detail=detail,
                             run=run, at=time.monotonic())
 
@@ -112,7 +117,7 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
     )
 
 
-def resolve(accepted: bool) -> None:
+def resolve(accepted: bool, *, expected_key: Optional[str] = None) -> None:
     """Called by the UI when the user presses CONFIRM or CANCEL.
 
     Runs the stored callable on a worker thread — this is invoked from the Qt
@@ -121,6 +126,10 @@ def resolve(accepted: bool) -> None:
     global _pending
 
     with _lock:
+        # Remote companion responses must identify the exact pending request.
+        # Reject stale or mismatched responses without consuming the new one.
+        if expected_key is not None and (_pending is None or _pending.key != expected_key):
+            return
         p, _pending = _pending, None
 
     if _hide_cb:

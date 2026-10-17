@@ -5,7 +5,7 @@ from core.llm_proposal_handoff import ProposalHandoff
 
 def test_main_uses_existing_confirmation_gate_for_text_proposals():
     source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
-    assert 'key="text_proposal:" + proposal_token' in source
+    assert 'key="text_proposal:" + _proposal_key' in source
     assert "confirm_gate.request," in source
     assert "asyncio.run_coroutine_threadsafe(" in source
     assert "self.execute_approved_text_proposal(" in source

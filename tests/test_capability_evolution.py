@@ -173,3 +173,26 @@ def test_companion_sources_expose_observable_app_inspection_and_android_postcond
     assert '"app.inspect"' in android and 'activePackage()' in android
     assert 'snapshotFingerprint' in android and 'text_readback_match' in android
     assert 'fun snapshotFingerprint' in service and 'fun containsVisibleText' in service
+
+
+def test_skill_recovery_retains_parameter_contract_and_failure_evidence(tmp_path):
+    schema = {'type': 'OBJECT', 'properties': {'value': {'type': 'INTEGER'}}, 'required': ['value']}
+    calls = []
+    class Synth:
+        def synthesize(self, name, purpose, parameters, context=None):
+            calls.append((purpose, parameters))
+            return {'name': name, 'description': purpose, 'parameters': schema,
+                    'code': 'def execute(value):\n    return value + 1',
+                    'tests': [{'input': {'value': 2}, 'expected': 3}]}
+    skills = SkillRegistry(tmp_path)
+    caps = CapabilityRegistry()
+    dynamic = DynamicSkillRegistry(tmp_path, skills)
+    engine = CapabilityEvolutionEngine(skills, dynamic, caps, Synth())
+    made = engine.ensure_capability('increment', 'increment numbers', schema)
+    sid = made['skill']['skill_id']
+    skills.set_operational_state(sid, 'QUARANTINED', 'repeated runtime failure')
+    result = engine.recover_quarantined(made['capability'], 'unexpected missing value')
+    assert result['status'] == 'VERIFIED'
+    assert calls[-1][1] == schema
+    assert 'unexpected missing value' in calls[-1][0]
+    assert dynamic.execute(result['skill']['skill_id'], {'value': 8})['result'] == 9

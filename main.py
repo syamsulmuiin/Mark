@@ -1291,7 +1291,8 @@ class JarvisLive:
             self._approved_text_action_context = contextvars.ContextVar(
                 "approved_text_action", default=False
             )
-        approval_context = self._approved_text_action_context.set(True)
+        approval_context = self._approved_text_action_context.set(
+            (fc.name, json.dumps(fc.args, sort_keys=True, ensure_ascii=False)))
         try:
             return await self._execute_tool(fc)
         finally:
@@ -1301,6 +1302,7 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
+        _trace_event("tool_started", tool=name)
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
@@ -1313,6 +1315,20 @@ class JarvisLive:
                             + self._plugin_registry.get_tool_declarations())
             try:
                 proposed = await asyncio.to_thread(propose_action, task, declarations)
+                from core.action_policy import requires_confirmation
+                if not requires_confirmation(proposed["tool"], proposed["args"]):
+                    from types import SimpleNamespace
+                    # Normal executor retains device routing, repair intent and native gates.
+                    action_response = await self._execute_tool(SimpleNamespace(
+                        id=None, name=proposed["tool"], args=proposed["args"]))
+                    # Reply to the provider's original function call, not the nested action.
+                    return types.FunctionResponse(id=fc.id, name=name,
+                                                  response=action_response.response)
+                import hashlib
+                _proposal_key = hashlib.sha256(json.dumps({
+                    "tool": proposed["tool"], "args": proposed["args"],
+                    "origin": self._dashboard.active_voice_device if self._dashboard else "local",
+                }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
                 from core.llm_proposal_handoff import ProposalHandoff
                 if not hasattr(self, "_text_proposal_handoff"):
                     self._text_proposal_handoff = ProposalHandoff()
@@ -1345,13 +1361,19 @@ class JarvisLive:
                             proposal_token, user_approved=True), self._loop
                     )
                     response = future.result(timeout=120)
-                    return str(getattr(response, "response", response))
+                    payload = getattr(response, "response", response)
+                    if isinstance(payload, dict) and (payload.get("error") or payload.get("executed") is False):
+                        raise RuntimeError("Approved action did not execute successfully")
+                    outcome = payload.get("result", payload) if isinstance(payload, dict) else payload
+                    if self._device_action_rejected(outcome):
+                        raise RuntimeError("Approved action failed or its outcome was not verified")
+                    return str(payload)
 
                 # Request from a worker: the companion show callback can wait
                 # for delivery without deadlocking the main asyncio loop.
                 _approval_message = await asyncio.to_thread(
                     confirm_gate.request,
-                    key="text_proposal:" + proposal_token,
+                    key="text_proposal:" + _proposal_key,
                     title="Execute proposed action: " + proposed["tool"],
                     detail=(
                         "Text LLM proposed this action (not yet executed).\n"
@@ -1361,7 +1383,11 @@ class JarvisLive:
                     ),
                     run=_run_approved_proposal,
                 )
-                if not _approval_message.startswith("[CONFIRMATION_PENDING]"):
+                if _approval_message.startswith("[CONFIRMATION_COMPLETED]"):
+                    self._text_proposal_handoff.clear()
+                    answer = {"status": "already_handled", "do_not_retry": True,
+                              "confirmation": _approval_message}
+                elif not _approval_message.startswith("[CONFIRMATION_PENDING]"):
                     self._text_proposal_handoff.clear()
                     answer = {"error": _approval_message, "executed": False}
                 else:
@@ -1407,25 +1433,14 @@ class JarvisLive:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(id=fc.id, name=name, response=answer)
 
-        # When a non-Gemini Text provider owns action decisions, never allow
-        # the Live transport to bypass Text planning and the user approval gate by
-        # invoking an action tool directly. ContextVar is set only by the
-        # trusted approval callback, not by model-supplied tool arguments.
-        from core.setup_config import load_config as _load_llm_settings
-        _text_provider = str(
-            _load_llm_settings().get("llm_provider") or "gemini"
-        ).strip().lower()
-        if _text_provider != "gemini":
+        from core.action_policy import requires_confirmation
+        if requires_confirmation(name, args):
             _approval_ctx = getattr(self, "_approved_text_action_context", None)
-            if not (_approval_ctx is not None and _approval_ctx.get()):
-                return types.FunctionResponse(
-                    id=fc.id, name=name,
-                    response={"error": (
-                        "Direct Live action blocked: configured Text LLM must "
-                        "select the action using propose_text_action, followed "
-                        "by explicit user approval."
-                    ), "executed": False},
-                )
+            _expected = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+            if _approval_ctx is None or _approval_ctx.get() != _expected:
+                return types.FunctionResponse(id=fc.id, name=name, response={
+                    "error": "This action requires propose_text_action and user confirmation.",
+                    "executed": False, "approval_required": True})
 
         if name == "save_memory":
             category = args.get("category", "notes")
@@ -1471,6 +1486,9 @@ class JarvisLive:
                     task_state.action_finished(name, result)
                     return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
                 args["authorization"] = "APPLY_DIAGNOSTIC_REPAIR"
+                args.pop("high_risk_approval", None)
+                if has_explicit_high_risk_approval(_last_user):
+                    args["high_risk_approval"] = "HIGH_RISK_REPAIR_APPROVED"
                 if str(args.get("risk", "")).lower() == "high":
                     if not has_explicit_high_risk_approval(_last_user):
                         result = ("HIGH-risk repair was not applied. Ask the user to explicitly approve the high-risk repair; "
@@ -2236,7 +2254,7 @@ class JarvisLive:
             return
         label = f"{self._asst_name} [partial]" if speaker == "jarvis" and partial else ("You [partial]" if speaker == "user" and partial else (self._asst_name if speaker == "jarvis" else "You"))
         self.ui.write_log(f"{label}: {text}")
-        self._session_log.append(f"{label}: {text}")
+        self._session_log.append(f"{'User' if speaker == 'user' else label}: {text}")
         if self._dashboard:
             asyncio.create_task(self._dashboard.broadcast({
                 "type": "log",

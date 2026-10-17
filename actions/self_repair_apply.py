@@ -20,7 +20,7 @@ ALLOWED_EXACT = {
     "SERVER_CLIENT_ARCHITECTURE.md", "readme.md",
 }
 ALLOWED_PREFIXES = (
-    "actions/", "plugins/", "dashboard/static/",
+    "actions/", "core/", "plugins/", "dashboard/static/",
     "desktop-companion/runtime/actions/",
     "android-companion/app/src/main/java/",
     "android-companion/app/src/main/res/drawable/",

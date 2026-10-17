@@ -32,12 +32,15 @@ def test_live_action_requires_host_approval_and_resets_context(monkeypatch):
     module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
         ast.ClassDef(name="Runtime", bases=[], keywords=[], body=methods, decorator_list=[])], type_ignores=[])
     writes = []
-    namespace = {"types": SimpleNamespace(FunctionResponse=lambda **kw: SimpleNamespace(**kw)),
+    import json
+    namespace = {"json": json, "_trace_event": lambda *a, **k: None, "types": SimpleNamespace(FunctionResponse=lambda **kw: SimpleNamespace(**kw)),
                  "update_memory": writes.append}
     exec(compile(ast.fix_missing_locations(module), "runtime", "exec"), namespace)
     runtime = namespace["Runtime"]()
     runtime.ui = SimpleNamespace(set_state=lambda state: None, muted=True)
-    monkeypatch.setattr(setup_config, "load_config", lambda: {"llm_provider": "anthropic"})
+    from core import action_policy
+    # Exercise the authorization boundary independently of the risk classifier.
+    monkeypatch.setattr(action_policy, "requires_confirmation", lambda name, args: True)
     runtime._text_proposal_handoff = ProposalHandoff()
     args = {"key": "test", "value": "ok", "user_approved": True}
     action = SimpleNamespace(id=None, name="save_memory", args=args)

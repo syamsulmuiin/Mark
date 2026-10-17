@@ -652,6 +652,7 @@ class DashboardServer:
                 _interaction_event("approval_callback_error", device_id=device_id)
                 return False
         _interaction_event("approval_resolved", device_id=device_id,
+                           approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12],
                            outcome="accepted" if msg["accepted"] else "rejected")
         return True
 
@@ -672,6 +673,7 @@ class DashboardServer:
             _interaction_event("approval_completion_delivery_failed", device_id=device_id)
             return False
         _interaction_event("approval_action_completed", device_id=device_id,
+                           approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12],
                            outcome="succeeded" if success else "failed")
         return True
 
@@ -701,7 +703,8 @@ class DashboardServer:
         except Exception:
             self._approval_pending.pop(request_id, None)
             return None
-        _interaction_event("approval_sent", device_id=device_id)
+        _interaction_event("approval_sent", device_id=device_id,
+                           approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12])
         return device_id
 
     async def send_device_audio(self, pcm: bytes) -> None:

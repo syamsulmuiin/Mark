@@ -39,6 +39,8 @@ PROTECTED_EXACT = {
     "core/action_loader.py",
     "core/plugin_loader.py",
     "core/confirm.py",
+    "core/action_policy.py",
+    "core/llm_proposal_handoff.py",
     "core/undo.py",
     "config/api_keys.json",
 }

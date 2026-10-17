@@ -77,3 +77,53 @@ def test_all_rest_text_models_in_cooldown_are_not_retried(monkeypatch):
     finally:
         gemini._LADDERS[gemini.FAST] = old
         gemini._cooldown.clear()
+
+
+def test_log_diagnosis_keeps_errors_when_audio_floods_the_tail(monkeypatch, tmp_path):
+    mod = importlib.import_module('actions.runtime_diagnostics')
+    runtime = tmp_path / 'runtime'
+    runtime.mkdir()
+    import json
+    rows = [{'event': 'tool_started', 'tool': 'runtime_diagnostics'},
+            {'event': 'runtime_error', 'error': 'connection failed'}]
+    rows += [{'event': 'audio_in', 'bytes': 1024}] * 400
+    (runtime / 'interaction.log').write_text('\n'.join(json.dumps(row) for row in rows))
+    monkeypatch.setattr(mod, 'RUNTIME_DIR', runtime)
+    text = mod.collect_runtime_evidence('interaction', 20)
+    assert 'connection failed' in text and 'tool_started' in text
+    assert 'audio_in' not in text
+    assert 'entries may include older runs' in text
+
+
+def test_discovery_sees_dependency_contents_and_skips_generated_data(monkeypatch, tmp_path):
+    mod = importlib.import_module('actions.self_repair_diagnostic')
+    (tmp_path / 'main.py').write_text('from core import dependency\n')
+    (tmp_path / 'core').mkdir()
+    (tmp_path / 'core/dependency.py').write_text('VALUE = 1\n')
+    (tmp_path / 'core/confirm.py').write_text('# protected but inspectable\n')
+    (tmp_path / 'storage').mkdir()
+    (tmp_path / 'storage/noise.txt').write_text('generated data')
+    monkeypatch.setattr(mod, 'BASE_DIR', tmp_path)
+    prompts = []
+    def fake(prompt, timeout_ms):
+        prompts.append(prompt)
+        return {'files': ['core/dependency.py'], 'closure_complete': True}
+    monkeypatch.setattr(mod, '_diagnostic_json', fake)
+    files = mod._source_files()
+    assert 'storage/noise.txt' not in files
+    assert 'core/confirm.py' in files
+    mod._select_files('diagnose', files, ['main.py'])
+    assert 'from core import dependency' in prompts[0]
+
+
+def test_diagnosis_provider_failure_is_bounded_and_does_not_leak_exception(monkeypatch):
+    mod = importlib.import_module('actions.self_repair_diagnostic')
+    monkeypatch.setattr(mod, 'collect_runtime_evidence', lambda **kw: '')
+    monkeypatch.setattr(mod, '_source_files', lambda: ['main.py'])
+    def fail(*a, **kw):
+        raise RuntimeError('private-api-key=do-not-show')
+    monkeypatch.setattr(mod.gemini, 'as_json', fail)
+    result = mod.self_repair_diagnostic({'problem': 'diagnose repeated confirmations'})
+    assert 'Diagnosis unavailable' in result and 'No repair was performed' in result
+    assert 'do-not-show' not in result
+    assert 'do not repeat' in result

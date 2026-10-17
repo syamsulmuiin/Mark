@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,7 +28,7 @@ def _redact(text: str) -> str:
     return out
 
 
-def _tail(path: Path, lines: int) -> str:
+def _tail(path: Path, lines: int, *, interaction: bool = False) -> str:
     if not path.is_file():
         return ""
     try:
@@ -38,7 +40,20 @@ def _tail(path: Path, lines: int) -> str:
         text = raw.decode("utf-8", errors="replace")
         if size > _MAX_BYTES and "\n" in text:
             text = text.split("\n", 1)[1]
-        selected = text.splitlines()[-max(1, min(int(lines), _MAX_LINES)):]
+        rows = text.splitlines()
+        if interaction:
+            noise = {"audio_in", "audio_out", "audio_to_gemini", "activity_start",
+                     "activity_end", "barge_semantic_decision"}
+            relevant = []
+            for row in rows:
+                try:
+                    event = json.loads(row).get("event")
+                except (ValueError, AttributeError):
+                    event = None
+                if event not in noise:
+                    relevant.append(row)
+            rows = relevant
+        selected = rows[-max(1, min(int(lines), _MAX_LINES)):]
         bounded = "\n".join(selected)
         if len(bounded) > _MAX_CHARS:
             bounded = bounded[-_MAX_CHARS:]
@@ -47,6 +62,14 @@ def _tail(path: Path, lines: int) -> str:
         return _redact(bounded).strip()
     except Exception as exc:
         return f"<read failed: {type(exc).__name__}>"
+
+
+def _metadata(path: Path) -> str:
+    try:
+        modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+        return f"File modified (UTC): {modified}; entries may include older runs."
+    except OSError:
+        return "File timestamp unavailable."
 
 
 def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
@@ -65,7 +88,7 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
     if scope in {"all", "error"}:
         current = _tail(RUNTIME_DIR / "error.log", lines)
         if current:
-            chunks.append("===== runtime/error.log =====\n" + current)
+            chunks.append("===== runtime/error.log =====\n" + _metadata(RUNTIME_DIR / "error.log") + "\n" + current)
         else:
             for idx in range(1, 6):
                 rotated = _tail(RUNTIME_DIR / f"error.log.{idx}", lines)
@@ -74,9 +97,9 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
                     break
 
     if scope in {"all", "interaction"}:
-        interaction = _tail(RUNTIME_DIR / "interaction.log", lines)
+        interaction = _tail(RUNTIME_DIR / "interaction.log", lines, interaction=True)
         if interaction:
-            chunks.append("===== runtime/interaction.log =====\n" + interaction)
+            chunks.append("===== runtime/interaction.log (relevant events; audio/VAD omitted) =====\n" + _metadata(RUNTIME_DIR / "interaction.log") + "\n" + interaction)
 
     return "\n\n".join(chunks) if chunks else "No server runtime diagnostics are currently available."
 

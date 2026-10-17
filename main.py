@@ -1043,7 +1043,22 @@ class JarvisLive:
                 "required": ["task"],
             },
         }
-        _decl_candidates = ([_delegate_decl, _plan_decl] + TOOL_DECLARATIONS
+        _proposal_decl = {
+            "name": "propose_text_action",
+            "description": (
+                "Ask the configured Text LLM to select a proposed next Mark tool "
+                "action. The proposal is NOT executed; inspect it and call the "
+                "existing tool separately subject to normal safety checks."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "task": {"type": "STRING", "description": "User request needing a tool action"}
+                },
+                "required": ["task"],
+            },
+        }
+        _decl_candidates = ([_delegate_decl, _plan_decl, _proposal_decl] + TOOL_DECLARATIONS
                             + self._action_registry.get_tool_declarations()
                             + self._plugin_registry.get_tool_declarations())
         _all_decls = []
@@ -1214,6 +1229,21 @@ class JarvisLive:
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
+
+        if name == "propose_text_action":
+            from core.llm_action_proposals import propose_action
+            task = str(args.get("task") or "").strip()
+            declarations = (TOOL_DECLARATIONS
+                            + self._action_registry.get_tool_declarations()
+                            + self._plugin_registry.get_tool_declarations())
+            try:
+                proposed = await asyncio.to_thread(propose_action, task, declarations)
+                answer = {"result": proposed}
+            except Exception as exc:
+                answer = {"error": f"Text action proposal failed: {type(exc).__name__}: {exc}"}
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(id=fc.id, name=name, response=answer)
 
         if name == "plan_with_text_llm":
             from core.llm_text import plan as plan_text_task

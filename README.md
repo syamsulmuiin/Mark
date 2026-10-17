@@ -34,7 +34,7 @@ A request received from a companion is origin-first. Device-local effects execut
 
 ## Server installation
 
-Requirements: Python 3.11+ and a configured Gemini API key.
+Requirements: Python 3.11+ and a configured voice provider (Gemini Live or OpenAI Realtime). Text providers are configured separately. See [LLM routing and adapter setup](docs/llm-routing-audit.md).
 
 ```bash
 python setup.py

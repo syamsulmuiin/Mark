@@ -799,7 +799,7 @@ class JarvisLive:
         from core.text_commands import respond
         settings = load_config()
         provider = str(settings.get("llm_provider") or "gemini").strip().lower()
-        if provider == "gemini":
+        if provider == "gemini" and settings.get("live_provider", "gemini") == "gemini":
             for _ in range(80):
                 if self.session:
                     break
@@ -963,6 +963,9 @@ class JarvisLive:
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
+        cancel_response = getattr(self.session, "cancel_response", None)
+        if cancel_response and self._loop:
+            asyncio.run_coroutine_threadsafe(cancel_response(), self._loop)
         q = self.audio_in_queue
         if q:
             drained = 0

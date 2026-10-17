@@ -10,7 +10,7 @@ def test_text_delegates_to_router(monkeypatch):
 
 def test_live_rejects_unimplemented_provider():
     with pytest.raises(NotImplementedError):
-        llm_live.provider({"live_provider": "openai_realtime"})
+        llm_live.provider({"live_provider": "unknown"})
 
 
 def test_live_defaults_to_gemini():

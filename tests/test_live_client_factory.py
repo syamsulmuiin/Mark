@@ -7,7 +7,7 @@ from core import llm_live
 
 def test_client_rejects_unimplemented_provider():
     with pytest.raises(NotImplementedError):
-        llm_live.client({"live_provider": "openai_realtime"})
+        llm_live.client({"live_provider": "unknown"})
 
 
 def test_client_selects_gemini_api_version(monkeypatch):

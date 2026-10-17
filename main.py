@@ -1253,7 +1253,7 @@ class JarvisLive:
     def _guard_device_action(self, device_id, capability, action_args):
         sig = self._device_action_signature(device_id, capability, action_args)
         if str(capability or "").strip().casefold() == "file.receive":
-            return sig, "Direct file saving is disabled for model tools. Send an attachment; the recipient chooses Open, Save As or Share in the Attachment Inbox."
+            return sig, "Use send_server_file for delivery: default to an attachment, or set save_direct=true only for an explicit user save request. Do not call raw file.receive."
         if self._blocked_device_action == sig:
             return sig, (
                 "Blocked unchanged retry after the previous device action was rejected. "
@@ -1721,15 +1721,19 @@ class JarvisLive:
                         exact=next((d for d in devices if d.get("device_id")==selector and not d.get("revoked")),None)
                         matches=[d for d in devices if str(d.get("name","")).casefold()==selector.casefold() and not d.get("revoked")]
                         target=exact or (matches[0] if len(matches)==1 else None)
-                    required_capability="attachment.inbox"
+                    save_direct = args.get("save_direct") is True
+                    required_capability="file.receive" if save_direct else "attachment.inbox"
                     if not target:
                         result="Destination companion is not uniquely identifiable. Call list_paired_devices first."
                     elif required_capability not in set(target.get("capabilities") or []):
                         result=f"Destination companion does not support {required_capability}."
+                    elif save_direct and target.get("device_id") not in online:
+                        result="Destination companion is offline; direct saving requires it to be online. Use attachment delivery or retry after reconnecting."
                     else:
                         result=json.dumps(await self._dashboard.send_server_file(
                             str(target["device_id"]), str(args.get("source") or ""),
-                            str(args.get("destination_name") or "")), ensure_ascii=False)
+                            str(args.get("destination_name") or ""), save_direct=save_direct,
+                            destination=str(args.get("destination") or "")), ensure_ascii=False)
 
             elif name == "call_current_device":
                 if not self._dashboard:

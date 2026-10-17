@@ -120,14 +120,23 @@ def interactive_llm_setup() -> bool:
                     print("API key required; configuration unchanged.")
                     return False
         print("Live models must support the Gemini Live audio API.")
-        defaults = (
-            ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
-            ("text_models", "Text / tools", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
-        )
         choices = {}
-        for field, label, default in defaults:
-            value = input(f"{label} models [{current.get(field) or default}]: ").strip()
-            choices[field] = value or current.get(field) or default
+        if provider != "gemini":
+            model = input(f"{provider} text model ID (required): ").strip()
+            if not model:
+                print("Text model ID required; configuration unchanged.")
+                return False
+            choices["text_models"] = model
+            live_default = current.get("live_models") or f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"
+            choices["live_models"] = input(f"Live audio models [{live_default}]: ").strip() or live_default
+        else:
+            defaults = (
+                ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
+                ("text_models", "Text / tools", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
+            )
+            for field, label, default in defaults:
+                value = input(f"{label} models [{current.get(field) or default}]: ").strip()
+                choices[field] = value or current.get(field) or default
         save_llm_selection(provider, "hybrid", provider_api_key=api_key, **choices)
     except (EOFError, KeyboardInterrupt):
         print("LLM selection cancelled; existing configuration preserved.")

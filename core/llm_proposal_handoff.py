@@ -6,6 +6,7 @@ Mark executor after an explicit user confirmation supplied by the caller.
 from __future__ import annotations
 
 import secrets
+import time
 
 
 class ProposalHandoff:
@@ -20,7 +21,7 @@ class ProposalHandoff:
         # Only one outstanding proposal: older plans cannot be replayed.
         self._pending.clear()
         token = secrets.token_urlsafe(24)
-        self._pending[token] = {"tool": proposal["tool"], "args": dict(proposal["args"])}
+        self._pending[token] = {"tool": proposal["tool"], "args": dict(proposal["args"]), "at": time.monotonic()}
         return token
 
     def consume(self, token: str, *, approved: bool) -> dict:
@@ -29,9 +30,11 @@ class ProposalHandoff:
         proposal = self._pending.pop(token, None)
         if proposal is None:
             raise ValueError("Unknown or already consumed proposal")
+        if time.monotonic() - proposal["at"] > 15.0:
+            raise PermissionError("Proposal approval has expired")
         if approved is not True:
             raise PermissionError("Explicit user approval is required")
-        return proposal
+        return {"tool": proposal["tool"], "args": proposal["args"]}
 
     def clear(self) -> None:
         self._pending.clear()

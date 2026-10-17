@@ -27,7 +27,24 @@ def save_config(gemini_api_key: str, os_system: str | None=None) -> dict:
     except Exception: pass
     return current
 
-SUPPORTED_PROVIDERS = ("gemini",)
+# Provider catalog is separate from implemented adapters. Never route an
+# unsupported provider to Gemini silently: that would leak prompts/credentials
+# to a different provider than the user selected.
+CHAT_PROVIDER_CATALOG = (
+    ("gemini", "Google Gemini", True),
+    ("openai", "OpenAI API", False),
+    ("openai_codex", "OpenAI Codex (account authorization)", False),
+    ("anthropic", "Anthropic Claude", False),
+    ("deepseek", "DeepSeek", False),
+    ("ollama_local", "Ollama (local)", False),
+    ("ollama_cloud", "Ollama (cloud)", False),
+    ("openrouter", "OpenRouter", False),
+)
+LIVE_PROVIDER_CATALOG = (
+    ("gemini", "Gemini Live", True),
+    ("openai_realtime", "OpenAI Realtime", False),
+)
+SUPPORTED_PROVIDERS = tuple(key for key, _, ready in CHAT_PROVIDER_CATALOG if ready)
 SUPPORTED_MODES = ("hybrid",)
 
 
@@ -70,16 +87,27 @@ def interactive_llm_setup() -> bool:
         DEFAULT_TEXT_MODEL, DEFAULT_TEXT_FALLBACK_MODEL,
     )
     current = load_config()
-    print("\\nLLM PROVIDER & MODE")
-    print("Provider: 1) Google Gemini (available)")
-    print("Mode: 1) Hybrid — Gemini Live for real-time voice; Gemini text for chat/tools")
-    print("Other providers are not wired into Mark yet and cannot be selected.")
+    print("\\nCHAT / EXECUTION PROVIDER")
+    for index, (key, label, ready) in enumerate(CHAT_PROVIDER_CATALOG, 1):
+        print(f"  {index}. {label}" + ("" if ready else " [adapter not installed]"))
+    print("\\nLIVE / VOICE PROVIDER")
+    for index, (key, label, ready) in enumerate(LIVE_PROVIDER_CATALOG, 1):
+        print(f"  {index}. {label}" + ("" if ready else " [adapter not installed]"))
+    print("Hybrid uses the selected chat provider for text/tools and the Live provider for voice.")
     try:
-        provider = input("Provider [1 / gemini]: ").strip().lower()
-        mode = input("Mode [1 / hybrid]: ").strip().lower()
-        if provider not in ("", "1", "gemini") or mode not in ("", "1", "hybrid"):
-            print("Unsupported provider/mode; configuration was not changed.")
+        provider_choice = input("Chat / execution provider [1]: ").strip().lower()
+        live_choice = input("Live / voice provider [1]: ").strip().lower()
+        provider_choices = {str(i): key for i, (key, _, _) in enumerate(CHAT_PROVIDER_CATALOG, 1)}
+        live_choices = {str(i): key for i, (key, _, _) in enumerate(LIVE_PROVIDER_CATALOG, 1)}
+        provider = provider_choices.get(provider_choice or "1", provider_choice)
+        live_provider = live_choices.get(live_choice or "1", live_choice)
+        if provider not in SUPPORTED_PROVIDERS:
+            print(f"{provider!r} is listed for planning but its chat/tool adapter is not implemented.")
             return False
+        if live_provider != "gemini":
+            print(f"{live_provider!r} Live audio transport is not implemented.")
+            return False
+        print("Mode: Hybrid (Gemini Live voice + Gemini chat/tools)")
         print("Live models must support the Gemini Live audio API.")
         defaults = (
             ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
@@ -89,7 +117,7 @@ def interactive_llm_setup() -> bool:
         for field, label, default in defaults:
             value = input(f"{label} models [{current.get(field) or default}]: ").strip()
             choices[field] = value or current.get(field) or default
-        save_llm_selection("gemini", "hybrid", **choices)
+        save_llm_selection(provider, "hybrid", **choices)
     except (EOFError, KeyboardInterrupt):
         print("LLM selection cancelled; existing configuration preserved.")
         return False

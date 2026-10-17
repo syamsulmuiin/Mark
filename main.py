@@ -2283,7 +2283,7 @@ class JarvisLive:
             "Output ONLY the summary text, nothing else:\n\n" + convo
         )
         try:
-            from core.chat_router import generate_chat_text
+            from core.llm_text import generate as generate_chat_text
             summary = await asyncio.to_thread(generate_chat_text, prompt)
             if summary:
                 save_session_summary(summary, lang)

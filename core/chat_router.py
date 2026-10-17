@@ -15,11 +15,14 @@ def generate_chat_text(prompt: str, *, config: dict | None = None) -> str:
     if provider == "gemini":
         from core.gemini import text, SMART
         return text(prompt, tier=SMART)
-    if provider not in ENDPOINTS:
+    if provider not in ENDPOINTS and provider != "anthropic":
         raise ValueError(f"Chat provider {provider!r} is not implemented")
     models = str(settings.get("chat_models") or settings.get("text_models") or "")
     model = next((x.strip() for x in models.split(",") if x.strip()), "")
     if not model:
         raise ValueError(f"Configure a text model for {provider}")
     key = str(settings.get(f"{provider}_api_key") or "")
+    if provider == "anthropic":
+        from core.llm_anthropic import generate_text as anthropic_text
+        return anthropic_text(model, prompt, api_key=key)
     return generate_text(provider, model, prompt, api_key=key)

@@ -7,6 +7,6 @@ def test_session_summary_routes_through_chat_router():
     start = source.index("    async def _save_session_summary(")
     end = source.index("    # ── System monitor", start)
     summary = source[start:end]
-    assert "from core.chat_router import generate_chat_text" in summary
+    assert "from core.llm_text import generate as generate_chat_text" in summary
     assert "asyncio.to_thread(generate_chat_text, prompt)" in summary
     assert "gemini.text" not in summary

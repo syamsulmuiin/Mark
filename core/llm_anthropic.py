@@ -1,7 +1,8 @@
 """Claude Messages text adapter; uses stdlib HTTP, no optional SDK install."""
 from __future__ import annotations
 import json
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from core.llm_http import urlopen
 from urllib.error import HTTPError
 
 ENDPOINT = "https://api.anthropic.com/v1/messages"

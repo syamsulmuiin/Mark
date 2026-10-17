@@ -6,8 +6,10 @@ Credentials and model names are explicit; no implicit provider fallback.
 from __future__ import annotations
 
 import json
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from core.llm_http import urlopen
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 
 ENDPOINTS = {
     "openai": "https://api.openai.com/v1/chat/completions",
@@ -36,11 +38,16 @@ def generate_text(provider: str, model: str, prompt: str, *,
     if endpoint and provider != "ollama_local":
         raise ValueError("Custom remote endpoints are not supported")
     url = endpoint or ENDPOINTS[provider]
-    if provider == "ollama_local" and not (
-        url.startswith("http://127.0.0.1:") or
-        url.startswith("http://localhost:")
-    ):
-        raise ValueError("Local Ollama endpoint must be loopback")
+    if provider == "ollama_local":
+        try:
+            parsed = urlsplit(url)
+            local = (parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+                     and parsed.username is None and parsed.password is None
+                     and parsed.port is not None and not parsed.fragment)
+        except ValueError:
+            local = False
+        if not local:
+            raise ValueError("Local Ollama endpoint must be loopback")
     body = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],

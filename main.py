@@ -962,7 +962,11 @@ class JarvisLive:
 
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
-        self._interrupted = True
+        # Buffered playback can outlive provider turn_complete. In that case
+        # there is no future completion event to clear an interruption flag;
+        # leaving it set would discard the entire next answer.
+        turn_completed = bool(self._turn_done_event and self._turn_done_event.is_set())
+        self._interrupted = not turn_completed
         cancel_response = getattr(self.session, "cancel_response", None)
         if cancel_response and self._loop:
             asyncio.run_coroutine_threadsafe(cancel_response(), self._loop)
@@ -982,7 +986,7 @@ class JarvisLive:
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
         self._audio_relay_cursor = 0.0
-        if self._turn_done_event:
+        if self._turn_done_event and not turn_completed:
             self._turn_done_event.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
 

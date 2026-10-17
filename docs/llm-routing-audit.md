@@ -104,7 +104,7 @@ features still need their own Gemini credentials if called.
 
 ## Validation
 
-280 tests pass locally, including Claude/OpenAI-compatible payloads, provider/model
+288 tests pass locally, including Claude/OpenAI-compatible payloads, provider/model
 persistence, typed routing on success/failure without a Live call, Codex subprocess
 and auth contracts, Realtime manual audio turns/resampling/transcripts, and guarded
 tool-call/result mapping. Python compilation and diff checks pass. All 15 shared
@@ -116,3 +116,12 @@ References:
 - https://developers.openai.com/api/docs/guides/realtime-conversations
 - https://learn.chatgpt.com/docs/non-interactive-mode
 - https://learn.chatgpt.com/docs/developer-commands?surface=cli
+
+## Final pre-merge audit
+
+Repository-wide undefined-name/redefinition analysis found and fixed a missing
+`os` import in the desktop Windows app-launch fallback. The final audit also
+blocks HTTP credential redirects and rejects local Ollama URLs disguised with
+userinfo, invalid ports or fragments. Buffered-playback interruption now preserves
+an already completed turn so it cannot swallow the next answer. CI checks static
+names, compiles server and desktop sources, and runs tests on Python 3.11–3.13.

@@ -4,7 +4,8 @@ import pytest
 from core import llm_compatible as adapter
 
 
-def test_openai_compatible_payload(monkeypatch):
+@pytest.mark.parametrize("provider", ["openai", "deepseek", "openrouter", "ollama_cloud", "ollama_local"])
+def test_openai_compatible_payload(monkeypatch, provider):
     captured = {}
     class Response:
         def __enter__(self): return self
@@ -18,8 +19,8 @@ def test_openai_compatible_payload(monkeypatch):
         captured["payload"] = json.loads(request.data)
         return Response()
     monkeypatch.setattr(adapter, "urlopen", fake_open)
-    assert adapter.generate_text("deepseek", "deepseek-chat", "Halo", api_key="secret") == "Halo"
-    assert captured["url"] == adapter.ENDPOINTS["deepseek"]
+    assert adapter.generate_text(provider, "test-model", "Halo", api_key="secret") == "Halo"
+    assert captured["url"] == adapter.ENDPOINTS[provider]
     assert captured["auth"] == "Bearer secret"
     assert captured["payload"]["stream"] is False
 

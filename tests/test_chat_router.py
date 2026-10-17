@@ -16,7 +16,7 @@ def test_deepseek_route_uses_only_deepseek(monkeypatch):
 
 def test_unknown_provider_fails_closed():
     with pytest.raises(ValueError, match="not implemented"):
-        chat_router.generate_chat_text("hello", config={"llm_provider": "anthropic"})
+        chat_router.generate_chat_text("hello", config={"llm_provider": "unknown"})
 
 
 def test_missing_model_fails_closed(monkeypatch):

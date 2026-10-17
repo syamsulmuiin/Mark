@@ -7,19 +7,29 @@ from __future__ import annotations
 
 from core.setup_config import load_config
 from core.llm_compatible import ENDPOINTS, generate_text
+from core.llm_anthropic import generate_text as generate_claude_text
+from core.llm_codex import generate_text as generate_codex_text
 
-def generate_chat_text(prompt: str, *, config: dict | None = None) -> str:
+def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: float | None = None) -> str:
     """Route a plain text request to the explicitly configured provider."""
     settings = load_config() if config is None else config
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
     if provider == "gemini":
         from core.gemini import text, SMART
         return text(prompt, tier=SMART)
-    if provider not in ENDPOINTS:
+    if provider not in ENDPOINTS and provider not in {"anthropic", "openai_codex"}:
         raise ValueError(f"Chat provider {provider!r} is not implemented")
-    models = str(settings.get("chat_models") or settings.get("text_models") or "")
+    models = str((settings.get("provider_models") or {}).get(provider)
+                 or settings.get("chat_models") or settings.get("text_models") or "")
     model = next((x.strip() for x in models.split(",") if x.strip()), "")
     if not model:
         raise ValueError(f"Configure a text model for {provider}")
+    if provider == "openai_codex":
+        return generate_codex_text(model, prompt, timeout=timeout if timeout is not None else 120.0)
     key = str(settings.get(f"{provider}_api_key") or "")
-    return generate_text(provider, model, prompt, api_key=key)
+    options = {"api_key": key}
+    if timeout is not None:
+        options["timeout"] = timeout
+    if provider == "anthropic":
+        return generate_claude_text(model, prompt, **options)
+    return generate_text(provider, model, prompt, **options)

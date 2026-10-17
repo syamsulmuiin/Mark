@@ -51,18 +51,15 @@ def test_prompt_no_longer_claims_apply_tool_does_not_exist():
     assert "guarded transactional self_repair_apply" in prompt
 
 
-def test_diagnostic_uses_live_fallback_only_after_rest_quota(monkeypatch):
+def test_diagnostic_never_falls_back_to_live(monkeypatch):
     mod = importlib.import_module("actions.self_repair_diagnostic")
     calls = []
-
     def fake_as_json(prompt, tier, timeout_ms, default):
         calls.append(tier)
-        return {} if tier == mod.gemini.SMART else {"ok": True}
-
+        return {}
     monkeypatch.setattr(mod.gemini, "as_json", fake_as_json)
-    monkeypatch.setattr(mod.gemini, "last_call_errors", lambda: (("m", "429 RESOURCE_EXHAUSTED"),))
-    assert mod._diagnostic_json("x", 10000) == {"ok": True}
-    assert calls == [mod.gemini.SMART, mod.gemini.LIVE]
+    assert mod._diagnostic_json("x", 10000) == {}
+    assert calls == [mod.gemini.SMART]
 
 
 def test_all_rest_text_models_in_cooldown_are_not_retried(monkeypatch):

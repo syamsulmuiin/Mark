@@ -1,8 +1,7 @@
 """Single entry point for live provider selection.
 
-The Gemini transport currently lives in main.py. This module enforces the
-selected live provider and provides its existing Gemini model/client. Future
-realtime transports must implement a compatible session interface.
+Select Gemini Live or OpenAI Realtime explicitly. Both clients expose the
+session interface consumed by main.py; failures never change providers.
 """
 from __future__ import annotations
 from core.setup_config import load_config
@@ -11,23 +10,27 @@ from core.setup_config import load_config
 def provider(config: dict | None = None) -> str:
     settings = load_config() if config is None else config
     selected = str(settings.get("live_provider") or "gemini").strip().lower()
-    if selected != "gemini":
+    if selected not in {"gemini", "openai_realtime"}:
         raise NotImplementedError(f"Live provider {selected!r} is not implemented")
     return selected
 
 
 def model(config: dict | None = None) -> str:
-    provider(config)
+    if provider(config) == "openai_realtime":
+        settings = load_config() if config is None else config
+        return str(settings.get("realtime_model") or "gpt-realtime-2.1").strip()
     from core.gemini import live_model
     return live_model()
 
 
 def client(config: dict | None = None, *, enhanced: bool = False):
-    """Create a fresh Gemini Live client for each connection attempt.
+    """Create a fresh selected-provider client for each connection attempt.
 
     Preserve the existing v1alpha/v1beta selection for proactive audio.
     """
-    provider(config)
+    if provider(config) == "openai_realtime":
+        from core.llm_openai_realtime import RealtimeClient
+        return RealtimeClient(load_config() if config is None else config)
     from google import genai
     from core.gemini import api_key
     return genai.Client(
@@ -38,6 +41,7 @@ def client(config: dict | None = None, *, enhanced: bool = False):
 
 def note_model_failure(model_name: str, error: str, config: dict | None = None) -> bool:
     """Register a Gemini Live model failure without exposing its adapter to callers."""
-    provider(config)
+    if provider(config) == "openai_realtime":
+        return False  # never switch to Gemini or a different provider on failure
     from core.gemini import note_live_failure
     return note_live_failure(model_name, error)

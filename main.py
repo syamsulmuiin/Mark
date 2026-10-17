@@ -779,7 +779,8 @@ class JarvisLive:
         return None
 
     def _on_text_command(self, text: str):
-        if not self._loop or not self.session:
+        if not self._loop:
+            self.ui.write_log("SYS: Runtime is still starting; try again shortly.")
             return
         # Respect wake-word sleep: a typed command must not be answered while
         # asleep either (the sleep gate is not just for the mic). Wake first with
@@ -788,12 +789,43 @@ class JarvisLive:
             self.ui.write_log("SYS: I'm asleep — say 'Hey Jarvis' or tap WAKE NOW first.")
             return
         asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"role": "user", "parts": [{"text": text}]},
-                turn_complete=True
-            ),
+            self._route_text_command(text),
             self._loop
         )
+
+    async def _route_text_command(self, text: str) -> None:
+        """Route typed input deterministically; never let Live choose its provider."""
+        from core.setup_config import load_config
+        from core.text_commands import respond
+        settings = load_config()
+        provider = str(settings.get("llm_provider") or "gemini").strip().lower()
+        if provider == "gemini" and settings.get("live_provider", "gemini") == "gemini":
+            for _ in range(80):
+                if self.session:
+                    break
+                await asyncio.sleep(0.1)
+            if not self.session:
+                self.ui.write_log("SYS: Voice session unavailable; please retry.")
+                return
+            await self.session.send_client_content(
+                turns={"role": "user", "parts": [{"text": text}]}, turn_complete=True,
+            )
+            return
+        # Serialize text turns so follow-up context contains the previous answer.
+        if not hasattr(self, "_text_command_lock"):
+            self._text_command_lock = asyncio.Lock()
+        async with self._text_command_lock:
+            history = list(self._session_log[-20:])
+            self._record_transcript_entry("user", text)
+            _trace_event("text_llm_request", provider=provider)
+            try:
+                answer = await asyncio.to_thread(respond, text, history=history, config=settings)
+            except Exception as exc:
+                # Do not expose provider payloads/credentials in public logs.
+                self.ui.write_log(f"ERR: Configured Text LLM ({provider}) failed: {type(exc).__name__}")
+                answer = f"Text LLM ({provider}) gagal merespons. Periksa model, API key, dan koneksi server."
+                _trace_event("text_llm_failed", provider=provider, error=type(exc).__name__)
+            self._record_transcript_entry("jarvis", answer)
 
     def _tail_active(self) -> bool:
         """True while the speakers may still be finishing our last sentence."""
@@ -930,7 +962,14 @@ class JarvisLive:
 
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
-        self._interrupted = True
+        # Buffered playback can outlive provider turn_complete. In that case
+        # there is no future completion event to clear an interruption flag;
+        # leaving it set would discard the entire next answer.
+        turn_completed = bool(self._turn_done_event and self._turn_done_event.is_set())
+        self._interrupted = not turn_completed
+        cancel_response = getattr(self.session, "cancel_response", None)
+        if cancel_response and self._loop:
+            asyncio.run_coroutine_threadsafe(cancel_response(), self._loop)
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -947,7 +986,7 @@ class JarvisLive:
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
         self._audio_relay_cursor = 0.0
-        if self._turn_done_event:
+        if self._turn_done_event and not turn_completed:
             self._turn_done_event.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
 
@@ -2751,23 +2790,9 @@ class JarvisLive:
                 )
                 if not text:
                     continue
-                # Wait up to 8s for session to become ready after a wake
-                for _ in range(80):
-                    if self.session:
-                        break
-                    await asyncio.sleep(0.1)
-                if self.session:
-                    # A remote command is deliberate control and the phone user
-                    # has no desktop WAKE button — so it wakes JARVIS if asleep.
-                    if self._wake_enabled and not self._awake:
-                        self.wake(reason="remote command")
-                    await self.session.send_client_content(
-                        turns={"role": "user", "parts": [{"text": text}]},
-                        turn_complete=True,
-                    )
-                    self.ui.write_log(f"[Web]: {text}")
-                else:
-                    print(f"[Dashboard] Dropped command (no session): {text}")
+                if self._wake_enabled and not self._awake:
+                    self.wake(reason="remote command")
+                await self._route_text_command(text)
             except asyncio.TimeoutError:
                 pass
             except Exception as e:

@@ -1,7 +1,7 @@
 """Synthesize low-risk pure capabilities; never installs dependencies or activates code."""
 from __future__ import annotations
 import json,re
-from core import gemini
+from core import reasoning as gemini
 
 _SYSTEM='''You generate a PURE Python capability for Mark. Return strict JSON only.
 The skill MUST define exactly one public entry point: def execute(**kwargs) or async def execute(**kwargs).

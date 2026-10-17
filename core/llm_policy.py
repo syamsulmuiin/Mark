@@ -11,11 +11,12 @@ def live_delegation_instruction(config: dict | None = None) -> str:
     """
     settings = load_config() if config is None else config
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
-    if provider == "gemini":
+    if provider == "gemini" and settings.get("live_provider", "gemini") == "gemini":
         return ""
+    voice = "OpenAI Realtime" if settings.get("live_provider") == "openai_realtime" else "Gemini Live"
     return (
         "[TEXT LLM DELEGATION POLICY]\n"
-        f"The configured reasoning provider is {provider}, not Gemini Live. "
+        f"The configured reasoning provider is {provider}. The voice transport is {voice}. "
         "You are the real-time voice interface. For substantive questions, "
         "analysis, troubleshooting and decisions, call "
         "delegate_to_text_llm with the user's complete request and relevant context "

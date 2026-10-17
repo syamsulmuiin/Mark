@@ -1258,8 +1258,36 @@ class JarvisLive:
                 if not hasattr(self, "_text_proposal_handoff"):
                     self._text_proposal_handoff = ProposalHandoff()
                 proposal_token = self._text_proposal_handoff.stage(proposed)
-                answer = {"result": proposed, "proposal_token": proposal_token,
-                          "approval_required": True}
+                # Only the existing HUD/paired-companion confirmation gate may
+                # authorize execution. The Live model cannot call this callback.
+                # The gate executes callbacks on a worker thread, so marshal
+                # execution back to the running async loop.
+                def _run_approved_proposal():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.execute_approved_text_proposal(
+                            proposal_token, user_approved=True), self._loop
+                    )
+                    response = future.result(timeout=120)
+                    return str(getattr(response, "response", response))
+
+                _approval_message = confirm_gate.request(
+                    key="text_proposal:" + proposal_token,
+                    title="Execute proposed action: " + proposed["tool"],
+                    detail=(
+                        "Text LLM proposed this action (not yet executed).\n"
+                        + "Tool: " + proposed["tool"] + "\n"
+                        + "Arguments: " + json.dumps(
+                            proposed["args"], ensure_ascii=False, sort_keys=True
+                        )[:3000] + "\n"
+                        + "Approve only if you requested this action."
+                    ),
+                    run=_run_approved_proposal,
+                )
+                answer = {
+                    "result": proposed,
+                    "approval_required": True,
+                    "confirmation": _approval_message,
+                }
             except Exception as exc:
                 answer = {"error": f"Text action proposal failed: {type(exc).__name__}: {exc}"}
             if not self.ui.muted:

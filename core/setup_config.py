@@ -87,10 +87,10 @@ def interactive_llm_setup() -> bool:
         DEFAULT_TEXT_MODEL, DEFAULT_TEXT_FALLBACK_MODEL,
     )
     current = load_config()
-    print("\\nCHAT / EXECUTION PROVIDER")
+    print("\nCHAT / EXECUTION PROVIDER")
     for index, (key, label, ready) in enumerate(CHAT_PROVIDER_CATALOG, 1):
         print(f"  {index}. {label}" + ("" if ready else " [adapter not installed]"))
-    print("\\nLIVE / VOICE PROVIDER")
+    print("\nLIVE / VOICE PROVIDER")
     for index, (key, label, ready) in enumerate(LIVE_PROVIDER_CATALOG, 1):
         print(f"  {index}. {label}" + ("" if ready else " [adapter not installed]"))
     print("Hybrid uses the selected chat provider for text/tools and the Live provider for voice.")

@@ -84,6 +84,24 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
     return current
 
 
+
+def _safe_input(prompt: str) -> str:
+    """Read interactive input even when terminal locale and Python disagree."""
+    import sys
+    try:
+        return input(prompt)
+    except UnicodeDecodeError:
+        # A non-UTF-8 terminal cannot safely be decoded with input(). Recover
+        # using the actual stdin encoding, with replacement for bad sequences.
+        stream = sys.stdin
+        buffer = getattr(stream, "buffer", None)
+        if buffer is None:
+            raise
+        print("\n[Setup] Terminal encoding mismatch; retrying input with replacement.")
+        raw = buffer.readline()
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        return raw.decode(encoding, errors="replace").rstrip("\r\n")
+
 def interactive_llm_setup() -> bool:
     """Configure supported LLM provider and separate Live/text model ladders."""
     from core.model_config import (
@@ -99,8 +117,8 @@ def interactive_llm_setup() -> bool:
         print(f"  {index}. {label}" + ("" if ready else " [adapter not installed]"))
     print("Hybrid uses the selected provider for routed plain text; Live/tools remain Gemini.")
     try:
-        provider_choice = input("Chat / execution provider [1]: ").strip().lower()
-        live_choice = input("Live / voice provider [1]: ").strip().lower()
+        provider_choice = _safe_input("Chat / execution provider [1]: ").strip().lower()
+        live_choice = _safe_input("Live / voice provider [1]: ").strip().lower()
         provider_choices = {str(i): key for i, (key, _, _) in enumerate(CHAT_PROVIDER_CATALOG, 1)}
         live_choices = {str(i): key for i, (key, _, _) in enumerate(LIVE_PROVIDER_CATALOG, 1)}
         provider = provider_choices.get(provider_choice or "1", provider_choice)
@@ -123,23 +141,23 @@ def interactive_llm_setup() -> bool:
         print("Live models must support the Gemini Live audio API.")
         choices = {}
         if provider != "gemini":
-            model = input(f"{provider} text model ID (required): ").strip()
+            model = _safe_input(f"{provider} text model ID (required): ").strip()
             if not model:
                 print("Text model ID required; configuration unchanged.")
                 return False
             choices["chat_models"] = model
             live_default = current.get("live_models") or f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"
-            choices["live_models"] = input(f"Live audio models [{live_default}]: ").strip() or live_default
+            choices["live_models"] = _safe_input(f"Live audio models [{live_default}]: ").strip() or live_default
         else:
             defaults = (
                 ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
                 ("text_models", "Text / tools", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
             )
             for field, label, default in defaults:
-                value = input(f"{label} models [{current.get(field) or default}]: ").strip()
+                value = _safe_input(f"{label} models [{current.get(field) or default}]: ").strip()
                 choices[field] = value or current.get(field) or default
         save_llm_selection(provider, "hybrid", provider_api_key=api_key, **choices)
-    except (EOFError, KeyboardInterrupt):
+    except (EOFError, KeyboardInterrupt, UnicodeDecodeError):
         print("LLM selection cancelled; existing configuration preserved.")
         return False
     print("Hybrid configuration saved (Gemini Live + selected text provider).")

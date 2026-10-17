@@ -22,10 +22,18 @@ def model(config: dict | None = None) -> str:
     return live_model()
 
 
-def client(config: dict | None = None):
+def client(config: dict | None = None, *, enhanced: bool = False):
+    """Create a fresh Gemini Live client for each connection attempt.
+
+    Preserve the existing v1alpha/v1beta selection for proactive audio.
+    """
     provider(config)
-    from core.gemini import client as gemini_client
-    return gemini_client()
+    from google import genai
+    from core.gemini import api_key
+    return genai.Client(
+        api_key=api_key(),
+        http_options={"api_version": "v1alpha" if enhanced else "v1beta"},
+    )
 
 
 def note_model_failure(model_name: str, error: str, config: dict | None = None) -> bool:

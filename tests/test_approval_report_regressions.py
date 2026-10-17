@@ -18,7 +18,8 @@ def test_approval_has_a_readable_summary_and_all_original_arguments():
     title, detail = present_action('code_helper', args, 'Save the requested diagnostic report')
     summary, technical = detail.split(TECHNICAL_MARKER)
     assert title == 'Create file'
-    assert 'diagnostic_report.txt' in summary and 'SHA-256' in summary
+    assert 'diagnostic_report.txt' in summary and 'SHA-256' not in summary
+    assert 'SHA-256' in technical
     assert 'Report\nDetails' not in summary
     assert json.dumps(args, ensure_ascii=False, indent=2, sort_keys=True) in technical
 

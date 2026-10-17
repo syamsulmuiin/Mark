@@ -22,12 +22,15 @@ def present_action(tool: str, args: dict, reason: str = "") -> tuple[str, str]:
         summary.append("Operation: " + operation)
     if reason:
         summary.append("Reason: " + reason)
+    fingerprints = []
     for key in ("code", "content", "script"):
         if isinstance(args.get(key), str):
             content = args[key]
-            summary.append(f"{key.capitalize()}: {len(content)} characters; SHA-256 "
-                           + hashlib.sha256(content.encode()).hexdigest())
+            summary.append(f"File contents: {len(content)} characters (see technical details)")
+            fingerprints.append(key + " SHA-256: " + hashlib.sha256(content.encode()).hexdigest())
     summary.append("Nothing has run yet. Review the technical details before approving.")
     # Full exact arguments remain available; never silently approve a truncated payload.
     technical = "Tool: " + tool + "\nArguments:\n" + json.dumps(args, ensure_ascii=False, indent=2, sort_keys=True)
+    if fingerprints:
+        technical += "\n" + "\n".join(fingerprints)
     return title, "\n".join(summary) + TECHNICAL_MARKER + technical

@@ -133,3 +133,12 @@ def test_native_confirmation_metadata_requires_a_real_pending_dialog(monkeypatch
     assert confirm.response_metadata(message)['approval_sent'] is True
     confirm.resolve(False, expected_key='native-metadata')
     assert confirm.response_metadata(message)['approval_sent'] is False
+
+
+def test_proposer_cannot_replace_an_operation_with_task_bookkeeping(monkeypatch):
+    from core import llm_text
+    from core.llm_action_proposals import propose_action
+    monkeypatch.setattr(llm_text, 'generate', lambda *a, **kw: json.dumps({
+        'tool': 'task_continuity', 'args': {'action': 'begin'}, 'reason': 'Start tracking'}))
+    with pytest.raises(ValueError):
+        propose_action('create a report', [{'name': 'task_continuity'}, {'name': 'code_helper'}])

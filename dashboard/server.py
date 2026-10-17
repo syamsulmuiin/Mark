@@ -490,6 +490,7 @@ class DashboardServer:
         self._device_pending_calls: dict[str, asyncio.Future] = {}
         self._active_voice_device: str | None = None
         self._approval_pending: dict[str, dict] = {}
+        self._approval_completion_targets: dict[str, tuple] = {}
         self._approval_result_callback = None
         # Stable origin for device-local routing. Keep separate from the voice
         # transport target so tool routing can never steal or clear audio state.
@@ -641,14 +642,37 @@ class DashboardServer:
         if type(msg.get("accepted")) is not bool:
             return False
         self._approval_pending.pop(request_id, None)
+        if msg["accepted"]:
+            self._approval_completion_targets[request_id] = (device_id, websocket)
         if self._approval_result_callback:
             try:
                 self._approval_result_callback(request_id, msg["accepted"])
             except Exception:
+                self._approval_completion_targets.pop(request_id, None)
                 _interaction_event("approval_callback_error", device_id=device_id)
                 return False
         _interaction_event("approval_resolved", device_id=device_id,
                            outcome="accepted" if msg["accepted"] else "rejected")
+        return True
+
+    async def send_approval_completion(self, request_id: str, success: bool) -> bool:
+        """Send sanitized execution outcome only to the original authenticated socket."""
+        target = self._approval_completion_targets.pop(request_id, None)
+        if target is None:
+            return False
+        device_id, socket = target
+        if self._device_sockets.get(device_id) is not socket:
+            return False
+        try:
+            await socket.send_json({
+                "type": "approval.completed", "request_id": request_id,
+                "status": "succeeded" if success else "failed",
+            })
+        except Exception:
+            _interaction_event("approval_completion_delivery_failed", device_id=device_id)
+            return False
+        _interaction_event("approval_action_completed", device_id=device_id,
+                           outcome="succeeded" if success else "failed")
         return True
 
     async def send_active_approval(self, request_id: str, title: str, detail: str,

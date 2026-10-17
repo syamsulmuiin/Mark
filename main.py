@@ -2748,8 +2748,10 @@ class JarvisLive:
             print(f"[ERROR] Mark HTTP API startup failed: {e}", file=sys.stderr)
             raise
 
+        from core import llm_live
+
         while True:
-            live_model = _gemini.live_model()
+            live_model = llm_live.model()
             try:
                 if self._dashboard:
                     self._dashboard.set_phone_audio_enabled(False)
@@ -2915,8 +2917,8 @@ class JarvisLive:
                 # Live rung; transport failures must keep the current model and
                 # use normal reconnect backoff instead.
                 if (decision.action is ErrorAction.MODEL_FAILOVER
-                        and _gemini.note_live_failure(live_model, err_str)):
-                    next_live_model = _gemini.live_model()
+                        and llm_live.note_model_failure(live_model, err_str)):
+                    next_live_model = llm_live.model()
                     if next_live_model != live_model:
                         self.ui.write_log(
                             f"SYS: Live model unavailable — switching to {next_live_model}."

@@ -26,3 +26,10 @@ def client(config: dict | None = None):
     provider(config)
     from core.gemini import client as gemini_client
     return gemini_client()
+
+
+def note_model_failure(model_name: str, error: str, config: dict | None = None) -> bool:
+    """Register a Gemini Live model failure without exposing its adapter to callers."""
+    provider(config)
+    from core.gemini import note_live_failure
+    return note_live_failure(model_name, error)

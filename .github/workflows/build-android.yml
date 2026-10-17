@@ -104,11 +104,34 @@ jobs:
           ASSISTANT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ASSISTANT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle --no-daemon clean assembleRelease --stacktrace
-      - name: Verify APK signature
+      - name: Verify release APK for Android 13
+        shell: bash
         run: |
-          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)"
-          test -x "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
-          "$APKSIGNER" verify --verbose --print-certs android-companion/app/build/outputs/apk/release/app-release.apk
+          set -euo pipefail
+          APK="android-companion/app/build/outputs/apk/release/app-release.apk"
+          BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -s "$APK"
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$APK"
+          # Verify that the signed artifact is valid on the user's Android 13
+          # device (API 33), not only on the build runner.
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs --min-sdk-version 33 "$APK"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -E "^(package:|sdkVersion:|targetSdkVersion:)"
+          sha256sum "$APK" | tee release-apk.sha256
+          {
+            echo "Git commit: $GITHUB_SHA"
+            echo "APK SHA256: $(cut -d' ' -f1 release-apk.sha256)"
+            echo "Artifact: Companion-release-signed/app-release.apk"
+            echo "Android compatibility check: API 33"
+            echo "Signature and alignment checks passed on CI; device-side verification may still reject installation."
+          } | tee release-apk-diagnostics.txt
+      - name: Upload release diagnostics
+        uses: actions/upload-artifact@v7
+        with:
+          name: Companion-release-diagnostics
+          path: |
+            release-apk.sha256
+            release-apk-diagnostics.txt
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: Companion-release-signed

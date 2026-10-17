@@ -42,3 +42,25 @@ def test_interactive_selection_defaults_to_gemini_hybrid(tmp_path, monkeypatch):
     assert saved["llm_provider"] == "gemini"
     assert saved["llm_mode"] == "hybrid"
     assert saved["live_models"] and saved["text_models"]
+
+
+def test_unsupported_chat_provider_does_not_change_saved_settings(tmp_path, monkeypatch):
+    path = tmp_path / "api_keys.json"
+    path.write_text('{"gemini_api_key":"secret","llm_provider":"gemini"}')
+    monkeypatch.setattr(setup_config, "CONFIG_FILE", path)
+    answers = iter(["2", "1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    before = path.read_text()
+    assert not setup_config.interactive_llm_setup()
+    assert path.read_text() == before
+
+
+def test_unsupported_live_provider_does_not_change_saved_settings(tmp_path, monkeypatch):
+    path = tmp_path / "api_keys.json"
+    path.write_text('{"gemini_api_key":"secret","llm_provider":"gemini"}')
+    monkeypatch.setattr(setup_config, "CONFIG_FILE", path)
+    answers = iter(["1", "2"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    before = path.read_text()
+    assert not setup_config.interactive_llm_setup()
+    assert path.read_text() == before

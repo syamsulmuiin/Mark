@@ -11,28 +11,29 @@ def test_send_server_file_defaults_to_attachment_inbox():
     assert 'source_device="server"' in server
     assert '"type":"attachment.new"' in server
     assert 'temporary=False' in server
-    assert 'if not save_direct:' in server
+    assert 'saving is a recipient UI action' in server
 
 
-def test_direct_receive_is_explicit_only():
+def test_model_delivery_cannot_write_companion_files():
     server=text('dashboard/server.py')
-    direct=server[server.index('    async def send_server_file('):server.index('    async def _send_attachment_inbox')]
-    assert direct.index('if not save_direct:') < direct.index('self.call_device(destination_device, "file.receive"')
-    assert 'requested_destination = "Downloads/Mark"' in direct
+    delivery=server[server.index('    async def send_server_file('):server.index('    async def _send_attachment_inbox')]
+    assert 'self.call_device(' not in delivery
+    assert '"saved_to_destination":False' in delivery
 
 
-def test_tool_contract_defaults_to_inbox_and_exposes_explicit_save():
+def test_tool_contract_exposes_only_attachment_delivery():
     tools=text('core/live_tools.py')
-    assert "By default the file is delivered to the recipient's durable Attachment Inbox" in tools
-    assert '"save_direct": {"type":"BOOLEAN"' in tools
-    assert '"destination": {"type":"STRING"' in tools
-    assert 'Do not infer direct saving' in tools
+    delivery=tools[tools.index('"name": "send_server_file"'):tools.index('"name": "call_current_device"')]
+    assert "recipient's durable Attachment Inbox" in delivery
+    assert '"save_direct"' not in delivery
+    assert '"destination"' not in delivery
+    assert 'recipient presses Save As' in delivery
 
 
-def test_router_requires_inbox_by_default_and_receive_only_for_direct_save():
+def test_router_requires_attachment_inbox():
     main=text('main.py')
-    assert 'required_capability="file.receive" if save_direct else "attachment.inbox"' in main
-    assert 'direct saving requires it to be online' in main
+    assert 'required_capability="attachment.inbox"' in main
+    assert 'Direct file saving is disabled for model tools' in main
     ast.parse(main)
 
 

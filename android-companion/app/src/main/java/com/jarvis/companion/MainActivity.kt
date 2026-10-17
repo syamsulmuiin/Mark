@@ -508,7 +508,10 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Tolak",null)
             .create()
         approvalDialog=dialog
-        dialog.setOnCancelListener { finish(false) }
+        // Only explicit buttons or the deadline may resolve the request.
+        // Tapping the dimmed area / Back must never count as rejection.
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
         dialog.show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
             setTextColor(teal)

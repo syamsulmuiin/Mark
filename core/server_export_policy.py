@@ -60,6 +60,10 @@ def validate_delivery_name(source: Path, destination_name: str) -> str:
         return source.name
     src_suffix = source.suffix.casefold()
     dst_suffix = Path(requested).suffix.casefold()
+    if src_suffix == ".log" and dst_suffix == ".txt":
+        # A model may suggest a friendly .txt filename for a runtime log.
+        # Keep its real extension rather than failing the delivery or disguising it.
+        return str(Path(requested).with_suffix(source.suffix))
     if src_suffix and dst_suffix != src_suffix:
         raise PermissionError(
             f"Destination filename must preserve source file type {src_suffix!r}; got {dst_suffix or '<none>'!r}."

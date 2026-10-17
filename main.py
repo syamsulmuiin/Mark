@@ -1074,6 +1074,10 @@ class JarvisLive:
         if _task_recovery:
             parts.append(_task_recovery)
         parts.append(sys_prompt)
+        from core.llm_policy import live_delegation_instruction
+        _delegation_policy = live_delegation_instruction()
+        if _delegation_policy:
+            parts.append(_delegation_policy)
 
         cfg = dict(
             response_modalities=["AUDIO"],

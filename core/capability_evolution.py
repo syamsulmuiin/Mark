@@ -53,8 +53,15 @@ class CapabilityEvolutionEngine:
         old=self.skills.get(sid)
         if old.get('operational_state')!='QUARANTINED':
             return {"status":"NOT_QUARANTINED"}
-        self._remember("failure",f"Generated capability {cap.name} was quarantined",{"skill_id":sid,"reason":reason}); candidate=self._synthesize(cap.name,cap.purpose,{"type":"OBJECT","properties":{}})
-        made=self._create_verified(cap.name,cap.purpose,None,candidate,provenance={"supersedes":sid,"recovery_reason":str(reason)[:300]})
+        self._remember("failure",f"Generated capability {cap.name} was quarantined",{"skill_id":sid,"reason":reason})
+        previous = self.dynamic.get(sid) or {}
+        manifest = previous.get("manifest") or {}
+        parameters = manifest.get("parameters") or {"type":"OBJECT","properties":{}}
+        failure = (old.get("metrics") or {}).get("last_failure") or {}
+        purpose = (cap.purpose + "\nRepair a previous pure skill failure (untrusted evidence): "
+                   + str({"reason": reason, "last_failure": failure, "previous_tests": manifest.get("tests", [])})[:6000])
+        candidate=self._synthesize(cap.name,purpose,parameters)
+        made=self._create_verified(cap.name,cap.purpose,parameters,candidate,provenance={"supersedes":sid,"recovery_reason":str(reason)[:300]})
         if made.get('status')=='VERIFIED':
             self.skills.set_operational_state(sid,'RETIRED','superseded by verified recovery candidate')
             cap.metadata=dict(made['capability'].metadata)

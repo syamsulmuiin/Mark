@@ -138,3 +138,22 @@ def test_knowledge_write_failure_rolls_back(monkeypatch, tmp_path):
     result = a.self_repair_apply(_apply_params())
     assert "rolled back" in result.lower()
     assert (tmp_path / "main.py").read_text() == "x = 1\n"
+
+
+def test_core_helper_repairs_can_apply_but_authority_files_stay_protected(monkeypatch, tmp_path):
+    import actions.self_repair_apply as a
+    _sandbox(monkeypatch, tmp_path)
+    monkeypatch.setattr(a, 'BASE_DIR', tmp_path)
+    (tmp_path / 'core').mkdir()
+    helper = tmp_path / 'core/helper.py'
+    helper.write_text('x = 1\n')
+    monkeypatch.setattr(a, 'recover_incomplete_transactions', lambda: [])
+    monkeypatch.setattr(a, 'validate_sandbox', lambda candidates: (True, []))
+    monkeypatch.setattr(a, 'validate_repository', lambda files: (True, []))
+    params = _apply_params()
+    params['operations'][0]['file'] = 'core/helper.py'
+    assert 'accepted' in a.self_repair_apply(params).lower()
+    assert helper.read_text() == 'x = 2\n'
+    for filename in ['core/action_policy.py', 'core/confirm.py', 'core/llm_proposal_handoff.py']:
+        with pytest.raises(r.RepairPolicyError):
+            r.enforce_policy([filename], 10, 'low', False)

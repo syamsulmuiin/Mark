@@ -59,6 +59,8 @@ class _Pending:
 
 _pending: Optional[_Pending] = None
 _lock = threading.Lock()
+_recent_proposals: dict[str, tuple[float, str]] = {}
+PROPOSAL_REPLAY_SECONDS = 60.0
 
 # Set once at startup by main.py. Signature: (title, detail) -> None for show,
 # and () -> None for hide. Both are marshalled onto the Qt thread by the UI.
@@ -97,6 +99,14 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
                 f"not available, so I have not done it.")
 
     with _lock:
+        now = time.monotonic()
+        for old_key, (at, _) in list(_recent_proposals.items()):
+            if now - at > PROPOSAL_REPLAY_SECONDS:
+                _recent_proposals.pop(old_key, None)
+        if key.startswith("text_proposal:") and key in _recent_proposals:
+            state = _recent_proposals[key][1]
+            return (f"[CONFIRMATION_COMPLETED] This exact action was already handled ({state}). "
+                    "Do not request approval or execute it again.")
         # A new request must never silently replace an unanswered approval.
         # An expired request is discarded; the old callback can no longer run.
         if _pending is not None and time.monotonic() - _pending.at <= TIMEOUT_SECONDS:
@@ -122,6 +132,9 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
 
 def _notify_result(p: _Pending, success: bool, result: str) -> None:
     """Optional completion signal; never let notification errors affect the gate."""
+    if p.key.startswith("text_proposal:"):
+        with _lock:
+            _recent_proposals[p.key] = (time.monotonic(), "succeeded" if success else "not_executed_or_failed")
     if _result_cb:
         try:
             _result_cb(p.request_id, p.key, p.title, success, result)
@@ -146,6 +159,8 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None,
         if expected_request_id is not None and (_pending is None or _pending.request_id != expected_request_id):
             return
         p, _pending = _pending, None
+        if p is not None and p.key.startswith("text_proposal:"):
+            _recent_proposals[p.key] = (time.monotonic(), "running" if accepted else "rejected")
 
     if _hide_cb:
         try:
@@ -170,7 +185,8 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None,
         try:
             result = p.run() or "Done."
             _log(f"SYS: Confirmed — {p.title}. {result}")
-            _notify_result(p, True, result)
+            nested = str(result).startswith("[CONFIRMATION_PENDING]")
+            _notify_result(p, not nested, "nested_confirmation_pending" if nested else result)
         except Exception as e:
             _log(f"ERR: {p.title} failed — {e}")
             _notify_result(p, False, "failed")

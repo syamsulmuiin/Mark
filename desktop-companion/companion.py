@@ -6,7 +6,8 @@ import base64, json, os, queue, socket, threading, uuid, subprocess, sys, shutil
 from pathlib import Path
 import logging
 from logging.handlers import RotatingFileHandler
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
+from PyQt6.QtCore import QTimer, Qt
 from desktop_ui import DesktopWindow, AttachmentDialog, TextValue
 import requests, websocket
 from urllib.parse import urlparse
@@ -56,6 +57,7 @@ class App:
         self.attachments={}; self.sent_attachments={}; self.attachment_mode="received"; self.pending_attachment=None; self.deferred_attachment_pick=None; self.assistant_turn_complete=False
         self.qt_app=QApplication.instance() or QApplication(sys.argv)
         self.root=DesktopWindow(self)
+        self._approval_dialog=None
         self.code=TextValue(self.root.code_input)
         self.cmd=TextValue(self.root.command_input)
         self.status=type('Status', (), {'set': lambda _, value: self.root.after(0, lambda: self.root.set_status(value))})()
@@ -255,6 +257,8 @@ class App:
                 pending=self.pending_attachment; self.pending_attachment=None
                 threading.Thread(target=self._download_attachment,args=(m,pending),daemon=True).start()
         elif typ=='attachment.error': self.note('Attachment: '+str(m.get('error')))
+        elif typ=='approval.request':
+            self.root.after(0, lambda msg=m, owner=_w: self.show_approval(msg, owner))
         elif typ=='capability.call': self.capability(m)
     def on_data(self,_w,data,opcode,_fin):
         if opcode==websocket.ABNF.OPCODE_BINARY and self.out:
@@ -333,6 +337,67 @@ class App:
         message=('Device pairing was rejected. Enter a new Pair Code.' if revoked
                  else 'Connection closed. Reconnect to continue.')
         self.root.after(0,lambda message=message:(self.status.set('Disconnected'),self.root.show_connection_error(message)))
+    def show_approval(self, message, owner):
+        """A short-lived, explicit confirmation on the authenticated companion."""
+        if self._approval_dialog is not None:
+            self._approval_dialog.reject()
+        request_id = str(message.get('request_id') or '')
+        if not request_id or owner is not self.ws:
+            return
+        dialog = QDialog(self.root)
+        self._approval_dialog = dialog
+        dialog.setWindowTitle('Mark · Persetujuan')
+        dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        dialog.setMinimumWidth(350)
+        layout = QVBoxLayout(dialog)
+        title = QLabel(str(message.get('title') or 'Konfirmasi tindakan'))
+        title.setStyleSheet('font-size: 17px; font-weight: 700;')
+        layout.addWidget(title)
+        detail = QLabel(str(message.get('detail') or ''))
+        detail.setWordWrap(True)
+        layout.addWidget(detail)
+        countdown = QLabel()
+        layout.addWidget(countdown)
+        actions = QHBoxLayout()
+        reject = QPushButton('Tolak')
+        allow = QPushButton('Izinkan')
+        actions.addWidget(reject)
+        actions.addWidget(allow)
+        layout.addLayout(actions)
+        remaining = [max(1, min(15, int(message.get('timeout_seconds') or 15)))]
+        completed = [False]
+        timer = QTimer(dialog)
+
+        def finish(accepted):
+            if completed[0]:
+                return
+            completed[0] = True
+            timer.stop()
+            if self._approval_dialog is dialog:
+                self._approval_dialog = None
+            if self.ws is owner:
+                try:
+                    owner.send(json.dumps({'type': 'approval.response',
+                                           'request_id': request_id,
+                                           'accepted': bool(accepted)}))
+                except Exception:
+                    pass
+            dialog.close()
+
+        def tick():
+            remaining[0] -= 1
+            countdown.setText(f'Berakhir dalam {remaining[0]} detik')
+            if remaining[0] <= 0:
+                finish(False)
+
+        countdown.setText(f'Berakhir dalam {remaining[0]} detik')
+        timer.timeout.connect(tick)
+        reject.clicked.connect(lambda: finish(False))
+        allow.clicked.connect(lambda: finish(True))
+        dialog.rejected.connect(lambda: finish(False))
+        timer.start(1000)
+        dialog.show()
+
     def send(self):
         text=self.cmd.get().strip()
         if text and self.ws: self.ws.send(json.dumps({'type':'jarvis.command','text':text})); self.note('YOU: '+text); self.cmd.set('')

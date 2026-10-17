@@ -2994,6 +2994,25 @@ class JarvisLive:
                     _conn_backoff = 3
                     continue
 
+                # Gemini Live 1008 with "Requested entity was not found" is a
+                # provider-side resource/model/session rejection, not an Android
+                # Accessibility failure or a transient network timeout. Give the
+                # operator a useful, bounded diagnostic and avoid a tight retry
+                # loop while preserving normal session reconstruction.
+                if "1008" in err_str and "requested entity was not found" in err_str.lower():
+                    self._conn_backoff = min(
+                        max(getattr(self, "_conn_backoff", 3) * 2, 10), 60
+                    )
+                    self.ui.write_log(
+                        "LIVE: Gemini rejected a requested entity (1008). "
+                        "Check the configured Live model and API access; "
+                        f"retrying the session in {self._conn_backoff}s."
+                    )
+                    # Continue runs finally but skips the normal delay below.
+                    # Sleep here so repeated provider rejections cannot spin.
+                    await asyncio.sleep(self._conn_backoff)
+                    continue
+
                 # Network / timeout errors — log clearly and back off
                 is_net_err = _is_transient_network
                 if is_net_err:

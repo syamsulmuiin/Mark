@@ -360,6 +360,14 @@ class MainActivity : AppCompatActivity() {
                         if(!m.optBoolean("progress",false)) appendTranscript(m.optString("speaker"),m.optString("text"))
                     }
                     "approval.request"->runOnUiThread { showApproval(w,m) }
+                    "approval.ack"->runOnUiThread {
+                        val label=when(m.optString("status")){
+                            "accepted"->"Persetujuan diterima server"
+                            "rejected"->"Penolakan diterima server"
+                            else->"Persetujuan kedaluwarsa atau tidak valid"
+                        }
+                        Toast.makeText(this@MainActivity,label,Toast.LENGTH_LONG).show()
+                    }
                     "capability.call"->executeCapability(w,m)
                 }
             } catch(_:Exception){ ui("Invalid message from JARVIS") } }

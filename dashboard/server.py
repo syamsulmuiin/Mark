@@ -1317,7 +1317,12 @@ class DashboardServer:
                         if self._interrupt_callback:
                             self._interrupt_callback()
                     elif msg.get("type") == "approval.response":
-                        self.accept_approval_reply(device_id, websocket, msg)
+                        valid = self.accept_approval_reply(device_id, websocket, msg)
+                        await websocket.send_json({
+                            "type": "approval.ack",
+                            "request_id": str(msg.get("request_id") or ""),
+                            "status": ("accepted" if msg.get("accepted") else "rejected") if valid else "expired_or_invalid",
+                        })
                     elif msg.get("type") == "jarvis.heartbeat":
                         await websocket.send_json({"type": "jarvis.heartbeat.ack", "ts": msg.get("ts")})
                     elif msg.get("type") == "attachment.picker.received":

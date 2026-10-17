@@ -1319,8 +1319,11 @@ class JarvisLive:
                 if not requires_confirmation(proposed["tool"], proposed["args"]):
                     from types import SimpleNamespace
                     # Normal executor retains device routing, repair intent and native gates.
-                    return await self._execute_tool(SimpleNamespace(
-                        id=fc.id, name=proposed["tool"], args=proposed["args"]))
+                    action_response = await self._execute_tool(SimpleNamespace(
+                        id=None, name=proposed["tool"], args=proposed["args"]))
+                    # Reply to the provider's original function call, not the nested action.
+                    return types.FunctionResponse(id=fc.id, name=name,
+                                                  response=action_response.response)
                 import hashlib
                 _proposal_key = hashlib.sha256(json.dumps({
                     "tool": proposed["tool"], "args": proposed["args"],

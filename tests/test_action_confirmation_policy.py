@@ -73,3 +73,4 @@ def test_simple_text_proposal_executes_without_showing_a_dialog(monkeypatch):
         name='propose_text_action', args={'task': 'remember this'}, id='request')))
     assert result.response['result'] == 'ok'
     assert len(writes) == 1
+    assert result.name == 'propose_text_action' and result.id == 'request'

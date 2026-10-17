@@ -34,7 +34,7 @@ CHAT_PROVIDER_CATALOG = (
     ("gemini", "Google Gemini", True),
     ("openai", "OpenAI API (text only)", True),
     ("openai_codex", "OpenAI Codex (account authorization)", False),
-    ("anthropic", "Anthropic Claude", False),
+    ("anthropic", "Anthropic Claude (text only)", True),
     ("deepseek", "DeepSeek (text only)", True),
     ("ollama_local", "Ollama (local) (text only)", True),
     ("ollama_cloud", "Ollama (cloud) (text only)", True),
@@ -55,7 +55,7 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
                        chat_models: str | None = None) -> dict:
     """Persist provider selection without touching the existing API key.
 
-    Only Gemini hybrid is wired into the current runtime. Fail closed rather
+    Only supported text providers are routed; Live remains Gemini. Fail closed rather
     than offering providers whose text/Live clients do not exist yet.
     """
     provider = str(provider).strip().lower()

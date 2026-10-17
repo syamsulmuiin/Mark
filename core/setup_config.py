@@ -32,13 +32,13 @@ def save_config(gemini_api_key: str, os_system: str | None=None) -> dict:
 # to a different provider than the user selected.
 CHAT_PROVIDER_CATALOG = (
     ("gemini", "Google Gemini", True),
-    ("openai", "OpenAI API", False),
+    ("openai", "OpenAI API (text only)", True),
     ("openai_codex", "OpenAI Codex (account authorization)", False),
     ("anthropic", "Anthropic Claude", False),
-    ("deepseek", "DeepSeek", False),
-    ("ollama_local", "Ollama (local)", False),
-    ("ollama_cloud", "Ollama (cloud)", False),
-    ("openrouter", "OpenRouter", False),
+    ("deepseek", "DeepSeek (text only)", True),
+    ("ollama_local", "Ollama (local) (text only)", True),
+    ("ollama_cloud", "Ollama (cloud) (text only)", True),
+    ("openrouter", "OpenRouter (text only)", True),
 )
 LIVE_PROVIDER_CATALOG = (
     ("gemini", "Gemini Live", True),
@@ -50,7 +50,7 @@ SUPPORTED_MODES = ("hybrid",)
 
 def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
                        live_models: str | None = None,
-                       text_models: str | None = None) -> dict:
+                       text_models: str | None = None,\n                       provider_api_key: str | None = None) -> dict:
     """Persist provider selection without touching the existing API key.
 
     Only Gemini hybrid is wired into the current runtime. Fail closed rather
@@ -64,7 +64,7 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
         raise ValueError(f"Unsupported LLM mode: {mode}")
     current = load_config()
     current["llm_provider"] = provider
-    current["llm_mode"] = mode
+    current["llm_mode"] = mode\n    if provider_api_key is not None and provider != "gemini":\n        current[f"{provider}_api_key"] = provider_api_key.strip()
     for field, value in (("live_models", live_models), ("text_models", text_models)):
         if value is not None:
             models = list(dict.fromkeys(x.strip() for x in value.split(",") if x.strip()))
@@ -107,7 +107,15 @@ def interactive_llm_setup() -> bool:
         if live_provider != "gemini":
             print(f"{live_provider!r} Live audio transport is not implemented.")
             return False
-        print("Mode: Hybrid (Gemini Live voice + Gemini chat/tools)")
+        print("Mode: Hybrid (Gemini Live voice + selected text provider)")
+        api_key = None
+        if provider != "gemini":
+            print("Text generation only: Gemini-specific tool and multimodal helpers remain on Gemini.")
+            if provider != "ollama_local" and not current.get(f"{provider}_api_key"):
+                api_key = getpass.getpass(f"{provider} API key: ").strip()
+                if not api_key:
+                    print("API key required; configuration unchanged.")
+                    return False
         print("Live models must support the Gemini Live audio API.")
         defaults = (
             ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
@@ -117,11 +125,11 @@ def interactive_llm_setup() -> bool:
         for field, label, default in defaults:
             value = input(f"{label} models [{current.get(field) or default}]: ").strip()
             choices[field] = value or current.get(field) or default
-        save_llm_selection(provider, "hybrid", **choices)
+        save_llm_selection(provider, "hybrid", provider_api_key=api_key, **choices)
     except (EOFError, KeyboardInterrupt):
         print("LLM selection cancelled; existing configuration preserved.")
         return False
-    print("Gemini hybrid configuration saved.")
+    print("Hybrid configuration saved (Gemini Live + selected text provider).")
     return True
 
 

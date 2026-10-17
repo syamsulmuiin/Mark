@@ -621,6 +621,27 @@ class DashboardServer:
         for device_id in dead_devices:
             self._device_sockets.pop(device_id, None)
 
+    async def send_active_approval(self, request_id: str, title: str, detail: str,
+                                   timeout_seconds: int = 15) -> str | None:
+        """Send an approval only to the authenticated active voice companion.
+
+        Never broadcast an approval: an inactive paired device must not be able
+        to authorize an action initiated on another device.
+        """
+        device_id = self._active_voice_device
+        if not device_id or device_id not in self._device_sockets:
+            return None
+        ws = self._device_sockets[device_id]
+        try:
+            await ws.send_json({
+                "type": "approval.request", "request_id": request_id,
+                "title": title, "detail": detail,
+                "timeout_seconds": timeout_seconds,
+            })
+        except Exception:
+            return None
+        return device_id
+
     async def send_device_audio(self, pcm: bytes) -> None:
         """Send voice only to the companion that owns the current interaction."""
         # Voice output belongs to the companion that owns the live interaction.

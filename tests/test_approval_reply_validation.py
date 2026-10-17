@@ -16,6 +16,7 @@ def make_server():
     server._device_sockets = {}
     server._active_voice_device = None
     server._approval_pending = {}
+    server._approval_completion_targets = {}
     server._approval_result_callback = None
     return server
 
@@ -52,3 +53,25 @@ def test_expired_and_reconnected_replies_rejected():
     server._device_sockets["android"] = old
     server._approval_pending["request-2"]["expires"] = 0
     assert not server.accept_approval_reply("android", old, response)
+
+
+def test_completion_is_delivered_only_to_original_socket():
+    server = make_server()
+    original, replacement = Socket(), Socket()
+    server._device_sockets = {"android": original}
+    server._active_voice_device = "android"
+    asyncio.run(server.send_active_approval("request-3", "Test", "Safe"))
+    assert server.accept_approval_reply("android", original,
+                                        {"request_id": "request-3", "accepted": True})
+    assert asyncio.run(server.send_approval_completion("request-3", True))
+    assert original.messages[-1] == {
+        "type": "approval.completed", "request_id": "request-3", "status": "succeeded"
+    }
+    assert not asyncio.run(server.send_approval_completion("request-3", True))
+
+    asyncio.run(server.send_active_approval("request-4", "Test", "Safe"))
+    assert server.accept_approval_reply("android", original,
+                                        {"request_id": "request-4", "accepted": True})
+    server._device_sockets["android"] = replacement
+    assert not asyncio.run(server.send_approval_completion("request-4", True))
+    assert replacement.messages == []

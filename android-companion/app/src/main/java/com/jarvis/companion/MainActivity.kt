@@ -83,6 +83,8 @@ class MainActivity : AppCompatActivity() {
     private var pendingSaveInfo: JSONObject? = null
     private var attachmentDialog: AlertDialog? = null
     private var companionDialog: AlertDialog? = null
+    private var approvalDialog: AlertDialog? = null
+    private var approvalTimer: CountDownTimer? = null
     private var companionBody: LinearLayout? = null
     private var companionTitle: TextView? = null
     private var companionSubtitle: TextView? = null
@@ -357,6 +359,7 @@ class MainActivity : AppCompatActivity() {
                     "log"->{
                         if(!m.optBoolean("progress",false)) appendTranscript(m.optString("speaker"),m.optString("text"))
                     }
+                    "approval.request"->runOnUiThread { showApproval(w,m) }
                     "capability.call"->executeCapability(w,m)
                 }
             } catch(_:Exception){ ui("Invalid message from JARVIS") } }
@@ -364,9 +367,71 @@ class MainActivity : AppCompatActivity() {
                 setVoiceState("SPEAKING")
                 enqueueAudio(bytes.toByteArray())
             }
-            override fun onClosing(w:WebSocket,code:Int,reason:String){ stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
-            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
+            override fun onClosing(w:WebSocket,code:Int,reason:String){ runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
+            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
         })
+    }
+
+    private fun dismissApproval(){
+        approvalTimer?.cancel()
+        approvalTimer=null
+        val old=approvalDialog
+        approvalDialog=null
+        old?.dismiss()
+    }
+
+    private fun showApproval(owner:WebSocket, message:JSONObject){
+        dismissApproval()
+        val requestId=message.optString("request_id")
+        if(requestId.isBlank() || ws !== owner) return
+        val title=message.optString("title","Konfirmasi tindakan")
+        val detail=message.optString("detail","")
+        val seconds=message.optInt("timeout_seconds",15).coerceIn(1,15)
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(48,24,48,12)
+        }
+        val description=TextView(this).apply {
+            text=detail
+            textSize=15f
+        }
+        val countdown=TextView(this).apply {
+            text="Berakhir dalam $seconds detik"
+            textSize=14f
+            setPadding(0,20,0,0)
+        }
+        panel.addView(description)
+        panel.addView(countdown)
+        var completed=false
+        fun finish(accepted:Boolean){
+            if(completed) return
+            completed=true
+            approvalTimer?.cancel()
+            approvalTimer=null
+            if(ws === owner){
+                owner.send(JSONObject().put("type","approval.response")
+                    .put("request_id",requestId).put("accepted",accepted).toString())
+            }
+            approvalDialog?.dismiss()
+            approvalDialog=null
+        }
+        val dialog=AlertDialog.Builder(this)
+            .setTitle("Mark · $title")
+            .setView(panel)
+            .setPositiveButton("Izinkan",null)
+            .setNegativeButton("Tolak",null)
+            .create()
+        approvalDialog=dialog
+        dialog.setOnCancelListener { finish(false) }
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { finish(true) }
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { finish(false) }
+        approvalTimer=object:CountDownTimer(seconds*1000L,1000L){
+            override fun onTick(millisUntilFinished:Long){
+                countdown.text="Berakhir dalam ${(millisUntilFinished+999)/1000} detik"
+            }
+            override fun onFinish(){ finish(false) }
+        }.start()
     }
 
     private fun scheduleReconnect(){

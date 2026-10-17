@@ -3008,6 +3008,9 @@ class JarvisLive:
                         "Check the configured Live model and API access; "
                         f"retrying the session in {self._conn_backoff}s."
                     )
+                    # Continue runs finally but skips the normal delay below.
+                    # Sleep here so repeated provider rejections cannot spin.
+                    await asyncio.sleep(self._conn_backoff)
                     continue
 
                 # Network / timeout errors — log clearly and back off

@@ -1266,6 +1266,15 @@ class JarvisLive:
                     raise ValueError("Proposed arguments are too long to review")
                 if confirm_gate.pending_request() is not None:
                     raise RuntimeError("Another user confirmation is pending")
+                if self._dashboard is not None:
+                    _approval_device = self._dashboard.active_voice_device
+                    if (not _approval_device or
+                            _approval_device not in self._dashboard._device_sockets):
+                        raise RuntimeError(
+                            "Android approval unavailable: no active connected "
+                            "voice companion. Reconnect the Android app and "
+                            "send the request from that device."
+                        )
                 proposal_token = self._text_proposal_handoff.stage(proposed)
                 # Only the existing HUD/paired-companion confirmation gate may
                 # authorize execution. The Live model cannot call this callback.
@@ -1279,7 +1288,10 @@ class JarvisLive:
                     response = future.result(timeout=120)
                     return str(getattr(response, "response", response))
 
-                _approval_message = confirm_gate.request(
+                # Request from a worker: the companion show callback can wait
+                # for delivery without deadlocking the main asyncio loop.
+                _approval_message = await asyncio.to_thread(
+                    confirm_gate.request,
                     key="text_proposal:" + proposal_token,
                     title="Execute proposed action: " + proposed["tool"],
                     detail=(
@@ -2808,7 +2820,19 @@ class JarvisLive:
                         timeout_seconds=int(pending["timeout_seconds"]))
                     if owner is None:
                         confirm_gate.resolve(False, expected_request_id=pending["request_id"])
-                asyncio.run_coroutine_threadsafe(_deliver(), self._loop)
+                        raise RuntimeError(
+                            "Android approval was not delivered to the active "
+                            "voice companion; reconnect and retry."
+                        )
+                delivery = asyncio.run_coroutine_threadsafe(_deliver(), self._loop)
+                try:
+                    delivery.result(timeout=5)
+                except Exception as exc:
+                    delivery.cancel()
+                    confirm_gate.resolve(False, expected_request_id=pending["request_id"])
+                    raise RuntimeError(
+                        "Android approval delivery failed: " + type(exc).__name__
+                    ) from exc
 
             self._dashboard.set_approval_result_callback(_approval_reply)
             def _approval_completed(request_id, key, title, success, result):

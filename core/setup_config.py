@@ -65,7 +65,9 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
         raise ValueError(f"Unsupported LLM mode: {mode}")
     current = load_config()
     current["llm_provider"] = provider
-    current["llm_mode"] = mode\n    if provider_api_key is not None and provider != "gemini":\n        current[f"{provider}_api_key"] = provider_api_key.strip()
+    current["llm_mode"] = mode
+    if provider_api_key is not None and provider != "gemini":
+        current[f"{provider}_api_key"] = provider_api_key.strip()
     for field, value in (("live_models", live_models), ("text_models", text_models)):
         if value is not None:
             models = list(dict.fromkeys(x.strip() for x in value.split(",") if x.strip()))

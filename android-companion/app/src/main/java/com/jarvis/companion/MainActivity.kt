@@ -85,6 +85,12 @@ class MainActivity : AppCompatActivity() {
     private var companionDialog: AlertDialog? = null
     private var approvalDialog: AlertDialog? = null
     private var approvalTimer: CountDownTimer? = null
+    private var approvalDeadlineMs: Long = 0L
+    private var approvalOwner: WebSocket? = null
+    private var approvalRequestId: String? = null
+    private var appForeground = false
+    private val approvalChannelId = "mark_approval_urgent"
+    private val approvalNotificationId = 7319
     private var companionBody: LinearLayout? = null
     private var companionTitle: TextView? = null
     private var companionSubtitle: TextView? = null
@@ -375,14 +381,64 @@ class MainActivity : AppCompatActivity() {
                 setVoiceState("SPEAKING")
                 enqueueAudio(bytes.toByteArray())
             }
-            override fun onClosing(w:WebSocket,code:Int,reason:String){ runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
+            override fun onClosing(w:WebSocket,code:Int,reason:String){ runOnUiThread { if(approvalOwner===w) dismissApproval() }; stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
             override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
         })
+    }
+
+    override fun onResume(){
+        super.onResume()
+        appForeground=true
+        if(approvalRequestId!=null && SystemClock.elapsedRealtime()<approvalDeadlineMs){
+            approvalDialog?.takeIf { !it.isShowing }?.show()
+        }
+    }
+
+    override fun onPause(){
+        appForeground=false
+        super.onPause()
+    }
+
+    private fun clearApprovalNotification(){
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(approvalNotificationId)
+    }
+
+    private fun postApprovalNotification(title:String, seconds:Int){
+        val nm=getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if(Build.VERSION.SDK_INT>=26){
+            nm.createNotificationChannel(NotificationChannel(
+                approvalChannelId,"Mark · Persetujuan tindakan",NotificationManager.IMPORTANCE_HIGH
+            ).apply { description="Permintaan persetujuan yang memerlukan tindakan segera" })
+        }
+        if(Build.VERSION.SDK_INT>=33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) return
+        val open=Intent(this,MainActivity::class.java).apply {
+            flags=Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val tap=PendingIntent.getActivity(this,0,open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification=Notification.Builder(this,approvalChannelId)
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentTitle("Mark · Persetujuan diperlukan")
+            .setContentText("$title · Buka Mark untuk memilih Izinkan atau Tolak")
+            .setStyle(Notification.BigTextStyle().bigText(
+                "$title. Buka Mark dalam $seconds detik untuk menyetujui atau menolak."))
+            .setContentIntent(tap)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .build()
+        nm.notify(approvalNotificationId,notification)
     }
 
     private fun dismissApproval(){
         approvalTimer?.cancel()
         approvalTimer=null
+        approvalDeadlineMs=0L
+        approvalOwner=null
+        approvalRequestId=null
+        clearApprovalNotification()
         val old=approvalDialog
         approvalDialog=null
         old?.dismiss()
@@ -395,48 +451,81 @@ class MainActivity : AppCompatActivity() {
         val title=message.optString("title","Konfirmasi tindakan")
         val detail=message.optString("detail","")
         val seconds=message.optInt("timeout_seconds",15).coerceIn(1,15)
+        approvalOwner=owner
+        approvalRequestId=requestId
+        approvalDeadlineMs=SystemClock.elapsedRealtime()+seconds*1000L
+        val navy=android.graphics.Color.rgb(15,23,42)
+        val slate=android.graphics.Color.rgb(100,116,139)
+        val teal=android.graphics.Color.rgb(13,148,136)
         val panel=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
-            setPadding(48,24,48,12)
+            setPadding(dp(24),dp(12),dp(24),dp(12))
+        }
+        val eyebrow=TextView(this).apply {
+            text="MARK  /  PERSETUJUAN AMAN"
+            textSize=11f
+            letterSpacing=0.12f
+            setTypeface(typeface,Typeface.BOLD)
+            setTextColor(teal)
+            setPadding(0,0,0,dp(12))
+        }
+        val heading=TextView(this).apply {
+            text=title
+            textSize=21f
+            setTypeface(typeface,Typeface.BOLD)
+            setTextColor(navy)
+            setPadding(0,0,0,dp(10))
         }
         val description=TextView(this).apply {
             text=detail
             textSize=15f
+            setTextColor(slate)
+            setPadding(0,0,0,dp(18))
         }
         val countdown=TextView(this).apply {
-            text="Berakhir dalam $seconds detik"
-            textSize=14f
-            setPadding(0,20,0,0)
+            text="●  $seconds detik tersisa"
+            textSize=13f
+            setTypeface(typeface,Typeface.BOLD)
+            setTextColor(teal)
         }
+        panel.addView(eyebrow)
+        panel.addView(heading)
         panel.addView(description)
         panel.addView(countdown)
         var completed=false
         fun finish(accepted:Boolean){
-            if(completed) return
+            if(completed || approvalRequestId!=requestId) return
             completed=true
-            approvalTimer?.cancel()
-            approvalTimer=null
-            if(ws === owner){
+            if(ws === owner && SystemClock.elapsedRealtime()<approvalDeadlineMs){
                 owner.send(JSONObject().put("type","approval.response")
                     .put("request_id",requestId).put("accepted",accepted).toString())
             }
-            approvalDialog?.dismiss()
-            approvalDialog=null
+            dismissApproval()
         }
         val dialog=AlertDialog.Builder(this)
-            .setTitle("Mark · $title")
             .setView(panel)
             .setPositiveButton("Izinkan",null)
             .setNegativeButton("Tolak",null)
             .create()
         approvalDialog=dialog
-        dialog.setOnCancelListener { finish(false) }
+        // Only explicit buttons or the deadline may resolve the request.
+        // Tapping the dimmed area / Back must never count as rejection.
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
         dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { finish(true) }
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { finish(false) }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
+            setTextColor(teal)
+            setTypeface(typeface,Typeface.BOLD)
+            setOnClickListener { finish(true) }
+        }
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).apply {
+            setTextColor(slate)
+            setOnClickListener { finish(false) }
+        }
+        postApprovalNotification(title,seconds)
         approvalTimer=object:CountDownTimer(seconds*1000L,1000L){
             override fun onTick(millisUntilFinished:Long){
-                countdown.text="Berakhir dalam ${(millisUntilFinished+999)/1000} detik"
+                countdown.text="●  ${(millisUntilFinished+999)/1000} detik tersisa"
             }
             override fun onFinish(){ finish(false) }
         }.start()

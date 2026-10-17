@@ -30,3 +30,21 @@ def test_delegation_tools_are_not_available_to_proposer(monkeypatch):
     monkeypatch.setattr(llm_text, "generate", lambda prompt, config=None: '{"tool":"delegate_to_text_llm","args":{},"reason":"loop"}')
     with pytest.raises(ValueError):
         propose_action("do task", [{"name":"delegate_to_text_llm"},{"name":"open_app"}])
+
+
+def test_proposer_receives_argument_schema(monkeypatch):
+    import core.llm_text as llm_text
+    schema = {"name": "browser_control", "description": "Control the browser",
+              "parameters": {"type": "object", "properties": {
+                  "action": {"type": "string"}, "url": {"type": "string"}},
+                  "required": ["action", "url"]}}
+    prompts = []
+    def generate(prompt, config=None):
+        prompts.append(prompt)
+        return json.dumps({"tool": "browser_control", "args": {
+            "action": "open", "url": "https://example.com"}, "reason": "Requested"})
+    monkeypatch.setattr(llm_text, "generate", generate)
+    result = propose_action("open example.com", [schema])
+    assert json.dumps(schema) in prompts[0]
+    assert result["args"]["url"] == "https://example.com"
+    assert result["executed"] is False

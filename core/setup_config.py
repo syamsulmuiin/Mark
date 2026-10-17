@@ -116,6 +116,17 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
     return current
 
 
+def _safe_input(prompt: str) -> str:
+    """Decode malformed terminal input without terminating setup."""
+    import sys
+    if hasattr(sys.stdin, "reconfigure"):
+        try:
+            sys.stdin.reconfigure(errors="replace")
+        except (OSError, ValueError, TypeError):
+            pass
+    return input(prompt)
+
+
 def interactive_llm_setup(*, force_keys: bool = False) -> bool:
     """Configure supported LLM provider and separate Live/text model ladders."""
     from core.model_config import (
@@ -135,8 +146,8 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
                                      if key == current.get("llm_provider", "gemini")), 1))
         live_default_choice = str(next((i for i, (key, _, _) in enumerate(LIVE_PROVIDER_CATALOG, 1)
                                        if key == current.get("live_provider", "gemini")), 1))
-        provider_choice = input(f"Chat / reasoning provider [{provider_default}]: ").strip().lower()
-        live_choice = input(f"Live / voice provider [{live_default_choice}]: ").strip().lower()
+        provider_choice = _safe_input(f"Chat / reasoning provider [{provider_default}]: ").strip().lower()
+        live_choice = _safe_input(f"Live / voice provider [{live_default_choice}]: ").strip().lower()
         provider_choices = {str(i): key for i, (key, _, _) in enumerate(CHAT_PROVIDER_CATALOG, 1)}
         live_choices = {str(i): key for i, (key, _, _) in enumerate(LIVE_PROVIDER_CATALOG, 1)}
         provider = provider_choices.get(provider_choice or provider_default, provider_choice)
@@ -177,14 +188,14 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
             saved_model = (current.get("provider_models") or {}).get(provider, "")
             if not saved_model and current.get("llm_provider") == provider:
                 saved_model = current.get("chat_models") or ""
-            model = input(f"{provider} text model ID [{saved_model or 'required'}]: ").strip() or saved_model
+            model = _safe_input(f"{provider} text model ID [{saved_model or 'required'}]: ").strip() or saved_model
             if not model:
                 print("Text model ID required; configuration unchanged.")
                 return False
             choices["chat_models"] = model
             if live_provider == "gemini":
                 live_default = current.get("live_models") or f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"
-                choices["live_models"] = input(f"Live audio models [{live_default}]: ").strip() or live_default
+                choices["live_models"] = _safe_input(f"Live audio models [{live_default}]: ").strip() or live_default
         else:
             defaults = (
                 ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
@@ -193,16 +204,16 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
             for field, label, default in defaults:
                 if field == "live_models" and live_provider != "gemini":
                     continue
-                value = input(f"{label} models [{current.get(field) or default}]: ").strip()
+                value = _safe_input(f"{label} models [{current.get(field) or default}]: ").strip()
                 choices[field] = value or current.get(field) or default
         if live_provider == "openai_realtime":
             realtime_default = current.get("realtime_model") or "gpt-realtime-2.1"
-            choices["realtime_model"] = input(f"OpenAI Realtime model [{realtime_default}]: ").strip() or realtime_default
+            choices["realtime_model"] = _safe_input(f"OpenAI Realtime model [{realtime_default}]: ").strip() or realtime_default
         save_llm_selection(provider, "hybrid", provider_api_key=api_key, **choices)
     except RuntimeError as exc:
         print(f"LLM setup failed: {exc}")
         return False
-    except (EOFError, KeyboardInterrupt):
+    except (EOFError, KeyboardInterrupt, UnicodeDecodeError):
         print("LLM selection cancelled; existing configuration preserved.")
         return False
     print(f"Hybrid configuration saved ({live_provider} voice + {provider} text).")
@@ -216,8 +227,8 @@ def interactive_setup(force: bool=False) -> bool:
     if not interactive_llm_setup(force_keys=force):
         return False
     print("\nRemote access lets paired devices reach JARVIS outside your home/LAN.")
-    try: remote=input("Enable Cloudflare remote access? [Y/n]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt): remote="n"
+    try: remote=_safe_input("Enable Cloudflare remote access? [Y/n]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt, UnicodeDecodeError): remote="n"
     if remote not in ("n","no"):
         try:
             from core.cloudflare_tunnel import install, configure_named_tunnel, DEFAULT_HOSTNAME

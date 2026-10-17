@@ -118,7 +118,7 @@ def main() -> None:
     # and the isolated Chromium runtime are installed by the first-time setup.
     print("[Setup] Playwright Python and Chromium runtime setup completed (or was explicitly skipped).")
 
-    from core.setup_config import configured, interactive_setup, interactive_llm_setup
+    from core.setup_config import configured, interactive_setup, interactive_llm_setup, _safe_input
     if not configured():
         if not interactive_setup(force=True):
             raise SystemExit("JARVIS configuration was not completed.")
@@ -126,7 +126,7 @@ def main() -> None:
         print("[Setup] Existing Mark provider configuration found; saved keys are retained.")
         if sys.stdin.isatty():
             try:
-                choice = input("[Setup] Configure LLM provider/mode now? [y/N]: ").strip().lower()
+                choice = _safe_input("[Setup] Configure LLM provider/mode now? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 choice = ""
             if choice in ("y", "yes") and not interactive_llm_setup():

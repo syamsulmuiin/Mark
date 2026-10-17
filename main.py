@@ -1286,7 +1286,16 @@ class JarvisLive:
         proposal = handoff.consume(token, approved=True)
         from types import SimpleNamespace
         fc = SimpleNamespace(id=None, name=proposal["tool"], args=proposal["args"])
-        return await self._execute_tool(fc)
+        import contextvars
+        if not hasattr(self, "_approved_text_action_context"):
+            self._approved_text_action_context = contextvars.ContextVar(
+                "approved_text_action", default=False
+            )
+        approval_context = self._approved_text_action_context.set(True)
+        try:
+            return await self._execute_tool(fc)
+        finally:
+            self._approved_text_action_context.reset(approval_context)
 
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
@@ -1397,6 +1406,26 @@ class JarvisLive:
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(id=fc.id, name=name, response=answer)
+
+        # When a non-Gemini Text provider owns action decisions, never allow
+        # the Live transport to bypass Text planning and the user approval gate by
+        # invoking an action tool directly. ContextVar is set only by the
+        # trusted approval callback, not by model-supplied tool arguments.
+        from core.setup_config import load_config as _load_llm_settings
+        _text_provider = str(
+            _load_llm_settings().get("llm_provider") or "gemini"
+        ).strip().lower()
+        if _text_provider != "gemini":
+            _approval_ctx = getattr(self, "_approved_text_action_context", None)
+            if not (_approval_ctx is not None and _approval_ctx.get()):
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"error": (
+                        "Direct Live action blocked: configured Text LLM must "
+                        "select the action using propose_text_action, followed "
+                        "by explicit user approval."
+                    ), "executed": False},
+                )
 
         if name == "save_memory":
             category = args.get("category", "notes")

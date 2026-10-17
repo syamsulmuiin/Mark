@@ -1029,7 +1029,21 @@ class JarvisLive:
                 "required": ["prompt"],
             },
         }
-        _decl_candidates = ([_delegate_decl] + TOOL_DECLARATIONS
+        _plan_decl = {
+            "name": "plan_with_text_llm",
+            "description": (
+                "Ask the configured Text LLM to plan a multi-step activity. "
+                "Returns a proposed plan only; it does not execute tools or actions."
+            ),
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "task": {"type": "STRING", "description": "User's requested activity to plan"}
+                },
+                "required": ["task"],
+            },
+        }
+        _decl_candidates = ([_delegate_decl, _plan_decl] + TOOL_DECLARATIONS
                             + self._action_registry.get_tool_declarations()
                             + self._plugin_registry.get_tool_declarations())
         _all_decls = []
@@ -1200,6 +1214,18 @@ class JarvisLive:
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
+
+        if name == "plan_with_text_llm":
+            from core.llm_text import plan as plan_text_task
+            task = str(args.get("task") or "").strip()
+            try:
+                proposed_plan = await asyncio.to_thread(plan_text_task, task)
+                answer = {"result": proposed_plan}
+            except Exception as exc:
+                answer = {"error": f"Configured Text LLM planning failed: {type(exc).__name__}: {exc}"}
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(id=fc.id, name=name, response=answer)
 
         if name == "delegate_to_text_llm":
             from core.llm_text import generate as generate_text

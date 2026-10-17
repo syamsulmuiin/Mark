@@ -6,6 +6,7 @@ another provider or send prompts to Gemini when a non-Gemini provider is chosen.
 from __future__ import annotations
 
 from core.setup_config import load_config
+from core.llm_trace import traced_text_call
 from core.llm_compatible import ENDPOINTS, generate_text
 from core.llm_anthropic import generate_text as generate_claude_text
 from core.llm_codex import generate_text as generate_codex_text
@@ -16,7 +17,7 @@ def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: floa
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
     if provider == "gemini":
         from core.gemini import text, SMART
-        return text(prompt, tier=SMART)
+        return traced_text_call(provider, "configured_gemini_text_ladder", lambda: text(prompt, tier=SMART))
     if provider not in ENDPOINTS and provider not in {"anthropic", "openai_codex"}:
         raise ValueError(f"Chat provider {provider!r} is not implemented")
     models = str((settings.get("provider_models") or {}).get(provider)
@@ -25,11 +26,11 @@ def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: floa
     if not model:
         raise ValueError(f"Configure a text model for {provider}")
     if provider == "openai_codex":
-        return generate_codex_text(model, prompt, timeout=timeout if timeout is not None else 120.0)
+        return traced_text_call(provider, model, lambda: generate_codex_text(model, prompt, timeout=timeout if timeout is not None else 120.0))
     key = str(settings.get(f"{provider}_api_key") or "")
     options = {"api_key": key}
     if timeout is not None:
         options["timeout"] = timeout
     if provider == "anthropic":
-        return generate_claude_text(model, prompt, **options)
-    return generate_text(provider, model, prompt, **options)
+        return traced_text_call(provider, model, lambda: generate_claude_text(model, prompt, **options))
+    return traced_text_call(provider, model, lambda: generate_text(provider, model, prompt, **options))

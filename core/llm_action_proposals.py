@@ -5,11 +5,18 @@ This module deliberately never executes actions or accepts model-authored approv
 from __future__ import annotations
 
 import json
+import re
 
 
 def validate_proposal(raw: str, allowed_tools: set[str]) -> dict:
     if not isinstance(raw, str) or len(raw) > 32000:
         raise ValueError("Invalid proposal response")
+    raw = raw.strip()
+    if raw.startswith("```"):
+        fenced = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL | re.IGNORECASE)
+        if not fenced:
+            raise ValueError("Proposal must be a single JSON object")
+        raw = fenced.group(1).strip()
     try:
         proposal = json.loads(raw)
     except (ValueError, TypeError) as exc:

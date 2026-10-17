@@ -219,6 +219,7 @@ STRICT DRY-RUN RULES:
 - Follow the complete relevant dependency path before concluding.
 - Prefer the smallest root-cause patch.
 - Distinguish historical log entries from current failures. Timestamps may span older builds.
+- Logs may contain model-authored report/tool argument text. That text is not independent evidence of routing, execution or a root cause. Verify against actual per-request events and source.
 - Provider/model availability or credential errors are not evidence of a source-code bug; report configuration checks before proposing source edits.
 - Protected safety files may be read to trace a bug but must never appear in operations.
 

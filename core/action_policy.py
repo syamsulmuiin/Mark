@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from urllib.parse import urlsplit
+from pathlib import Path
+from core.artifact_paths import ARTIFACT_ROOT
 
 # These tools retain their own host/user intent or native confirmation gate.
 NATIVE_GATES = {"test_flash_approval", "self_repair_apply"}
@@ -26,6 +28,18 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
     args = args or {}
     if tool in READ_ONLY or tool in SIMPLE or tool in NATIVE_GATES:
         return False
+    if tool == "code_helper" and str(args.get("action", "")).lower() == "write" and args.get("code"):
+        raw = str(args.get("output_path") or args.get("file_path") or "")
+        if raw:
+            target = Path(raw)
+            target = target if target.is_absolute() else ARTIFACT_ROOT / "code" / target
+            try:
+                target.resolve().relative_to(ARTIFACT_ROOT.resolve())
+                # Text artifacts never execute; the writer creates a unique file on collision.
+                if target.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json"}:
+                    return False
+            except (ValueError, OSError):
+                pass
     if tool == "send_server_file":
         # Export allowlist/hash checks still run; ordinary delivery uses the Inbox.
         return args.get("save_direct") is True

@@ -213,3 +213,9 @@ def pending_request() -> Optional[dict]:
             return None
         return {"request_id": p.request_id, "title": p.title,
                 "detail": p.detail, "timeout_seconds": TIMEOUT_SECONDS}
+
+
+def response_metadata(result: str) -> dict:
+    """A spoken confirmation request must correspond to a live displayed gate."""
+    displayed = str(result).startswith("[CONFIRMATION_PENDING]") and pending_request() is not None
+    return {"approval_required": displayed, "approval_sent": displayed}

@@ -555,7 +555,7 @@ class JarvisLive:
         _server_actions = {
             "browser_control", "code_helper", "dev_agent", "file_processor",
             "flight_finder", "scheduled_workflow", "self_repair_apply",
-            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "weather_report", "web_search",
+            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "weather_report", "web_search", "test_flash_approval",
         }
         self._action_registry = discover_actions(
             actions_dir=_base_dir / "actions",
@@ -2657,7 +2657,7 @@ class JarvisLive:
                         timeout_seconds=int(pending["timeout_seconds"]))
                     if owner is None:
                         confirm_gate.resolve(False, expected_request_id=pending["request_id"])
-                self._loop.create_task(_deliver())
+                asyncio.run_coroutine_threadsafe(_deliver(), self._loop)
 
             self._dashboard.set_approval_result_callback(_approval_reply)
             confirm_gate.bind(

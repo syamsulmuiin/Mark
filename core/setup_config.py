@@ -86,21 +86,16 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
 
 
 def _safe_input(prompt: str) -> str:
-    """Read interactive input even when terminal locale and Python disagree."""
+    """Avoid fatal UnicodeDecodeError on misconfigured interactive terminals."""
     import sys
-    try:
-        return input(prompt)
-    except UnicodeDecodeError:
-        # A non-UTF-8 terminal cannot safely be decoded with input(). Recover
-        # using the actual stdin encoding, with replacement for bad sequences.
-        stream = sys.stdin
-        buffer = getattr(stream, "buffer", None)
-        if buffer is None:
-            raise
-        print("\n[Setup] Terminal encoding mismatch; retrying input with replacement.")
-        raw = buffer.readline()
-        encoding = getattr(stream, "encoding", None) or "utf-8"
-        return raw.decode(encoding, errors="replace").rstrip("\r\n")
+    stream = sys.stdin
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(errors="replace")
+        except (OSError, ValueError, TypeError):
+            pass
+    return input(prompt)
+
 
 def interactive_llm_setup() -> bool:
     """Configure supported LLM provider and separate Live/text model ladders."""

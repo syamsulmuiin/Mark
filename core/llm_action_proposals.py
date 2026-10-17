@@ -33,7 +33,7 @@ def validate_proposal(raw: str, allowed_tools: set[str]) -> dict:
 def propose_action(task: str, declarations: list[dict], *, config: dict | None = None) -> dict:
     """Request exactly one action proposal from the configured Text LLM.
 
-    Only the registry's tool names are exposed; this does not authorize execution.
+    Registry tool schemas guide arguments; this does not authorize execution.
     """
     from core.llm_text import generate
     if not isinstance(task, str) or not task.strip() or len(task) > 12000:
@@ -45,11 +45,16 @@ def propose_action(task: str, declarations: list[dict], *, config: dict | None =
     })
     if not names:
         raise ValueError("No available tools")
+    schemas = [{key: declaration[key] for key in ("name", "description", "parameters")
+                if key in declaration}
+               for declaration in declarations
+               if isinstance(declaration, dict) and declaration.get("name") in names]
     prompt = (
         "Propose exactly ONE next action for the user request. Return ONLY JSON "
         "with keys tool (one of the available names), args (object), reason (string). "
         "Do not invent approvals, permissions or results. Do not execute the action.\n"
-        "Available tools: " + json.dumps(names) + "\n"
+        "Available tool schemas (follow required argument names and types): "
+        + json.dumps(schemas, ensure_ascii=False) + "\n"
         "User request: " + task
     )
     return validate_proposal(generate(prompt, config=config), set(names))

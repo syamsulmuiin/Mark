@@ -36,6 +36,7 @@ WHAT BELONGS HERE AND WHAT DOES NOT
 from __future__ import annotations
 
 import threading
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -49,6 +50,7 @@ TIMEOUT_SECONDS = 15.0
 @dataclass
 class _Pending:
     key:     str
+    request_id: str
     title:   str
     detail:  str
     run:     Callable[[], str]
@@ -99,7 +101,7 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
         if _pending is not None and time.monotonic() - _pending.at <= TIMEOUT_SECONDS:
             return ("Another confirmation is still pending. "
                     "Wait for the user to approve, reject, or let it expire.")
-        _pending = _Pending(key=key, title=title, detail=detail,
+        _pending = _Pending(key=key, request_id=secrets.token_urlsafe(24), title=title, detail=detail,
                             run=run, at=time.monotonic())
 
     try:
@@ -117,7 +119,8 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
     )
 
 
-def resolve(accepted: bool, *, expected_key: Optional[str] = None) -> None:
+def resolve(accepted: bool, *, expected_key: Optional[str] = None,
+            expected_request_id: Optional[str] = None) -> None:
     """Called by the UI when the user presses CONFIRM or CANCEL.
 
     Runs the stored callable on a worker thread — this is invoked from the Qt
@@ -129,6 +132,8 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None) -> None:
         # Remote companion responses must identify the exact pending request.
         # Reject stale or mismatched responses without consuming the new one.
         if expected_key is not None and (_pending is None or _pending.key != expected_key):
+            return
+        if expected_request_id is not None and (_pending is None or _pending.request_id != expected_request_id):
             return
         p, _pending = _pending, None
 
@@ -168,3 +173,13 @@ def pending_title() -> str:
         if time.monotonic() - _pending.at > TIMEOUT_SECONDS:
             return ""
         return _pending.title
+
+
+def pending_request() -> Optional[dict]:
+    """Return a safe, immutable snapshot for delivery to a companion."""
+    with _lock:
+        p = _pending
+        if p is None or time.monotonic() - p.at > TIMEOUT_SECONDS:
+            return None
+        return {"request_id": p.request_id, "title": p.title,
+                "detail": p.detail, "timeout_seconds": TIMEOUT_SECONDS}

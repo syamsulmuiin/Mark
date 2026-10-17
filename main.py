@@ -2763,10 +2763,7 @@ class JarvisLive:
                 # Fresh client on every reconnect — avoids stale HTTP session state
                 # v1alpha carries proactive audio; if it gets rejected we fall
                 # back to v1beta.
-                client = genai.Client(
-                    api_key=_get_api_key(),
-                    http_options={"api_version": "v1alpha" if self._enhanced_live else "v1beta"}
-                )
+                client = llm_live.client(enhanced=self._enhanced_live)
 
                 async with (
                     client.aio.live.connect(model=live_model, config=config) as session,

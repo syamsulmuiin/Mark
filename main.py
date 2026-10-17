@@ -2283,10 +2283,8 @@ class JarvisLive:
             "Output ONLY the summary text, nothing else:\n\n" + convo
         )
         try:
-            from core import gemini
-            summary = await asyncio.to_thread(
-                gemini.text, prompt, gemini.SMART, None, 30_000,
-            )
+            from core.chat_router import generate_chat_text
+            summary = await asyncio.to_thread(generate_chat_text, prompt)
             if summary:
                 save_session_summary(summary, lang)
         except Exception as e:

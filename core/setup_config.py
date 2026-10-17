@@ -50,7 +50,8 @@ SUPPORTED_MODES = ("hybrid",)
 
 def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
                        live_models: str | None = None,
-                       text_models: str | None = None,\n                       provider_api_key: str | None = None) -> dict:
+                       text_models: str | None = None,
+                       provider_api_key: str | None = None) -> dict:
     """Persist provider selection without touching the existing API key.
 
     Only Gemini hybrid is wired into the current runtime. Fail closed rather

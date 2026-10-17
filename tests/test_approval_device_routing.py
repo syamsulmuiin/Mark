@@ -12,7 +12,7 @@ class Socket:
 
 
 def test_approval_targets_active_companion_only():
-    server = DashboardServer()
+    server = object.__new__(DashboardServer)
     android, desktop = Socket(), Socket()
     server._device_sockets = {"android": android, "desktop": desktop}
     server._active_voice_device = "android"
@@ -26,7 +26,7 @@ def test_approval_targets_active_companion_only():
 
 
 def test_no_active_companion_means_no_approval():
-    server = DashboardServer()
+    server = object.__new__(DashboardServer)
     socket = Socket()
     server._device_sockets = {"android": socket}
     server._active_voice_device = None
@@ -35,7 +35,7 @@ def test_no_active_companion_means_no_approval():
 
 
 def test_disconnected_active_companion_never_falls_back_to_other_device():
-    server = DashboardServer()
+    server = object.__new__(DashboardServer)
     desktop = Socket()
     server._device_sockets = {"desktop": desktop}
     server._active_voice_device = "android"

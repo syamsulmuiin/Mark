@@ -1,39 +1,37 @@
-"""Anthropic Messages API adapter for Mark's routed text-only requests."""
+"""Claude Messages text adapter; uses stdlib HTTP, no optional SDK install."""
 from __future__ import annotations
-
 import json
+from urllib.request import Request
+from core.llm_http import urlopen
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+
+ENDPOINT = "https://api.anthropic.com/v1/messages"
 
 
-def generate_text(model: str, prompt: str, *, api_key: str, timeout: float = 30.0) -> str:
-    if not model.strip() or not prompt.strip() or not api_key.strip():
-        raise ValueError("Anthropic model, prompt and API key are required")
-    body = json.dumps({
-        "model": model,
-        "max_tokens": 2048,
+def generate_text(model: str, prompt: str, *, api_key: str = "", timeout: float = 30.0) -> str:
+    if not model.strip() or not prompt.strip():
+        raise ValueError("Model and prompt are required")
+    if not api_key.strip():
+        raise ValueError("API key required for anthropic")
+    request = Request(ENDPOINT, data=json.dumps({
+        "model": model, "max_tokens": 4096,
         "messages": [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
-    request = Request(
-        "https://api.anthropic.com/v1/messages",
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
+    }).encode("utf-8"), headers={
+        "Content-Type": "application/json", "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }, method="POST")
     try:
         with urlopen(request, timeout=timeout) as response:
             data = json.loads(response.read(4 * 1024 * 1024).decode("utf-8"))
     except HTTPError as exc:
-        raise RuntimeError(f"Anthropic HTTP {exc.code}") from None
+        raise RuntimeError(f"anthropic HTTP {exc.code}") from None
     try:
         blocks = data["content"]
-        result = "".join(block["text"] for block in blocks if block.get("type") == "text")
-    except (KeyError, TypeError):
-        raise RuntimeError("Anthropic returned an invalid Messages response") from None
-    if not result:
-        raise RuntimeError("Anthropic returned no text")
+        if not isinstance(blocks, list) or not blocks:
+            raise ValueError()
+        result = "\n".join(block["text"] for block in blocks if block.get("type") == "text")
+        if not result.strip() or data.get("stop_reason") == "max_tokens":
+            raise ValueError()
+    except (KeyError, TypeError, AttributeError, ValueError):
+        raise RuntimeError("anthropic returned an invalid or incomplete text response") from None
     return result

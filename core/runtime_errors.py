@@ -31,7 +31,20 @@ class ErrorDecision:
 
 
 def _text(error: object) -> str:
-    return str(error).casefold()
+    parts = []
+    pending = [error]
+    seen = set()
+    while pending and len(seen) < 32:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        parts.append(str(current))
+        pending.extend(getattr(current, "exceptions", ()) or ())
+        cause = getattr(current, "__cause__", None)
+        if cause is not None:
+            pending.append(cause)
+    return " ".join(parts).casefold()
 
 
 def _is_transport(text: str) -> bool:

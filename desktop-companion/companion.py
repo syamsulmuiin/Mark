@@ -598,8 +598,21 @@ class App:
     def _file_receive(self, a):
         import hashlib
         name=Path(str(a.get('name') or 'file')).name
+        if a.get('explicit_save') is not True:
+            raise PermissionError('Direct saving requires an explicit user save request')
         requested=str(a.get('destination') or '').strip()
-        dest=(Path(requested).expanduser() if requested else Path.home()/'Downloads'/name)
+        if not requested:
+            selected=[]; done=threading.Event()
+            def pick():
+                try:selected.append(QFileDialog.getSaveFileName(self.root,'Save requested file',name)[0])
+                finally:done.set()
+            self.root.after(0,pick)
+            if not done.wait(120): raise TimeoutError('Save location selection timed out')
+            requested=selected[0] if selected else ''
+            if not requested: raise RuntimeError('Save location selection cancelled')
+        dest=Path(requested).expanduser()
+        if requested.endswith(('/', chr(92))) and not dest.exists():
+            dest.mkdir(parents=True,exist_ok=True)
         if dest.exists() and dest.is_dir(): dest=dest/name
         dest.parent.mkdir(parents=True,exist_ok=True)
         if dest.exists():

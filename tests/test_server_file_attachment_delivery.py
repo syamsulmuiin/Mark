@@ -11,28 +11,29 @@ def test_send_server_file_defaults_to_attachment_inbox():
     assert 'source_device="server"' in server
     assert '"type":"attachment.new"' in server
     assert 'temporary=False' in server
-    assert 'if not save_direct:' in server
+    assert 'Default to the attachment inbox' in server
 
 
-def test_direct_receive_is_explicit_only():
+def test_model_delivery_cannot_write_companion_files():
     server=text('dashboard/server.py')
-    direct=server[server.index('    async def send_server_file('):server.index('    async def _send_attachment_inbox')]
-    assert direct.index('if not save_direct:') < direct.index('self.call_device(destination_device, "file.receive"')
-    assert 'requested_destination = "Downloads/Mark"' in direct
+    delivery=server[server.index('    async def send_server_file('):server.index('    async def _send_attachment_inbox')]
+    assert delivery.index('if save_direct is True:') < delivery.index('self.call_device(')
+    assert '"saved_to_destination":False' in delivery
 
 
-def test_tool_contract_defaults_to_inbox_and_exposes_explicit_save():
+def test_tool_contract_exposes_only_attachment_delivery():
     tools=text('core/live_tools.py')
-    assert "By default the file is delivered to the recipient's durable Attachment Inbox" in tools
-    assert '"save_direct": {"type":"BOOLEAN"' in tools
-    assert '"destination": {"type":"STRING"' in tools
-    assert 'Do not infer direct saving' in tools
+    delivery=tools[tools.index('"name": "send_server_file"'):tools.index('"name": "call_current_device"')]
+    assert "recipient's durable Attachment Inbox" in delivery
+    assert '"save_direct"' in delivery
+    assert '"destination"' in delivery
+    assert 'ONLY when the current user explicitly requests' in delivery
 
 
-def test_router_requires_inbox_by_default_and_receive_only_for_direct_save():
+def test_router_requires_attachment_inbox():
     main=text('main.py')
     assert 'required_capability="file.receive" if save_direct else "attachment.inbox"' in main
-    assert 'direct saving requires it to be online' in main
+    assert 'Do not call raw file.receive' in main
     ast.parse(main)
 
 

@@ -97,6 +97,8 @@ class MainActivity : AppCompatActivity() {
     private var companionBack: ImageButton? = null
     private var sourcePickerLatch: CountDownLatch? = null
     private var pickedSourceUri: Uri? = null
+    private var destinationPickerLatch: CountDownLatch? = null
+    private var pickedDestinationUri: Uri? = null
     private var pendingPickerRequestId: String? = null
     @Volatile private var assistantTurnComplete = false
     @Volatile private var intentionalVoiceEnd = false
@@ -381,7 +383,7 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this@MainActivity,label,Toast.LENGTH_LONG).show()
                         appendTranscript("system",label)
                     }
-                    "capability.call"->executeCapability(w,m)
+                    "capability.call"->Thread { executeCapability(w,m) }.start()
                 }
             } catch(_:Exception){ ui("Invalid message from JARVIS") } }
             override fun onMessage(w:WebSocket,bytes:ByteString){
@@ -462,11 +464,13 @@ class MainActivity : AppCompatActivity() {
         approvalRequestId=requestId
         approvalDeadlineMs=SystemClock.elapsedRealtime()+seconds*1000L
         val navy=android.graphics.Color.rgb(15,23,42)
+        val white=android.graphics.Color.WHITE
         val slate=android.graphics.Color.rgb(100,116,139)
         val teal=android.graphics.Color.rgb(13,148,136)
         val panel=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setPadding(dp(24),dp(12),dp(24),dp(12))
+            setBackgroundColor(white)
         }
         val eyebrow=TextView(this).apply {
             text="MARK  /  PERSETUJUAN AMAN"
@@ -509,8 +513,12 @@ class MainActivity : AppCompatActivity() {
             }
             dismissApproval()
         }
+        val scroll=android.widget.ScrollView(this).apply {
+            isFillViewport=false
+            addView(panel)
+        }
         val dialog=AlertDialog.Builder(this)
-            .setView(panel)
+            .setView(scroll)
             .setPositiveButton("Izinkan",null)
             .setNegativeButton("Tolak",null)
             .create()
@@ -520,6 +528,11 @@ class MainActivity : AppCompatActivity() {
         dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
         dialog.show()
+        // Match the explicit dark text colors to a guaranteed light surface,
+        // regardless of system night mode or manufacturer AlertDialog theme.
+        dialog.window?.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(white)
+        )
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
             setTextColor(teal)
             setTypeface(typeface,Typeface.BOLD)
@@ -715,6 +728,47 @@ class MainActivity : AppCompatActivity() {
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 
     private fun executeCapability(w:WebSocket,m:JSONObject){ val cap=m.optString("capability"); val a=m.optJSONObject("args")?:JSONObject()
+        if(cap=="file.receive" && a.optString("destination")!="Downloads/Mark"){
+            var ok=false; var result="Save cancelled"; var reason="save_cancelled"
+            val latch=CountDownLatch(1); var ownsPicker=false
+            try {
+                if(!a.optBoolean("explicit_save",false)) error("Explicit user save request required")
+                synchronized(this){
+                    if(destinationPickerLatch!=null) error("Another save location request is pending")
+                    destinationPickerLatch=latch; pickedDestinationUri=null; ownsPicker=true
+                }
+                runOnUiThread { try {
+                    val requested=a.optString("destination").trim()
+                    val requestedFile=requested.isNotBlank() && !requested.endsWith("/") && !requested.startsWith("content://") && requested.substringAfterLast('/').contains('.')
+                    val title=if(requestedFile)requested.substringAfterLast('/') else a.optString("name","file")
+                    val location=if(requestedFile)requested.substringBeforeLast('/',"") else requested
+                    val saveIntent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType(attachmentMime(title)).putExtra(Intent.EXTRA_TITLE,title)
+                    if(Build.VERSION.SDK_INT>=26){
+                        val relative=location.removePrefix("/storage/emulated/0/").removePrefix("/sdcard/").trim('/')
+                        val initial=when {
+                            location.startsWith("content://")->Uri.parse(location)
+                            relative.isNotBlank() && !location.startsWith("/")->android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents","primary:$relative")
+                            location.startsWith("/storage/emulated/0/") || location.startsWith("/sdcard/")->android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents","primary:$relative")
+                            else->null
+                        }
+                        if(initial!=null)saveIntent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,initial)
+                    }
+                    startActivityForResult(saveIntent,94)
+                }catch(e:Exception){latch.countDown()} }
+                if(!latch.await(120,TimeUnit.SECONDS)) error("Save location selection timed out")
+                val selected=pickedDestinationUri?:error("Save location selection cancelled")
+                result=AttachmentTransfer.receive(this,client,a,selected)
+                ok=true; reason=""
+            }catch(e:Exception){result=e.message?:e.toString();reason=e.javaClass.simpleName}
+            finally{if(ownsPicker){destinationPickerLatch=null;pickedDestinationUri=null}}
+            w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id"))
+                .put("capability",cap).put("ok",ok).put("verified",ok)
+                .put("status",if(ok)"SUCCESS" else "FAILED").put("reason",reason)
+                .put("evidence",if(ok)JSONObject().put("verification","download_sha256_and_size_match") else JSONObject.NULL)
+                .put("result",result).toString())
+            return
+        }
         if(cap=="file.upload" && a.optString("source").isBlank()){
             val latch=CountDownLatch(1); sourcePickerLatch=latch; pickedSourceUri=null
             runOnUiThread { try {
@@ -744,7 +798,28 @@ class MainActivity : AppCompatActivity() {
         "clipboard.write"->{ (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("JARVIS",a.optString("text"))); val current=(getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?:""; verified=current==a.optString("text"); status=if(verified)"SUCCESS" else "FAILED"; reason=if(verified)"" else "clipboard_readback_mismatch"; evidence=JSONObject().put("readback_match",verified) }
         "open_url"->{ startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(a.getString("url"))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); reason="external_activity_post_condition_not_observed" }
         "app.inspect"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val pkg=svc.activePackage(); result=pkg; status="SUCCESS";verified=true;reason="";evidence=JSONObject().put("active_package",pkg) }
-        "app.launch"->{ val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }; val pkg=resolveAppPackage(query)?:error("App not found: $query"); val i=packageManager.getLaunchIntentForPackage(pkg)?:error("App has no launch activity: $pkg"); startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); Thread.sleep(350); val observed=JarvisAccessibilityService.instance?.activePackage().orEmpty(); verified=observed==pkg; status=if(verified)"SUCCESS" else "UNVERIFIED"; result="opened $pkg"; reason=if(verified)"" else "foreground_package_not_observed"; evidence=JSONObject().put("expected_package",pkg).put("active_package",observed) }
+        "app.launch"->{
+            val query=a.optString("package").ifBlank { a.optString("app") }.ifBlank { a.optString("name") }
+            val pkg=resolveAppPackage(query)?:error("app_not_found: $query")
+            val intent=packageManager.getLaunchIntentForPackage(pkg)?:error("app_no_launch_activity: $pkg")
+            val dispatched=CountDownLatch(1); var launchError:Exception?=null
+            runOnUiThread { try { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                catch(e:Exception){launchError=e} finally{dispatched.countDown()} }
+            if(!dispatched.await(5,TimeUnit.SECONDS)) error("App launch UI dispatch timed out")
+            launchError?.let { throw it }
+            var observed=""
+            val deadline=SystemClock.elapsedRealtime()+3000L
+            do {
+                observed=JarvisAccessibilityService.instance?.activePackage().orEmpty()
+                if(observed==pkg || JarvisAccessibilityService.instance==null) break
+                Thread.sleep(100)
+            }while(SystemClock.elapsedRealtime()<deadline)
+            verified=observed==pkg; status=if(verified)"SUCCESS" else "UNVERIFIED"
+            result=if(verified)"opened $pkg" else "Launch requested for $pkg; foreground was not verified"
+            reason=if(verified)"" else if(JarvisAccessibilityService.instance==null)"accessibility_observation_unavailable" else "foreground_package_not_observed"
+            evidence=JSONObject().put("expected_package",pkg).put("active_package",observed)
+                .put("launch_dispatched",true).put("accessibility_enabled",JarvisAccessibilityService.instance!=null)
+        }
         "app.close"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); val before=svc.activePackage(); result=svc.global("home"); Thread.sleep(250); val after=svc.activePackage(); verified=before.isNotBlank() && after!=before; status=if(verified)"SUCCESS" else "UNVERIFIED"; reason=if(verified)"" else "foreground_package_did_not_change"; evidence=JSONObject().put("before_package",before).put("after_package",after) }
         "android.settings.open"->{ val page=a.optString("page").ifBlank { a.optString("section") }; startActivity(settingsIntent(page)); Thread.sleep(300); val observed=JarvisAccessibilityService.instance?.activePackage().orEmpty(); verified=observed=="com.android.settings"; status=if(verified)"SUCCESS" else "UNVERIFIED"; result=if(page.isBlank()) "opened Android Settings" else "opened Android Settings: $page"; reason=if(verified)"" else "settings_foreground_not_observed"; evidence=JSONObject().put("active_package",observed) }
         "audio.volume"->{
@@ -772,7 +847,7 @@ class MainActivity : AppCompatActivity() {
         "android.screen.lock"->{ val svc=JarvisAccessibilityService.instance?:error("Accessibility control is disabled on the phone"); result=svc.global("lock"); reason="lock_action_requires_system_state_observation" }
         "android.screen.wake"->{ val pm=getSystemService(POWER_SERVICE) as PowerManager; if(!pm.isInteractive){ @Suppress("DEPRECATION") val wl=pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,"jarvis:wake"); wl.acquire(3000) }; verified=pm.isInteractive; status=if(verified)"SUCCESS" else "FAILED"; reason=if(verified)"" else "screen_not_interactive_after_wake"; result="screen awake; device authentication is still required"; evidence=JSONObject().put("interactive",pm.isInteractive) }
         else->{ok=false;status="FAILED";reason="unsupported_capability";result="Unsupported capability: $cap"}
-    }}catch(e:Exception){ok=false;status="FAILED";verified=false;reason=e.javaClass.simpleName;result=e.message?:e.toString()}
+    }}catch(e:Exception){ok=false;status="FAILED";verified=false;reason=e.message?.substringBefore(":")?.takeIf { it.matches(Regex("[a-z_]{1,64}")) }?:e.javaClass.simpleName;result=e.message?:e.toString()}
         w.send(JSONObject().put("type","capability.result").put("call_id",m.optString("call_id")).put("ok",ok)
             .put("status",status).put("verified",verified).put("evidence",evidence).put("reason",reason)
             .put("capability",cap).put("result",result).toString()) }
@@ -848,7 +923,7 @@ class MainActivity : AppCompatActivity() {
         body.addView(menuActionRow(R.drawable.ic_open_file,"Open","Preview using an available app") { dialog -> dialog.dismiss(); requestAttachment(item.getString("id"),"open") })
         body.addView(menuActionRow(R.drawable.ic_save_file,"Save As","Choose a location on this device") { dialog ->
             dialog.dismiss(); val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,item.optString("name"))
+                .setType(attachmentMime(item.optString("name"))).putExtra(Intent.EXTRA_TITLE,item.optString("name"))
             pendingAttachment=Pair(item.getString("id"),"save"); startActivityForResult(intent,91)
         })
         body.addView(menuActionRow(R.drawable.ic_share_file,"Share","Send with another app on this device") { dialog -> dialog.dismiss(); requestAttachment(item.getString("id"),"share") })
@@ -940,9 +1015,22 @@ class MainActivity : AppCompatActivity() {
                 } else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
             }
         }
+        if(requestCode==94){
+            if(resultCode==RESULT_OK)pickedDestinationUri=data?.data
+            destinationPickerLatch?.countDown()
+        }
         if(requestCode==91){
             if(resultCode==RESULT_OK && data?.data!=null){ pendingSaveUri=data.data; pendingAttachment?.let { requestAttachment(it.first,"save") } }
             else { pendingAttachment=null; pendingSaveUri=null }
+        }
+    }
+
+    private fun attachmentMime(name:String):String {
+        val extension=name.substringAfterLast('.',"").lowercase(Locale.ROOT)
+        return when(extension){
+            "log","txt"->"text/plain"
+            "json"->"application/json"
+            else->android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)?:"application/octet-stream"
         }
     }
 
@@ -981,7 +1069,7 @@ class MainActivity : AppCompatActivity() {
                     ui("Attachment saved")
                 }else{
                     val uri=FileProvider.getUriForFile(this,"${packageName}.files",cached)
-                    val mime=java.net.URLConnection.guessContentTypeFromName(name)?:"application/octet-stream"
+                    val mime=attachmentMime(name)
                     val intent=if(action=="share") Intent(Intent.ACTION_SEND).setType(mime)
                         .putExtra(Intent.EXTRA_STREAM,uri)
                     else Intent(Intent.ACTION_VIEW).setDataAndType(uri,mime)

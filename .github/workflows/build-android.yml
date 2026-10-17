@@ -8,6 +8,10 @@ on:
         required: false
         default: https://auth.kasirdigital.web.id
         type: string
+  pull_request:
+    paths:
+      - 'android-companion/**'
+      - '.github/workflows/build-android.yml'
   push:
     paths:
       - 'android-companion/**'
@@ -54,6 +58,7 @@ jobs:
           if-no-files-found: error
 
   release:
+    if: github.event_name != 'pull_request'
     name: Signed Release APK
     runs-on: ubuntu-latest
     environment: android-release

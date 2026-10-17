@@ -775,6 +775,12 @@ class DashboardServer:
             reply = await asyncio.wait_for(fut, timeout=timeout)
             elapsed_ms=(time.monotonic()-started)*1000.0
             status=str(reply.get("status") or "").upper()
+            reason = str(reply.get("reason") or "")
+            safe_reason = reason if re.fullmatch(r"[A-Za-z0-9_.:-]{0,100}", reason) else "companion_reported_error"
+            _interaction_event("capability_outcome", device_id=device_id, capability=capability,
+                               call_id=call_id, status=status, ok=bool(reply.get("ok")),
+                               verified=reply.get("verified") is True, reason=safe_reason,
+                               latency_ms=round(elapsed_ms))
             success=bool(reply.get("ok")) and status not in {"FAILED","BLOCKED","WAITING"}
             self._mesh.record_capability_result(device_id,capability,success,elapsed_ms,reply.get("reason") or "",
                                                 verified=(reply.get("verified") is True) if success else None)
@@ -940,9 +946,8 @@ class DashboardServer:
     async def send_server_file(self, destination_device: str, source: str, destination_name: str = "", *, save_direct: bool = False, destination: str = ""):
         """Deliver a server-created file to a companion.
 
-        Normal delivery is a durable attachment-inbox item. Files are written to
-        the companion filesystem only when the user explicitly requested direct
-        saving (``save_direct=True``).
+        Default to the attachment inbox on all companions. Only an explicit
+        save_direct=True request invokes file.receive at the requested destination.
         """
         approved = approve_server_export(source, base_dir=BASE_DIR)
         path = approved.path
@@ -953,47 +958,46 @@ class DashboardServer:
         # Server-created artifacts remain reusable after delivery/save.
         info = self._file_store.ingest(tmp, name, temporary=False)
 
-        if not save_direct:
-            item = self._attachment_inbox.create(
-                source_device="server", destination_device=destination_device,
-                name=name, sha256=info["sha256"], size=info["size"],
-                assistant_upload=False, server_upload=False,
-                source_path=approved.source_path)
-            ws = self._device_sockets.get(destination_device)
-            if ws:
-                try:
-                    await ws.send_json({"type":"attachment.new", "attachment":item})
-                    self._attachment_inbox.mark(destination_device, item["id"], "delivered")
-                except Exception:
-                    pass  # Offline/reconnecting recipients recover the durable inbox.
-            return {"ok":True, "status":"queued" if not ws else "notified",
-                    "attachment_id":item["id"], "name":name,
-                    "source":approved.source_path, "source_path":approved.source_path,
-                    "sha256":info["sha256"], "size":info["size"],
-                    "destination_device":destination_device, "saved_to_destination":False}
+        if save_direct is True:
+            requested_destination = str(destination or "").strip()
+            payload = {
+                "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" +
+                       self._new_transfer_ticket("download", sha256=info["sha256"], name=name),
+                "name": name, "sha256": info["sha256"], "size": info["size"],
+                "explicit_save": True,
+            }
+            # No forced Downloads destination on either platform. If absent,
+            # the native Save As dialog is used for this explicit save request.
+            if requested_destination:
+                payload["destination"] = requested_destination
+            reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
+            if (not isinstance(reply, dict) or reply.get("ok") is not True
+                    or reply.get("verified") is not True
+                    or str(reply.get("status") or "").upper() != "SUCCESS"):
+                reason = str(reply.get("reason") or reply.get("result") or "unknown") if isinstance(reply, dict) else "unknown"
+                raise RuntimeError("Direct save failed or was not verified: " + reason)
+            return {"ok": True, "status": "saved_to_device", "name": name,
+                    "source": approved.source_path, "source_path": approved.source_path, "sha256": info["sha256"], "size": info["size"],
+                    "destination_device": destination_device, "saved_to_destination": True,
+                    "destination_verified": True, "result": reply.get("result")}
 
-        token = self._new_transfer_ticket("download", sha256=info["sha256"], name=name)
-        target = self._mesh.get(destination_device) or {}
-        capabilities = set(target.get("capabilities") or [])
-        requested_destination = str(destination or "").strip()
-        if not requested_destination and "android.ui.inspect" in capabilities:
-            requested_destination = "Downloads/Mark"
-        payload = {
-            "url": self.get_remote_url().rstrip("/") + "/api/transfer/download/" + token,
-            "name": name, "sha256": info["sha256"], "size": info["size"]}
-        if requested_destination:
-            payload["destination"] = requested_destination
-        reply = await self.call_device(destination_device, "file.receive", payload, timeout=300)
-        if not isinstance(reply, dict) or not reply.get("ok"):
-            raise RuntimeError(str((reply or {}).get("result") if isinstance(reply, dict) else reply))
-        result = {"ok":True, "status":"saved_to_device", "name":name,
-                  "source":approved.source_path, "source_path":approved.source_path,
-                  "sha256":info["sha256"], "size":info["size"],
-                  "destination_device":destination_device, "destination_verified":True,
-                  "saved_to_destination":True, "result":reply.get("result")}
-        if requested_destination:
-            result["destination"] = requested_destination
-        return result
+        item = self._attachment_inbox.create(
+            source_device="server", destination_device=destination_device,
+            name=name, sha256=info["sha256"], size=info["size"],
+            assistant_upload=False, server_upload=False,
+            source_path=approved.source_path)
+        ws = self._device_sockets.get(destination_device)
+        if ws:
+            try:
+                await ws.send_json({"type":"attachment.new", "attachment":item})
+                self._attachment_inbox.mark(destination_device, item["id"], "delivered")
+            except Exception:
+                pass  # Offline/reconnecting recipients recover the durable inbox.
+        return {"ok":True, "status":"queued" if not ws else "notified",
+                "attachment_id":item["id"], "name":name,
+                "source":approved.source_path, "source_path":approved.source_path,
+                "sha256":info["sha256"], "size":info["size"],
+                "destination_device":destination_device, "saved_to_destination":False}
 
     async def _send_attachment_inbox(self, ws, device_id):
         await ws.send_json({"type":"attachment.inbox", "attachments":

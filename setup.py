@@ -123,7 +123,7 @@ def main() -> None:
         if not interactive_setup(force=True):
             raise SystemExit("JARVIS configuration was not completed.")
     else:
-        print("[Setup] Existing JARVIS configuration found; Gemini key is unchanged.")
+        print("[Setup] Existing Mark provider configuration found; saved keys are retained.")
         if sys.stdin.isatty():
             try:
                 choice = _safe_input("[Setup] Configure LLM provider/mode now? [y/N]: ").strip().lower()

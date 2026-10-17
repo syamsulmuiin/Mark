@@ -59,15 +59,15 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_server_file",
-        "description": "Send a file already present under the trusted server export roots runtime/ or storage/ to the current or another paired companion. Project source, config, and arbitrary server paths are rejected even if destination_name tries to disguise the file. Use this instead of transfer_file for runtime diagnostics, generated documents, reports, or stored artifacts. By default the file is delivered to the recipient's durable Attachment Inbox; the user can then Open, Save As to any location supported by the companion, or Share it. Set save_direct=true only when the user's current request explicitly asks to save/download the file onto that companion. Do not infer direct saving merely from words such as send, give, transfer, or attach. destination is optional and is used only with save_direct; Android currently supports its canonical Downloads/Mark direct destination, while arbitrary Android locations should use the inbox Save As flow. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
+        "description": "Send a file already present under the trusted server export roots runtime/ or storage/ to the current or another paired companion. Project source, config, and arbitrary server paths are rejected even if destination_name tries to disguise the file. Use this instead of transfer_file for runtime diagnostics, generated documents, reports, or stored artifacts. By default the file is delivered to the recipient's durable Attachment Inbox; the user can then Open, Save As to any location supported by the companion, or Share it. Default to attachment delivery on Android and desktop. Set save_direct=true ONLY when the current user explicitly requests saving/downloading directly on that companion. A filename or words such as send, attach or give do not authorize direct saving. For an explicit direct save, pass the exact user-requested destination; if no location is given or Android needs a document grant, the companion opens its native Save As dialog. Never invent a Downloads destination. The transfer is verified by SHA-256 and size. Use the exact destination device id/name from list_paired_devices, or current for the companion handling this request.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "destination_device": {"type":"STRING", "description":"Exact paired destination device ID/name, or current for the companion handling this request."},
                 "source": {"type":"STRING", "description":"Path under runtime/ or storage/. The server resolves the canonical real path and rejects traversal/symlink escapes."},
                 "destination_name": {"type":"STRING", "description":"Optional display filename. It may rename the file but must preserve the original file extension/type."},
-                "save_direct": {"type":"BOOLEAN", "description":"True only when the user explicitly asked to save/download the file onto the companion filesystem. Default false."},
-                "destination": {"type":"STRING", "description":"Optional explicit filesystem destination for save_direct. Omit for the companion's canonical direct-save location."}
+                "save_direct": {"type":"BOOLEAN", "description":"Default false. True only for an explicit current user request to save/download directly onto the companion."},
+                "destination": {"type":"STRING", "description":"Exact requested file path or existing folder for explicit direct saving. For a new desktop directory, end its path with /. Ignored unless save_direct=true. If omitted, the companion asks the user via Save As."}
             },
             "required": ["destination_device", "source"]
         }
@@ -78,7 +78,7 @@ TOOL_DECLARATIONS = [
             "Control the companion device that is currently talking to JARVIS. Use this for requests such as "
             "open an application, open a browser URL/search on this phone, inspect/click/type/scroll a visible webpage, "
             "open device settings, lock this device, or perform other actions on this/current device. "
-            "For browser interaction on Android, use browser.open or browser.search first, then use android.ui.inspect -> "
+            "For browser interaction on Android, use its advertised open_url capability (or browser.open/browser.search when advertised), then use android.ui.inspect -> "
             "android.ui.click/android.ui.text/android.ui.scroll -> inspect again. Use view_id from inspection; never use coordinates. "
             "For opening an Android or desktop app use capability app.launch with args.app set to the natural app name. "
             "Do not use server-local browser_control for a request originating from a companion when the user means this device."

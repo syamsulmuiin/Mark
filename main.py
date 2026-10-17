@@ -779,7 +779,8 @@ class JarvisLive:
         return None
 
     def _on_text_command(self, text: str):
-        if not self._loop or not self.session:
+        if not self._loop:
+            self.ui.write_log("SYS: Runtime is still starting; try again shortly.")
             return
         # Respect wake-word sleep: a typed command must not be answered while
         # asleep either (the sleep gate is not just for the mic). Wake first with
@@ -788,12 +789,43 @@ class JarvisLive:
             self.ui.write_log("SYS: I'm asleep — say 'Hey Jarvis' or tap WAKE NOW first.")
             return
         asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"role": "user", "parts": [{"text": text}]},
-                turn_complete=True
-            ),
+            self._route_text_command(text),
             self._loop
         )
+
+    async def _route_text_command(self, text: str) -> None:
+        """Route typed input deterministically; never let Live choose its provider."""
+        from core.setup_config import load_config
+        from core.text_commands import respond
+        settings = load_config()
+        provider = str(settings.get("llm_provider") or "gemini").strip().lower()
+        if provider == "gemini" and settings.get("live_provider", "gemini") == "gemini":
+            for _ in range(80):
+                if self.session:
+                    break
+                await asyncio.sleep(0.1)
+            if not self.session:
+                self.ui.write_log("SYS: Voice session unavailable; please retry.")
+                return
+            await self.session.send_client_content(
+                turns={"role": "user", "parts": [{"text": text}]}, turn_complete=True,
+            )
+            return
+        # Serialize text turns so follow-up context contains the previous answer.
+        if not hasattr(self, "_text_command_lock"):
+            self._text_command_lock = asyncio.Lock()
+        async with self._text_command_lock:
+            history = list(self._session_log[-20:])
+            self._record_transcript_entry("user", text)
+            _trace_event("text_llm_request", provider=provider)
+            try:
+                answer = await asyncio.to_thread(respond, text, history=history, config=settings)
+            except Exception as exc:
+                # Do not expose provider payloads/credentials in public logs.
+                self.ui.write_log(f"ERR: Configured Text LLM ({provider}) failed: {type(exc).__name__}")
+                answer = f"Text LLM ({provider}) gagal merespons. Periksa model, API key, dan koneksi server."
+                _trace_event("text_llm_failed", provider=provider, error=type(exc).__name__)
+            self._record_transcript_entry("jarvis", answer)
 
     def _tail_active(self) -> bool:
         """True while the speakers may still be finishing our last sentence."""
@@ -930,7 +962,14 @@ class JarvisLive:
 
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
-        self._interrupted = True
+        # Buffered playback can outlive provider turn_complete. In that case
+        # there is no future completion event to clear an interruption flag;
+        # leaving it set would discard the entire next answer.
+        turn_completed = bool(self._turn_done_event and self._turn_done_event.is_set())
+        self._interrupted = not turn_completed
+        cancel_response = getattr(self.session, "cancel_response", None)
+        if cancel_response and self._loop:
+            asyncio.run_coroutine_threadsafe(cancel_response(), self._loop)
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -947,7 +986,7 @@ class JarvisLive:
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
         self._audio_relay_cursor = 0.0
-        if self._turn_done_event:
+        if self._turn_done_event and not turn_completed:
             self._turn_done_event.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
 
@@ -1196,6 +1235,15 @@ class JarvisLive:
 
     @staticmethod
     def _device_action_rejected(result):
+        payload = result
+        if isinstance(result, str):
+            try:
+                payload = json.loads(result)
+            except (ValueError, TypeError):
+                pass
+        if isinstance(payload, dict):
+            if payload.get("ok") is False or str(payload.get("status") or "").upper() in {"FAILED", "BLOCKED", "UNVERIFIED"}:
+                return True
         text = str(result or "").casefold()
         return any(marker in text for marker in (
             " rejected ", "rejected", "permission denied", "not permitted",
@@ -1204,6 +1252,8 @@ class JarvisLive:
 
     def _guard_device_action(self, device_id, capability, action_args):
         sig = self._device_action_signature(device_id, capability, action_args)
+        if str(capability or "").strip().casefold() == "file.receive":
+            return sig, "Use send_server_file for delivery: default to an attachment, or set save_direct=true only for an explicit user save request. Do not call raw file.receive."
         if self._blocked_device_action == sig:
             return sig, (
                 "Blocked unchanged retry after the previous device action was rejected. "
@@ -1345,9 +1395,12 @@ class JarvisLive:
                 answer = {"error": "A non-empty prompt is required"}
             else:
                 try:
+                    _trace_event("text_llm_delegation", stage="started")
                     response_text = await asyncio.to_thread(generate_text, prompt)
                     answer = {"result": response_text}
+                    _trace_event("text_llm_delegation", stage="succeeded")
                 except Exception as exc:
+                    _trace_event("text_llm_delegation", stage="failed", error=type(exc).__name__)
                     # Do not silently switch to Gemini when another Text LLM fails.
                     answer = {"error": f"Configured Text LLM failed: {type(exc).__name__}: {exc}"}
             if not self.ui.muted:
@@ -1355,7 +1408,7 @@ class JarvisLive:
             return types.FunctionResponse(id=fc.id, name=name, response=answer)
 
         # When a non-Gemini Text provider owns action decisions, never allow
-        # Gemini Live to bypass Text planning and the user approval gate by
+        # the Live transport to bypass Text planning and the user approval gate by
         # invoking an action tool directly. ContextVar is set only by the
         # trusted approval callback, not by model-supplied tool arguments.
         from core.setup_config import load_config as _load_llm_settings
@@ -1578,7 +1631,7 @@ class JarvisLive:
                         _facing = str(args.get("facing", "back")).strip().lower()
                         _reply = await self._dashboard.call_device(_origin, "camera.capture", {"facing": _facing})
                         if not isinstance(_reply, dict) or not _reply.get("ok", False):
-                            result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                            result = json.dumps(_reply, ensure_ascii=False) if isinstance(_reply, dict) else str(_reply)
                         else:
                             try:
                                 _payload = json.loads(str(_reply.get("result", "")))
@@ -1598,7 +1651,7 @@ class JarvisLive:
                     elif angle == "screen" and "screen.capture" in _caps:
                         _reply = await self._dashboard.call_device(_origin, "screen.capture", {})
                         if not isinstance(_reply, dict) or not _reply.get("ok", False):
-                            result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                            result = json.dumps(_reply, ensure_ascii=False) if isinstance(_reply, dict) else str(_reply)
                         else:
                             try:
                                 _payload = json.loads(str(_reply.get("result", "")))
@@ -1697,19 +1750,19 @@ class JarvisLive:
                         exact=next((d for d in devices if d.get("device_id")==selector and not d.get("revoked")),None)
                         matches=[d for d in devices if str(d.get("name","")).casefold()==selector.casefold() and not d.get("revoked")]
                         target=exact or (matches[0] if len(matches)==1 else None)
-                    save_direct=bool(args.get("save_direct",False))
+                    save_direct = args.get("save_direct") is True
                     required_capability="file.receive" if save_direct else "attachment.inbox"
                     if not target:
                         result="Destination companion is not uniquely identifiable. Call list_paired_devices first."
                     elif required_capability not in set(target.get("capabilities") or []):
                         result=f"Destination companion does not support {required_capability}."
                     elif save_direct and target.get("device_id") not in online:
-                        result="Destination companion is offline; direct saving requires it to be online. Use normal attachment delivery instead."
+                        result="Destination companion is offline; direct saving requires it to be online. Use attachment delivery or retry after reconnecting."
                     else:
                         result=json.dumps(await self._dashboard.send_server_file(
                             str(target["device_id"]), str(args.get("source") or ""),
-                            str(args.get("destination_name") or ""),
-                            save_direct=save_direct, destination=str(args.get("destination") or "")), ensure_ascii=False)
+                            str(args.get("destination_name") or ""), save_direct=save_direct,
+                            destination=str(args.get("destination") or "")), ensure_ascii=False)
 
             elif name == "call_current_device":
                 if not self._dashboard:
@@ -1733,6 +1786,8 @@ class JarvisLive:
                         if _mapped_cap != _requested_cap and _mapped_cap not in _caps:
                             _mapped_cap = _requested_cap
                         _device_args = args.get("args") or {}
+                        from core.companion_routing import normalize_companion_call
+                        _mapped_cap, _device_args = normalize_companion_call(_mapped_cap, _device_args, _caps)
                         if _mapped_cap == "legacy.action" and not str(_device_args.get("tool") or "").strip():
                             result = "legacy.action requires a named desktop tool and its parameters."
                         elif _mapped_cap not in _caps:
@@ -1750,7 +1805,7 @@ class JarvisLive:
                                     result = (f"The current companion rejected {_mapped_cap}. "
                                               "Check its device permission or re-pair if capability grants changed.")
                                 else:
-                                    result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                                    result = json.dumps(reply, ensure_ascii=False) if isinstance(reply, dict) else str(reply)
                                     self._finish_device_action(_sig, _mapped_cap, result)
 
             elif name == "call_paired_device":
@@ -1784,6 +1839,8 @@ class JarvisLive:
                         _capability = str(args.get("capability", ""))
                         _device_args = args.get("args") or {}
                         _caps = set(target.get("capabilities") or [])
+                        from core.companion_routing import normalize_companion_call
+                        _capability, _device_args = normalize_companion_call(_capability, _device_args, _caps)
                         if _capability == "legacy.action" and not str(_device_args.get("tool") or "").strip():
                             result = "legacy.action requires a named desktop tool and its parameters."
                         elif not _capability or _capability not in _caps:
@@ -1800,7 +1857,7 @@ class JarvisLive:
                                     result = (f"Paired device {_target_id} rejected {_capability}. "
                                               "Check its device permission or re-pair if capability grants changed.")
                                 else:
-                                    result = str(reply.get("result", reply)) if isinstance(reply, dict) else str(reply)
+                                    result = json.dumps(reply, ensure_ascii=False) if isinstance(reply, dict) else str(reply)
                                     self._finish_device_action(_sig, _capability, result)
 
             elif name == "manage_monitor":
@@ -1905,12 +1962,12 @@ class JarvisLive:
                         if name == "open_app" and "app.launch" in _caps:
                             _app = args.get("app_name") or args.get("app") or args.get("name") or ""
                             _reply = await self._dashboard.call_device(_origin, "app.launch", {"app": _app})
-                            result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                            result = json.dumps(_reply, ensure_ascii=False) if isinstance(_reply, dict) else str(_reply)
                         elif "legacy.action" in _caps:
                             _reply = await self._dashboard.call_device(
                                 _origin, "legacy.action", {"tool": name, "parameters": args}
                             )
-                            result = str(_reply.get("result", _reply)) if isinstance(_reply, dict) else str(_reply)
+                            result = json.dumps(_reply, ensure_ascii=False) if isinstance(_reply, dict) else str(_reply)
                         else:
                             # Do not silently fall through and execute the action on the
                             # server.  Tell the model which current-device path to use so
@@ -2780,23 +2837,9 @@ class JarvisLive:
                 )
                 if not text:
                     continue
-                # Wait up to 8s for session to become ready after a wake
-                for _ in range(80):
-                    if self.session:
-                        break
-                    await asyncio.sleep(0.1)
-                if self.session:
-                    # A remote command is deliberate control and the phone user
-                    # has no desktop WAKE button — so it wakes JARVIS if asleep.
-                    if self._wake_enabled and not self._awake:
-                        self.wake(reason="remote command")
-                    await self.session.send_client_content(
-                        turns={"role": "user", "parts": [{"text": text}]},
-                        turn_complete=True,
-                    )
-                    self.ui.write_log(f"[Web]: {text}")
-                else:
-                    print(f"[Dashboard] Dropped command (no session): {text}")
+                if self._wake_enabled and not self._awake:
+                    self.wake(reason="remote command")
+                await self._route_text_command(text)
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
@@ -3000,6 +3043,12 @@ class JarvisLive:
 
                     print("[JARVIS] Connected.")
                     _trace_event("live_connected", model=live_model, session=self._session_generation)
+                    from core.setup_config import load_config as load_routing_config
+                    _routing = load_routing_config()
+                    _trace_event("llm_routing", live_provider=llm_live.provider(_routing),
+                                 live_model=live_model, text_provider=_routing.get("llm_provider", "gemini"),
+                                 text_models=(_routing.get("provider_models") or {}).get(_routing.get("llm_provider"))
+                                             or _routing.get("chat_models") or _routing.get("text_models") or "default")
                     if self._recovery_context_pending:
                         self.ui.write_log("SYS: Reconnected — conversation context recovered locally.")
                         self._recovery_context_pending = False

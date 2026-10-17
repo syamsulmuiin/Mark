@@ -7,7 +7,7 @@ from core import setup_config, chat_router
 
 
 def test_safe_input_replaces_invalid_utf8(monkeypatch):
-    fake = io.TextIOWrapper(io.BytesIO(b"5\\xff\\n".replace(b"\\xff", bytes([255]))), encoding="utf-8")
+    fake = io.TextIOWrapper(io.BytesIO(bytes([53, 255, 10])), encoding="utf-8")
     monkeypatch.setattr(sys, "stdin", fake)
     assert setup_config._safe_input("Provider: ").startswith("5")
 

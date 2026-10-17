@@ -462,11 +462,13 @@ class MainActivity : AppCompatActivity() {
         approvalRequestId=requestId
         approvalDeadlineMs=SystemClock.elapsedRealtime()+seconds*1000L
         val navy=android.graphics.Color.rgb(15,23,42)
+        val white=android.graphics.Color.WHITE
         val slate=android.graphics.Color.rgb(100,116,139)
         val teal=android.graphics.Color.rgb(13,148,136)
         val panel=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL
             setPadding(dp(24),dp(12),dp(24),dp(12))
+            setBackgroundColor(white)
         }
         val eyebrow=TextView(this).apply {
             text="MARK  /  PERSETUJUAN AMAN"
@@ -509,8 +511,12 @@ class MainActivity : AppCompatActivity() {
             }
             dismissApproval()
         }
+        val scroll=android.widget.ScrollView(this).apply {
+            isFillViewport=false
+            addView(panel)
+        }
         val dialog=AlertDialog.Builder(this)
-            .setView(panel)
+            .setView(scroll)
             .setPositiveButton("Izinkan",null)
             .setNegativeButton("Tolak",null)
             .create()
@@ -520,6 +526,11 @@ class MainActivity : AppCompatActivity() {
         dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
         dialog.show()
+        // Match the explicit dark text colors to a guaranteed light surface,
+        // regardless of system night mode or manufacturer AlertDialog theme.
+        dialog.window?.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(white)
+        )
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).apply {
             setTextColor(teal)
             setTypeface(typeface,Typeface.BOLD)

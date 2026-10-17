@@ -8,7 +8,7 @@ def test_completion_fires_after_approved_action(monkeypatch):
     completed = threading.Event()
     events = []
     confirm.bind(lambda *_: None, lambda: None,
-                 on_result=lambda key, title, ok, result: (events.append((key, ok, result)), completed.set()))
+                 on_result=lambda request_id, key, title, ok, result: (events.append((key, ok, result)), completed.set()))
     confirm.request("flash_approval_smoke_test", "Test", "Safe", lambda: "done")
     pending = confirm.pending_request()
     assert pending
@@ -22,7 +22,7 @@ def test_rejected_action_reports_without_execution(monkeypatch):
     monkeypatch.setattr(confirm, "_pending", None)
     events = []
     confirm.bind(lambda *_: None, lambda: None,
-                 on_result=lambda key, title, ok, result: events.append((ok, result)))
+                 on_result=lambda request_id, key, title, ok, result: events.append((ok, result)))
     confirm.request("flash_approval_smoke_test", "Test", "Safe",
                     lambda: (_ for _ in ()).throw(AssertionError("must not execute")))
     pending = confirm.pending_request()

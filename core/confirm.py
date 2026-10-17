@@ -65,7 +65,7 @@ _lock = threading.Lock()
 _show_cb: Optional[Callable[[str, str], None]] = None
 _hide_cb: Optional[Callable[[], None]] = None
 _log_cb:  Optional[Callable[[str], None]] = None
-_result_cb: Optional[Callable[[str, str, bool, str], None]] = None
+_result_cb: Optional[Callable[[str, str, bool, str, str], None]] = None
 
 
 def bind(show, hide, log=None, on_result=None) -> None:
@@ -124,7 +124,7 @@ def _notify_result(p: _Pending, success: bool, result: str) -> None:
     """Optional completion signal; never let notification errors affect the gate."""
     if _result_cb:
         try:
-            _result_cb(p.key, p.title, success, result)
+            _result_cb(p.request_id, p.key, p.title, success, result)
         except Exception:
             pass
 

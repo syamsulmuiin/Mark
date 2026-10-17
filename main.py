@@ -2660,7 +2660,14 @@ class JarvisLive:
                 asyncio.run_coroutine_threadsafe(_deliver(), self._loop)
 
             self._dashboard.set_approval_result_callback(_approval_reply)
-            def _approval_completed(key, title, success, result):
+            def _approval_completed(request_id, key, title, success, result):
+                # Completion is independent of Gemini Live availability.
+                async def _report():
+                    await self._dashboard.send_approval_completion(request_id, success)
+                try:
+                    asyncio.run_coroutine_threadsafe(_report(), self._loop)
+                except Exception as e:
+                    print(f"[Approval] completion dispatch failed: {type(e).__name__}")
                 # Only the harmless diagnostic action speaks automatically.
                 # Do not announce arbitrary sensitive action details.
                 if key != "flash_approval_smoke_test":

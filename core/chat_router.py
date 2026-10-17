@@ -17,7 +17,7 @@ def generate_chat_text(prompt: str, *, config: dict | None = None) -> str:
         return text(prompt, tier=SMART)
     if provider not in ENDPOINTS:
         raise ValueError(f"Chat provider {provider!r} is not implemented")
-    models = str(settings.get("text_models") or "")
+    models = str(settings.get("chat_models") or settings.get("text_models") or "")
     model = next((x.strip() for x in models.split(",") if x.strip()), "")
     if not model:
         raise ValueError(f"Configure a text model for {provider}")

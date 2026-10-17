@@ -51,7 +51,8 @@ SUPPORTED_MODES = ("hybrid",)
 def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
                        live_models: str | None = None,
                        text_models: str | None = None,
-                       provider_api_key: str | None = None) -> dict:
+                       provider_api_key: str | None = None,
+                       chat_models: str | None = None) -> dict:
     """Persist provider selection without touching the existing API key.
 
     Only Gemini hybrid is wired into the current runtime. Fail closed rather
@@ -68,7 +69,7 @@ def save_llm_selection(provider: str = "gemini", mode: str = "hybrid",
     current["llm_mode"] = mode
     if provider_api_key is not None and provider != "gemini":
         current[f"{provider}_api_key"] = provider_api_key.strip()
-    for field, value in (("live_models", live_models), ("text_models", text_models)):
+    for field, value in (("live_models", live_models), ("text_models", text_models), ("chat_models", chat_models)):
         if value is not None:
             models = list(dict.fromkeys(x.strip() for x in value.split(",") if x.strip()))
             if not models:
@@ -96,7 +97,7 @@ def interactive_llm_setup() -> bool:
     print("\nLIVE / VOICE PROVIDER")
     for index, (key, label, ready) in enumerate(LIVE_PROVIDER_CATALOG, 1):
         print(f"  {index}. {label}" + ("" if ready else " [adapter not installed]"))
-    print("Hybrid uses the selected chat provider for text/tools and the Live provider for voice.")
+    print("Hybrid uses the selected provider for routed plain text; Live/tools remain Gemini.")
     try:
         provider_choice = input("Chat / execution provider [1]: ").strip().lower()
         live_choice = input("Live / voice provider [1]: ").strip().lower()
@@ -126,7 +127,7 @@ def interactive_llm_setup() -> bool:
             if not model:
                 print("Text model ID required; configuration unchanged.")
                 return False
-            choices["text_models"] = model
+            choices["chat_models"] = model
             live_default = current.get("live_models") or f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"
             choices["live_models"] = input(f"Live audio models [{live_default}]: ").strip() or live_default
         else:

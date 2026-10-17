@@ -2660,10 +2660,33 @@ class JarvisLive:
                 asyncio.run_coroutine_threadsafe(_deliver(), self._loop)
 
             self._dashboard.set_approval_result_callback(_approval_reply)
+            def _approval_completed(key, title, success, result):
+                # Only the harmless diagnostic action speaks automatically.
+                # Do not announce arbitrary sensitive action details.
+                if key != "flash_approval_smoke_test":
+                    return
+                if success:
+                    self.plugin_say(
+                        "The user approved the safe Flash Approval test and its "
+                        "callback finished successfully. Say briefly in Indonesian: "
+                        "'Pengujian Flash Approval berhasil.'"
+                    )
+                elif result == "rejected":
+                    self.plugin_say(
+                        "The user rejected the safe Flash Approval test. "
+                        "Say briefly in Indonesian that nothing was executed."
+                    )
+                elif result == "expired":
+                    self.plugin_say(
+                        "The safe Flash Approval test expired without approval. "
+                        "Say briefly in Indonesian that nothing was executed."
+                    )
+
             confirm_gate.bind(
                 show=_show_companion_approval,
                 hide=self.ui.hide_confirm,
                 log=self.ui.write_log,
+                on_result=_approval_completed,
             )
             self._dashboard.set_interrupt_callback(self.interrupt)
             self._dashboard.set_attachment_result_callback(self._on_attachment_result)

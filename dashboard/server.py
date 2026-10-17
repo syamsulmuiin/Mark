@@ -642,7 +642,13 @@ class DashboardServer:
             return False
         self._approval_pending.pop(request_id, None)
         if self._approval_result_callback:
-            self._approval_result_callback(request_id, msg["accepted"])
+            try:
+                self._approval_result_callback(request_id, msg["accepted"])
+            except Exception:
+                _interaction_event("approval_callback_error", device_id=device_id)
+                return False
+        _interaction_event("approval_resolved", device_id=device_id,
+                           outcome="accepted" if msg["accepted"] else "rejected")
         return True
 
     async def send_active_approval(self, request_id: str, title: str, detail: str,
@@ -671,6 +677,7 @@ class DashboardServer:
         except Exception:
             self._approval_pending.pop(request_id, None)
             return None
+        _interaction_event("approval_sent", device_id=device_id)
         return device_id
 
     async def send_device_audio(self, pcm: bytes) -> None:

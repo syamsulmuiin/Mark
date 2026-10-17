@@ -48,7 +48,7 @@ def test_unsupported_chat_provider_does_not_change_saved_settings(tmp_path, monk
     path = tmp_path / "api_keys.json"
     path.write_text('{"gemini_api_key":"secret","llm_provider":"gemini"}')
     monkeypatch.setattr(setup_config, "CONFIG_FILE", path)
-    answers = iter(["2", "1"])
+    answers = iter(["3", "1"])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     before = path.read_text()
     assert not setup_config.interactive_llm_setup()

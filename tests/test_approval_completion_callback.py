@@ -9,12 +9,12 @@ def test_completion_fires_after_approved_action(monkeypatch):
     events = []
     confirm.bind(lambda *_: None, lambda: None,
                  on_result=lambda request_id, key, title, ok, result: (events.append((key, ok, result)), completed.set()))
-    confirm.request("flash_approval_smoke_test", "Test", "Safe", lambda: "done")
+    confirm.request("flash_approval_smoke_test", "Test", "Safe", lambda: '{"verified":true}')
     pending = confirm.pending_request()
     assert pending
     confirm.resolve(True, expected_request_id=pending["request_id"])
     assert completed.wait(2)
-    assert events == [("flash_approval_smoke_test", True, "done")]
+    assert events == [("flash_approval_smoke_test", True, '{"verified":true}')]
     confirm.bind(lambda *_: None, lambda: None)
 
 

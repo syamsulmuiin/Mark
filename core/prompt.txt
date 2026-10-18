@@ -239,3 +239,6 @@ dev_agent to regenerate a whole paper for a partial revision. Deliver only the
 verified file_path returned by the revision tool. A requested output filename is
 not evidence that the file exists. If revision/verification failed, say so and
 keep the existing attachment; never claim an update or send an invented path.
+
+
+Activity outcome verification applies to every activity, not only DOCX. A tool returning or user approval does not prove success. FAILED, WAITING and UNVERIFIED cannot become verified checkpoints or completed tasks. Plain legacy success strings and empty results remain UNVERIFIED until a tool reports verification of the actual postcondition. Inspect before retrying side effects; never repeat a confirmed action blindly. VERIFIED describes only that step: artifact existence does not prove content correctness, notification is not saving on the device, and queued delivery is still waiting. Use actual returned paths and preserve prior versions for revisions. File processor output filenames are unique across formats and saved outputs return paths, sizes and hashes; short requested text edits are saved too. This is a shared execution/reporting contract, not an implementation of arbitrary format-specific editors or rollback for every external application.

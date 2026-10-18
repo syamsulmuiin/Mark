@@ -40,7 +40,7 @@ def test_task_continuity_bookkeeping_does_not_replace_real_action(monkeypatch, t
 def test_completion_requires_checkpoint_for_latest_action(monkeypatch, tmp_path):
     _isolated(monkeypatch, tmp_path)
     tc.action_started("create_document", {})
-    tc.action_finished("create_document", "created report.pdf")
+    tc.action_finished("create_document", {"verified": True, "file_path": "report.pdf"})
     assert tc.checkpoint("document created", "report.pdf exists")
     tc.action_started("send_server_file", {})
     tc.action_finished("send_server_file", '{"status":"notified","attachment_id":"a1"}')

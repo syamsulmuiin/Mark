@@ -29,7 +29,7 @@ def test_permission_ack_precedes_execution_and_completion(monkeypatch):
     confirm.bind(lambda *a: None, lambda: None,
         on_decision=lambda request, outcome: events.append(outcome),
         on_result=lambda *args: (events.append('succeeded' if args[3] else 'failed'), finished.set()))
-    confirm.request('voice-test', 'Private action', 'secret arguments', lambda: events.append('execute') or 'done')
+    confirm.request('voice-test', 'Private action', 'secret arguments', lambda: events.append('execute') or {'ok': True, 'verified': True})
     request = confirm.pending_request()['request_id']
     confirm.resolve(True, expected_request_id=request)
     assert finished.wait(1)

@@ -8,7 +8,7 @@ def test_flash_approval(parameters: dict, **_kwargs) -> str:
         key="flash_approval_smoke_test",
         title="Tes Flash Approval",
         detail="Simulasi aman: hanya mencatat keberhasilan di log Mark. Tidak mengubah sistem.",
-        run=lambda: "Flash Approval berhasil diuji; tidak ada perubahan sistem.",
+        run=lambda: {"ok": True, "verified": True, "status": "SUCCESS", "verification_scope": "approval callback executed; no system changes"},
     )
 
 

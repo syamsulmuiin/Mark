@@ -1,6 +1,8 @@
 """Persistent, application-agnostic continuity state for unfinished work."""
 from __future__ import annotations
 import json, os, threading
+import uuid
+from core.action_outcomes import assess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,7 +48,7 @@ def checkpoint(summary,evidence=''):
     last=d.get('last_action') or {}
     # A checkpoint is verified continuity evidence only when it is anchored to
     # an observed, finished tool action. Free-form model claims are not enough.
-    if not summary or not evidence or last.get('state')!='FINISHED':
+    if not summary or not evidence or last.get('state')!='FINISHED' or last.get('outcome')!='VERIFIED':
         return {}
     item={'summary':summary,'evidence':evidence,'observed_action':dict(last),'at':_now()}
     d.setdefault('verified_checkpoints',[]).append(item)
@@ -58,7 +60,7 @@ def action_started(name,args):
 def action_finished(name,result):
     d=active()
     if not d or str(name)=='task_continuity':return
-    d['last_action']={'name':str(name),'state':'FINISHED','result':str(result)[:4000],'at':_now()};d['updated_at']=_now();_save(d)
+    d['last_action']={'name':str(name),'state':'FINISHED','outcome':assess(result),'id':uuid.uuid4().hex,'result':str(result)[:4000],'at':_now()};d['updated_at']=_now();_save(d)
 def block(reason):
     d=active()
     if not d:return {}
@@ -78,10 +80,10 @@ def complete(evidence=''):
     # Completion is a state transition, not a model assertion. Require explicit
     # evidence and a checkpoint tied to the latest real finished action. This
     # prevents an empty/claimed completion from turning unfinished work green.
-    if (not evidence or last.get('state')!='FINISHED' or not latest.get('evidence')
+    if (not evidence or last.get('state')!='FINISHED' or last.get('outcome')!='VERIFIED' or not latest.get('evidence')
             or observed.get('state')!='FINISHED'
             or observed.get('name')!=last.get('name')
-            or observed.get('at')!=last.get('at')):
+            or not last.get('id') or observed.get('id')!=last.get('id')):
         return {}
     d['status']='COMPLETED';d['completion_evidence']=evidence;d['updated_at']=_now();_save(d)
     _journal('task_completed', d.get('goal',''), goal=d.get('goal',''), evidence=evidence, checkpoints=d.get('verified_checkpoints',[])[-6:])

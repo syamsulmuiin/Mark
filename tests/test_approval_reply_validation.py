@@ -75,3 +75,14 @@ def test_completion_is_delivered_only_to_original_socket():
     server._device_sockets["android"] = replacement
     assert not asyncio.run(server.send_approval_completion("request-4", True))
     assert replacement.messages == []
+
+
+def test_unverified_completion_is_not_reported_as_failed_or_success():
+    server = make_server()
+    socket = Socket()
+    server._device_sockets = {'android': socket}
+    server._active_voice_device = 'android'
+    asyncio.run(server.send_active_approval('request-unverified', 'Test', 'Safe'))
+    assert server.accept_approval_reply('android', socket, {'request_id': 'request-unverified', 'accepted': True})
+    assert asyncio.run(server.send_approval_completion('request-unverified', False, outcome='unverified'))
+    assert socket.messages[-1]['status'] == 'unverified'

@@ -1411,9 +1411,10 @@ class JarvisLive:
                     if isinstance(payload, dict) and (payload.get("error") or payload.get("executed") is False):
                         raise RuntimeError("Approved action did not execute successfully")
                     outcome = payload.get("result", payload) if isinstance(payload, dict) else payload
-                    if self._device_action_rejected(outcome):
+                    from core.action_outcomes import assess
+                    if assess(outcome) == "FAILED":
                         raise RuntimeError("Approved action failed or its outcome was not verified")
-                    return str(payload)
+                    return json.dumps(payload, ensure_ascii=False)
 
                 from core.approval_presentation import present_action
                 _approval_title, _approval_detail = present_action(
@@ -1586,7 +1587,7 @@ class JarvisLive:
                     _ctx = {"player": self.ui, "speak": self.speak,
                             "response": None, "session_memory": None}
                     r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
-                    result = r or "Done."
+                    result = r if r is not None else {"ok": False, "status": "UNVERIFIED", "verified": False, "reason": "Tool returned no execution evidence"}
                     _plan_match = re.search(r"^Repair plan:\s*([A-Za-z0-9-]+)\s*$", str(result), re.MULTILINE)
                     self._last_repair_plan_id = _plan_match.group(1) if _plan_match else ""
                     if self._last_repair_plan_id and has_explicit_repair_apply_intent(_last_user):
@@ -1635,7 +1636,7 @@ class JarvisLive:
                                          str(args.get("completion_criteria", "")), origin or "")
                         result = "Persistent task started."
                 elif action == "checkpoint":
-                    result = "Checkpoint saved." if task_state.checkpoint(str(args.get("summary", "")), str(args.get("evidence", ""))) else "No active persistent task."
+                    result = "Checkpoint saved." if task_state.checkpoint(str(args.get("summary", "")), str(args.get("evidence", ""))) else "No active task or no verified latest action; inspect the actual result before recording progress."
                 elif action == "block":
                     reason = str(args.get("reason", "")).strip()
                     _reason_lower = reason.casefold()
@@ -1656,7 +1657,7 @@ class JarvisLive:
                     else:
                         result = "Task paused with blocker preserved." if task_state.block(reason) else "No active persistent task."
                 elif action == "complete":
-                    result = "Persistent task completed." if task_state.complete(str(args.get("evidence", ""))) else "No active persistent task."
+                    result = "Persistent task completed." if task_state.complete(str(args.get("evidence", ""))) else "No active task or no verified latest action; inspect the actual result before recording progress."
                 else:
                     result = "Unknown task continuity action."
 
@@ -2064,7 +2065,7 @@ class JarvisLive:
                     _ctx = {"player": self.ui, "speak": self.speak,
                             "response": None, "session_memory": None}
                     r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
-                    result = r or "Done."
+                    result = r if r is not None else {"ok": False, "status": "UNVERIFIED", "verified": False, "reason": "Tool returned no execution evidence"}
                     if name in {"document_editor", "file_processor"}:
                         try:
                             artifact = json.loads(r) if isinstance(r, str) else r
@@ -2100,7 +2101,7 @@ class JarvisLive:
                         None,
                         lambda: self._plugin_registry.run(name, args, player=self.ui, session_memory=None)
                     )
-                    result = r or "Done."
+                    result = r if r is not None else {"ok": False, "status": "UNVERIFIED", "verified": False, "reason": "Tool returned no execution evidence"}
                 else:
                     result = f"Unknown tool: {name}"
 
@@ -2129,11 +2130,15 @@ class JarvisLive:
         _sched = (self._action_registry.scheduling(name)
                   or self._plugin_registry.scheduling(name))
         _extra = {"scheduling": _sched} if _sched else {}
+        from core.action_outcomes import assess
+        _outcome = assess(result)
+        _trace_event("tool_outcome", tool=name, outcome=_outcome)
         if name != "task_continuity":
             task_state.action_finished(name, result)
         return types.FunctionResponse(
             id=fc.id, name=name,
-            response={"result": result, **(confirm_gate.response_metadata(str(result))
+            response={"result": result, "outcome": _outcome,
+                      "completion_rule": "Only VERIFIED confirms the reported step. FAILED/WAITING/UNVERIFIED are not completed user goals. Inspect the actual state; never retry side effects blindly or invent file paths.", **(confirm_gate.response_metadata(str(result))
                       if name == "test_flash_approval" else {})},
             **_extra
         )
@@ -2968,13 +2973,14 @@ class JarvisLive:
                 # Completion is independent of Gemini Live availability.
                 async def _report():
                     self._dashboard.discard_pending_approval(request_id)
-                    await self._dashboard.send_approval_completion(request_id, success)
+                    await self._dashboard.send_approval_completion(request_id, success,
+                        outcome=result if result in {"unverified", "waiting"} else "")
                 try:
                     asyncio.run_coroutine_threadsafe(_report(), self._loop)
                 except Exception as e:
                     print(f"[Approval] completion dispatch failed: {type(e).__name__}")
                 if result not in ("rejected", "expired"):
-                    outcome = "succeeded" if success else ("nested_confirmation_pending" if result == "nested_confirmation_pending" else "failed")
+                    outcome = "succeeded" if success else ("nested_confirmation_pending" if result == "nested_confirmation_pending" else result if result in {"unverified", "waiting"} else "failed")
                     self._queue_approval_speech(request_id, outcome)
                 self._approval_voice_targets.pop(request_id, None)
 

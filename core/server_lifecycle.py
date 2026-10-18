@@ -247,6 +247,16 @@ def _stop_server():
     pidfile.unlink(missing_ok=True)
     print(f"Mark server stopped (PID {pid}).")
 
+def _restart_server():
+    """Never launch a replacement while the previous worker is still alive."""
+    pid = _server_pid()
+    if pid:
+        _stop_server()
+        if _pid_alive(pid):
+            print(f"Restart aborted: Mark worker PID {pid} is still running.")
+            return None
+    return _spawn_server()
+
 def _autostart_enable():
     """Install per-user autostart without adding another runtime mode."""
     py=str(Path(sys.executable).resolve()); main=str(MAIN_FILE)
@@ -285,12 +295,14 @@ def _runtime_mode(argv=None):
     g=parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--start",action="store_true",help="start server")
     g.add_argument("--enable",action="store_true",help="enable autostart and start server")
+    g.add_argument("--restart",action="store_true",help="stop the tracked worker, then start server")
     g.add_argument("--stop",action="store_true",help="stop server")
     g.add_argument("--disable",action="store_true",help="disable autostart")
     g.add_argument("--pair",action="store_true",help="list pending companion pairing requests or issue a code")
     parser.add_argument("--pairing-id", help="pending pairing request ID to approve")
     g.add_argument("--server-worker",action="store_true",help=argparse.SUPPRESS)
     a=parser.parse_args(argv)
+    if a.restart:return "restart"
     if a.start:return "start"
     if a.enable:return "enable"
     if a.stop:return "stop"

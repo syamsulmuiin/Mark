@@ -29,6 +29,7 @@ Public administrative interface:
 ```text
 python main.py --start
 python main.py --stop
+python main.py --restart
 python main.py --enable
 python main.py --disable
 python main.py --pair
@@ -283,3 +284,7 @@ All inference belongs to the configured Text role or the existing configured Liv
 Companion speech during playback is forwarded to the existing Live transport. Manual activity signals have one owner and Gemini automatic activity detection is disabled to avoid mixing boundaries. Gemini interruption events and cancelled OpenAI responses clear server playback and send audio.clear only to the active authenticated voice companion. Android clears its queued PCM; desktop aborts buffered output and restarts its output stream. Desktop retains its existing half-duplex mic transmission and explicit interrupt control; this change does not claim hands-free desktop barge-in or semantic filtering of background speech.
 
 Plain-text file and flight helpers use the selected Text reasoning facade. Grounded Gemini search is allowed only when Gemini is the selected Text provider; other providers use ordinary web search results. Unsupported multimodal Text requests cannot silently invoke Gemini. Legacy desktop-local inference is disabled; callers must reason on the server and send explicit device arguments or route image bytes through Live. Existing deterministic device actions remain available. No extra Live client is created for helper work.
+
+Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
+
+Phone speech requires 160 ms of consecutive above-threshold PCM before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.

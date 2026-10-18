@@ -1,8 +1,6 @@
 """Payload-free evidence of the selected text provider actually being called."""
 from __future__ import annotations
 
-import json
-import time
 import uuid
 from pathlib import Path
 
@@ -12,14 +10,9 @@ TRACE_LOG = Path(__file__).resolve().parent.parent / "runtime" / "interaction.lo
 def traced_text_call(provider, model, run):
     request_id = uuid.uuid4().hex
     def event(stage, **fields):
-        try:
-            TRACE_LOG.parent.mkdir(parents=True, exist_ok=True)
-            with TRACE_LOG.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"ts": round(time.time(), 3), "event": "text_provider_request",
-                                     "provider": provider, "model": model, "stage": stage, "request_id": request_id,
-                                     **fields}, separators=(",", ":")) + "\n")
-        except OSError:
-            pass
+        from core.interaction_log import write_event
+        write_event(TRACE_LOG, 'text_provider_request', provider=provider, model=model,
+                    stage=stage, request_id=request_id, **fields)
     event("started")
     try:
         result = run()

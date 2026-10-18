@@ -338,6 +338,7 @@ class MainActivity : AppCompatActivity() {
     @Synchronized private fun connect(){
         if(ws != null) return
         intentionalVoiceEnd = false
+        authenticationBlocked = false
         val server=prefs.getString("server",null)?:return; val id=identity().first
         val wsBase=server.replaceFirst("https://","wss://").replaceFirst("http://","ws://")
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
@@ -399,9 +400,32 @@ class MainActivity : AppCompatActivity() {
                 setVoiceState("SPEAKING")
                 enqueueAudio(bytes.toByteArray())
             }}
-            override fun onClosing(w:WebSocket,code:Int,reason:String){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { if(approvalOwner===w) dismissApproval() }; stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }}
-            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }}
+            override fun onClosing(w:WebSocket,code:Int,reason:String){
+                w.close(code,reason)
+                handleSocketClosed(w,code,reason)
+            }
+            override fun onClosed(w:WebSocket,code:Int,reason:String){ handleSocketClosed(w,code,reason) }
+            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; authenticationBlocked = r?.code==401 || r?.code==403
+                runOnUiThread { status.text=if(authenticationBlocked) "Server menolak koneksi. Pairing tersimpan; periksa identitas dan daftar perangkat server." else "Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }}
         })
+    }
+
+    @Synchronized private fun handleSocketClosed(socket:WebSocket,code:Int,reason:String){
+        if(socket !== ws) return
+        runOnUiThread { if(approvalOwner===socket) dismissApproval() }
+        stopMic(); stopPlayback(); ws=null
+        if(code==4003 && reason=="pairing_revoked"){
+            prefs.edit().putBoolean("paired",false).apply()
+            showPair("Pairing dicabut oleh server. Minta kode pairing baru.")
+        } else if(code==4001 || code==4003){
+            // Authentication rejection is not evidence that stored pairing was revoked.
+            // Preserve keys and pause retries; never accept a changed server identity.
+            authenticationBlocked=true
+            setEnded()
+            ui("Verifikasi koneksi gagal (kode $code). Pairing tersimpan. Periksa identitas dan daftar perangkat di server, lalu coba hubungkan kembali.")
+        } else {
+            setEnded(); scheduleReconnect()
+        }
     }
 
     override fun onResume(){
@@ -585,13 +609,15 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    @Volatile private var authenticationBlocked=false
+
     private fun scheduleReconnect(){
-        if(intentionalVoiceEnd) return
+        if(intentionalVoiceEnd || authenticationBlocked) return
         synchronized(this){ if(reconnectScheduled) return; reconnectScheduled=true }
         if(!prefs.getBoolean("paired",false)){ reconnectScheduled=false; return }
         window.decorView.postDelayed({
             reconnectScheduled=false
-            if(!intentionalVoiceEnd && ws==null && prefs.getBoolean("paired",false)){
+            if(!intentionalVoiceEnd && !authenticationBlocked && ws==null && prefs.getBoolean("paired",false)){
                 showVoice()
                 connect()
             }

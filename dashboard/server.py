@@ -1269,17 +1269,20 @@ class DashboardServer:
         @app.post("/api/devices/{device_id}/revoke")
         async def revoke_paired_device(device_id: str, req: Request):
             if not _auth(req): return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            revoked = self._mesh.revoke(device_id)
             ws = self._device_sockets.pop(device_id, None)
             if ws:
-                try: await ws.close(code=4003)
+                try: await ws.close(code=4003, reason="pairing_revoked")
                 except Exception: pass
-            return JSONResponse({"ok": self._mesh.revoke(device_id)})
+            return JSONResponse({"ok": revoked})
 
         @app.websocket("/ws/device")
         async def device_mesh_ws(websocket: WebSocket, device_id: str = ""):
             rec = self._mesh.get(device_id)
             if not rec or rec.get("revoked"):
-                await websocket.close(code=4001); return
+                _interaction_event("device_auth_rejected", device_id=device_id,
+                                   reason="pairing_revoked" if rec else "device_not_trusted")
+                await websocket.close(code=4001, reason="device_not_trusted"); return
             await websocket.accept()
             disconnect_reason = "unknown"
             challenge = secrets.token_urlsafe(32)
@@ -1290,7 +1293,8 @@ class DashboardServer:
             try:
                 proof = await asyncio.wait_for(websocket.receive_json(), timeout=15)
                 if proof.get("type") != "proof" or not self._mesh.verify(rec["public_key"], challenge.encode(), proof.get("signature", "")):
-                    await websocket.close(code=4003); return
+                    _interaction_event("device_auth_rejected", device_id=device_id, reason="invalid_proof")
+                    await websocket.close(code=4003, reason="authentication_failed"); return
                 # The signed proof authenticates this peer. Refresh its advertised
                 # execution capabilities on every connection so devices paired by an
                 # older build do not remain permanently stuck with stale permissions.

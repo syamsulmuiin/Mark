@@ -47,3 +47,29 @@ def test_unknown_pairing_id_cannot_issue_code(tmp_path):
     mesh = DeviceMesh(tmp_path)
     with pytest.raises(ValueError, match="pairing_not_found_or_used"):
         mesh.issue_pairing_code("unknown")
+
+
+@pytest.mark.parametrize('filename,contents', [('identity.json', '{broken'), ('identity.json', '{}'), ('identity.json', 'null'),
+                                             ('trusted_devices.json', '{broken'), ('trusted_devices.json', '[]')])
+def test_corrupt_state_is_not_silently_replaced(tmp_path, filename, contents):
+    mesh = DeviceMesh(tmp_path)
+    identity_before = mesh.identity_path.read_bytes()
+    target = mesh.dir / filename
+    target.write_text(contents)
+    with pytest.raises(RuntimeError):
+        DeviceMesh(tmp_path)
+    assert target.read_text() == contents
+    if filename != 'identity.json':
+        assert mesh.identity_path.read_bytes() == identity_before
+
+
+def test_restart_preserves_identity_and_paired_peer(tmp_path):
+    mesh = DeviceMesh(tmp_path)
+    key, identity = peer()
+    request = mesh.create_pairing_request(identity)
+    issued = mesh.issue_pairing_code(request['pairing_id'])
+    signature = DeviceMesh._b64(key.sign(f"{request['pairing_id']}:{issued['code']}:{request['nonce']}".encode()))
+    mesh.claim_pairing_request(request['pairing_id'], issued['code'], signature)
+    restarted = DeviceMesh(tmp_path)
+    assert restarted.public_identity() == mesh.public_identity()
+    assert restarted.get(identity['device_id']) == mesh.get(identity['device_id'])

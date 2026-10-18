@@ -51,6 +51,7 @@ The root server installation intentionally excludes desktop GUI, local audio, ca
 | Command | Purpose |
 |---|---|
 | `python main.py --start` | Start the detached headless server worker |
+| `python main.py --restart` | Stop the existing worker and start again; abort if it cannot stop |
 | `python main.py --stop` | Stop the tracked server worker |
 | `python main.py --enable` | Enable per-user autostart and start the server |
 | `python main.py --disable` | Remove autostart without silently stopping a running server |
@@ -323,3 +324,7 @@ Companion capability results distinguish execution from post-condition verificat
 Android Companion uses its user-enabled Accessibility bridge for generic package/UI-state observations after supported actions. Desktop Companion exposes process-backed `app.inspect` and uses process read-back where possible for application launch/close; actions without a reliable cross-platform post-condition remain `UNVERIFIED`.
 
 Generated capabilities remain pure LOW-risk computation. Repeated runtime failures may quarantine a generated skill. Recovery never edits or reactivates quarantined source in place: Mark synthesizes a fresh candidate, reruns the full Skill Crucible, retires the old skill only after the replacement is VERIFIED, and performs at most one recovery retry for that invocation.
+
+Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
+
+Phone speech requires 160 ms of consecutive above-threshold PCM before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.

@@ -2665,18 +2665,22 @@ class JarvisLive:
 
     async def _relay_phone_audio(self) -> None:
         """Send speech, including barge-in PCM, to the existing Live session only."""
+        from core.speech_onset import SpeechOnset
+        onset = SpeechOnset()
         q = self._dashboard._phone_audio_queue
         while True:
             try:
                 chunk = await asyncio.wait_for(q.get(), timeout=0.2)
             except asyncio.TimeoutError:
                 self._phone_active = False
+                onset.reset()
                 if self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
                     await self.out_queue.put({"activity_end": True})
                     self._phone_activity_active = False
                 continue
             self._phone_active = True
             if self.ui.muted:
+                onset.reset()
                 continue
             raw = chunk.get("data", b"")
             try:
@@ -2685,13 +2689,20 @@ class JarvisLive:
             except Exception:
                 rms = 0.0
             now = time.monotonic()
+            if not self._phone_activity_active:
+                pending = onset.feed(chunk, rms)
+                if not pending:
+                    continue
+                self._phone_last_voice = now
+                await self.out_queue.put({"activity_start": True})
+                self._phone_activity_active = True
+                _trace_event("phone_speech_onset", buffered_frames=len(pending), rms=int(rms))
+                for frame in pending:
+                    await self.out_queue.put(frame)
+                continue
             if rms >= 250.0:
                 self._phone_last_voice = now
-                if not self._phone_activity_active:
-                    # Activity marks a speech boundary; Live owns interruption handling.
-                    await self.out_queue.put({"activity_start": True})
-                    self._phone_activity_active = True
-            elif self._phone_activity_active and now - self._phone_last_voice >= 0.65:
+            elif now - self._phone_last_voice >= 0.65:
                 await self.out_queue.put({"activity_end": True})
                 self._phone_activity_active = False
             if self._phone_activity_active:
@@ -3281,13 +3292,14 @@ class JarvisLive:
             await asyncio.sleep(delay)
 
 from core.server_lifecycle import (
-    _runtime_paths, _runtime_mode, _spawn_server, _stop_server,
+    _runtime_paths, _runtime_mode, _spawn_server, _stop_server, _restart_server,
     _autostart_enable, _autostart_disable, _pair_device,
 )
 
 def main(argv=None):
     mode=_runtime_mode(argv)
     if mode=="start": _spawn_server(); return
+    if mode=="restart": _restart_server(); return
     if mode=="stop": _stop_server(); return
     if mode=="enable": _autostart_enable(); return
     if mode=="disable": _autostart_disable(); return

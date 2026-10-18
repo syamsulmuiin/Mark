@@ -13,7 +13,7 @@ def test_speaking_time_pcm_reaches_the_existing_live_transport():
     tree = ast.parse((ROOT / 'main.py').read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'JarvisLive')
     method = next(n for n in cls.body if getattr(n, 'name', '') == '_relay_phone_audio')
-    namespace = {'asyncio': asyncio, 'np': np, 'time': time}
+    namespace = {'asyncio': asyncio, 'np': np, 'time': time, '_trace_event': lambda *a, **k: None}
     module = ast.Module(body=[ast.ClassDef(name='Runtime', bases=[], keywords=[], body=[method], decorator_list=[])], type_ignores=[])
     exec(compile(ast.fix_missing_locations(module), 'relay', 'exec'), namespace)
     async def scenario():
@@ -25,10 +25,12 @@ def test_speaking_time_pcm_reaches_the_existing_live_transport():
         runtime._dashboard = NS(_phone_audio_queue=asyncio.Queue())
         runtime.out_queue = asyncio.Queue(maxsize=10)
         pcm = np.full(1024, 1000, dtype='<i2').tobytes()
-        await runtime._dashboard._phone_audio_queue.put({'data': pcm, 'mime_type': 'audio/pcm;rate=16000'})
+        for _ in range(3):
+            await runtime._dashboard._phone_audio_queue.put({'data': pcm, 'mime_type': 'audio/pcm;rate=16000'})
         task = asyncio.create_task(runtime._relay_phone_audio())
         assert await asyncio.wait_for(runtime.out_queue.get(), 1) == {'activity_start': True}
-        assert (await asyncio.wait_for(runtime.out_queue.get(), 1))['data'] == pcm
+        for _ in range(3):
+            assert (await asyncio.wait_for(runtime.out_queue.get(), 1))['data'] == pcm
         assert await asyncio.wait_for(runtime.out_queue.get(), 2) == {'activity_end': True}
         task.cancel()
         try: await task

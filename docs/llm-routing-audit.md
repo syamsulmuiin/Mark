@@ -185,3 +185,8 @@ hint, not a guaranteed language lock or a new model. Runtime routing diagnostics
 include resolved response language and input hints; transcription diagnostics
 also include the provider language code when returned. Install requirements
 (Google Gen AI SDK >=2.31) before restarting. No Android rebuild is needed.
+
+
+OpenAI account setup offers explicit authentication methods: `1` device code or `2` browser PKCE. Browser PKCE works by opening the printed URL on your own device and pasting the full localhost redirect URL into the protected setup prompt; it checks the exact callback and state before exchanging the code. No method/provider switch happens automatically. Browser login avoids the initial device-code endpoint, but its token exchange and later inference still need connectivity from the Mark server.
+
+An authentication HTTP 530 is not proof of a wrong API key, model or account. Setup now reports the fixed endpoint host and authentication stage, plus a bounded Cloudflare edge subcode/Ray ID when present; response bodies, codes and tokens are not echoed. For Cloudflare-origin 530 see [Cloudflare troubleshooting](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-530/). Check the provider and the server network/proxy route using the actual subcode; a local code change cannot guarantee repair of an external gateway/origin outage. Existing configuration remains unchanged if setup fails.

@@ -274,7 +274,7 @@ Return ONLY valid JSON with exactly these keys:
         validated_ops.append({"file": rel, "old": old, "new": new})
 
     plan_id = ""
-    if str(obj.get("confidence", "")).lower() == "high" and validated_ops and not obj.get("needs_more_evidence"):
+    if str(obj.get("confidence", "")).lower() == "high" and validated_ops and len(validated_ops) == len(operations) and not obj.get("needs_more_evidence"):
         plan_id = _save_plan({
             "problem": problem,
             "root_cause": str(obj.get("root_cause", "")),

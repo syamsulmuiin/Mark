@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import json
+import threading
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -61,13 +62,30 @@ def _load_plan(plan_id: str) -> dict:
         return {}
     return obj if isinstance(obj, dict) and obj.get("plan_id") == plan_id else {}
 
+def _result(message, *, status="FAILED", **fields):
+    return json.dumps({"ok": status != "FAILED", "status": status,
+        "verified": status == "SUCCESS", "message": message, **fields}, ensure_ascii=False)
+
+
+_REPAIR_LOCK = threading.Lock()
+
+
 def self_repair_apply(parameters: dict, **_kwargs) -> str:
+    if not _REPAIR_LOCK.acquire(blocking=False):
+        return _result("Another repair transaction is running; no second repair was started.", status="WAITING")
+    try:
+        return _apply_repair(parameters)
+    finally:
+        _REPAIR_LOCK.release()
+
+
+def _apply_repair(parameters: dict) -> str:
     params = dict(parameters or {})
     plan_id = str(params.get("plan_id", "")).strip()
     if plan_id:
         plan = _load_plan(plan_id)
         if not plan:
-            return "Repair rejected: the diagnostic repair plan is missing or invalid. Run diagnosis again."
+            return _result("Repair rejected: the diagnostic repair plan is missing or invalid. Run diagnosis again.")
         # The persisted plan is the source of edit authority. Model-generated
         # operations cannot override it.
         for key in ("problem", "root_cause", "confidence", "risk", "operations"):
@@ -77,19 +95,20 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
     try:
         attempt = int(params.get("attempt", 1))
     except (TypeError, ValueError):
-        return "Repair rejected: attempt must be an integer."
+        return _result("Repair rejected: attempt must be an integer.")
     if attempt < 1 or attempt > MAX_ATTEMPTS:
-        return f"Repair rejected: autonomous repair attempt budget is {MAX_ATTEMPTS}. Roll back and report to the user."
+        return _result(f"Repair rejected: autonomous repair attempt budget is {MAX_ATTEMPTS}. Roll back and report to the user.")
     if params.get("apply") is not True or params.get("authorization") != "APPLY_DIAGNOSTIC_REPAIR":
-        return "Repair rejected: explicit APPLY_DIAGNOSTIC_REPAIR authorization is required."
+        return _result("Repair rejected: explicit APPLY_DIAGNOSTIC_REPAIR authorization is required.")
     if str(params.get("confidence", "")).lower() != "high":
-        return "Repair rejected: only high-confidence diagnoses may be applied."
+        return _result("Repair rejected: only high-confidence diagnoses may be applied.")
     operations = params.get("operations")
     if not isinstance(operations, list) or not operations:
-        return "Repair rejected: provide at least one exact operation."
+        return _result("Repair rejected: provide at least one exact operation.")
 
     prepared = []
     originals = {}
+    candidates = {}
     total = 0
     try:
         for item in operations:
@@ -103,22 +122,25 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
             path = BASE_DIR / rel
             if not path.is_file():
                 raise RepairPolicyError(f"file does not exist: {rel}")
-            current = path.read_text(encoding="utf-8", errors="replace")
+            if rel not in originals:
+                originals[rel] = path.read_text(encoding="utf-8")
+            current = candidates.get(rel, originals[rel])
             if current.count(old) != 1:
                 raise RepairPolicyError(f"expected exactly one match in {rel}")
             candidate = current.replace(old, new, 1)
-            _validate_candidate(rel, candidate)
-            originals[rel] = current
-            prepared.append((rel, candidate))
+            candidates[rel] = candidate
             total += len(new)
 
+        prepared = list(candidates.items())
+        for rel, candidate in prepared:
+            _validate_candidate(rel, candidate)
         requested_risk = str(params.get("risk", "medium")).lower()
         risk = classify_risk(requested_risk, [x[0] for x in prepared], [x[1] for x in prepared])
         high_approval = params.get("high_risk_approval") == "HIGH_RISK_REPAIR_APPROVED"
         enforce_policy([x[0] for x in prepared], total, risk, high_approval)
-    except (RepairPolicyError, SyntaxError, ElementTree.ParseError) as exc:
+    except (RepairPolicyError, SyntaxError, ElementTree.ParseError, OSError, UnicodeError) as exc:
         audit("repair_rejected", reason=str(exc))
-        return f"Repair rejected by Repair Guard: {exc}"
+        return _result(f"Repair rejected by Repair Guard: {exc}")
 
     validation_plan = ["candidate syntax/XML validation", "sandbox import/compile/full tests", "post-write import/compile/full tests"]
     txid = begin_transaction(str(params.get("problem", "diagnostic repair")), risk, originals, validation_plan)
@@ -127,7 +149,15 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
     if not sandbox_ok:
         set_status(txid, "REJECTED_SANDBOX", validation=sandbox_results)
         _record_failure({"problem": str(params.get("problem", "")), "hypothesis": str(params.get("root_cause", "")), "files_changed": [], "test_result": sandbox_results, "failure_reason": "sandbox validation failed before production write", "rollback": [], "confidence": "EXPERIMENTAL", "validation_status": "failed"})
-        return f"Repair candidate failed sandbox validation; production files were not modified. Transaction: {txid}."
+        return _result(f"Repair candidate failed sandbox validation; production files were not modified. Transaction: {txid}.", transaction_id=txid, validation=sandbox_results, source_modified=False)
+    for rel, original in originals.items():
+        try:
+            unchanged = (BASE_DIR / rel).read_text(encoding="utf-8") == original
+        except (OSError, UnicodeError):
+            unchanged = False
+        if not unchanged:
+            set_status(txid, "REJECTED_STALE", changed_files=[])
+            return _result("Repair source changed during sandbox validation. No production write or rollback was performed; inspect the current source before a new diagnosis.", transaction_id=txid)
     try:
         # Persist write intent before the first edit so crash recovery knows
         # when restoring snapshots is necessary.
@@ -144,7 +174,7 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
                 "lesson": "Candidate was rejected; verify root cause and do not reuse this patch without new evidence.",
                 "confidence": "EXPERIMENTAL", "validation_status": "failed",
             })
-            return f"Repair candidate failed validation and was rolled back completely. Transaction: {txid}."
+            return _result(f"Repair candidate failed validation and was rolled back completely. Transaction: {txid}.", transaction_id=txid, validation=results, rolled_back=True)
         set_status(txid, "ACCEPTED", validation=results)
         record_knowledge("fixes", {
             "problem": str(params.get("problem", "")), "root_cause": str(params.get("root_cause", "")),
@@ -154,15 +184,25 @@ def self_repair_apply(parameters: dict, **_kwargs) -> str:
             "environment": str(params.get("environment", "unknown")),
             "confidence": "CONFIRMED", "validation_status": "verified",
         })
-        return f"Guarded repair accepted after validation. Transaction: {txid}. Files: " + ", ".join(x[0] for x in prepared) + ". No restart, install, commit, push, or privilege change was performed."
+        files = [rel for rel, _ in prepared]
+        restart_required = any(rel.endswith(".py") for rel in files)
+        rebuild_required = any(rel.startswith("android-companion/") for rel in files)
+        activation = "rebuild_android" if rebuild_required else "restart_server" if restart_required else "reload_changed_resource"
+        return _result("Guarded repair accepted after source validation. Runtime behavior has not yet been verified.",
+            status="WAITING", source_verified=True, transaction_id=txid, files_changed=files,
+            validation=results, activation_required=activation, restart_required=restart_required,
+            rebuild_required=rebuild_required, runtime_verified=False,
+            instruction="Do not repeat the patch or claim the symptom is fixed. "
+                "For server Python changes restart with python main.py --restart; for Android changes rebuild/install the APK. "
+                "Then reproduce the original action and verify its actual result. Never restart automatically inside this tool.")
     except Exception as exc:
         try:
             restored = rollback(txid)
         except Exception as rollback_exc:
             audit("rollback_failed", transaction=txid, error=repr(rollback_exc))
-            return f"Repair failed; automatic rollback also failed. Transaction {txid} requires manual recovery from its snapshot."
+            return _result(f"Repair failed; automatic rollback also failed. Transaction {txid} requires manual recovery from its snapshot.")
         _record_failure({"problem": str(params.get("problem", "")), "failure_reason": repr(exc), "rollback": restored, "confidence": "EXPERIMENTAL", "validation_status": "failed"})
-        return f"Repair failed and was rolled back completely. Transaction: {txid}."
+        return _result(f"Repair failed and was rolled back completely. Transaction: {txid}.")
 
 
 TOOL = {

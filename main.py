@@ -2350,6 +2350,8 @@ class JarvisLive:
                         if sc.input_transcription and sc.input_transcription.text:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
+                                _trace_event("live_input_transcription", source="configured_live_provider",
+                                    chars=len(txt), device_id=getattr(getattr(self, "_dashboard", None), "active_voice_device", None))
                                 if not in_buf:
                                     # New voice input arrives before its tool calls.
                                     self._attachment_turn = None

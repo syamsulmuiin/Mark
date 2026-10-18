@@ -14,22 +14,27 @@ class VoiceEchoController(private val sessionId: Int) : AutoCloseable {
     private var ns: NoiseSuppressor? = null
 
     val echoCancellationActive: Boolean
-        get() = aec?.enabled == true
+        get() = try { aec?.enabled == true } catch (_: RuntimeException) { false }
+
+    val noiseSuppressionActive: Boolean
+        get() = try { ns?.enabled == true } catch (_: RuntimeException) { false }
 
     fun start(): Boolean {
         if (AcousticEchoCanceler.isAvailable()) {
             try {
-                aec = AcousticEchoCanceler.create(sessionId)?.also { it.enabled = true }
+                aec = AcousticEchoCanceler.create(sessionId)
+                aec?.enabled = true
             } catch (_: RuntimeException) {
-                aec?.release()
+                try { aec?.release() } catch (_: RuntimeException) {}
                 aec = null
             }
         }
         if (NoiseSuppressor.isAvailable()) {
             try {
-                ns = NoiseSuppressor.create(sessionId)?.also { it.enabled = true }
+                ns = NoiseSuppressor.create(sessionId)
+                ns?.enabled = true
             } catch (_: RuntimeException) {
-                ns?.release()
+                try { ns?.release() } catch (_: RuntimeException) {}
                 ns = null
             }
         }
@@ -37,8 +42,8 @@ class VoiceEchoController(private val sessionId: Int) : AutoCloseable {
     }
 
     override fun close() {
-        aec?.release()
-        ns?.release()
+        try { aec?.release() } catch (_: RuntimeException) {}
+        try { ns?.release() } catch (_: RuntimeException) {}
         aec = null
         ns = null
     }

@@ -11,6 +11,7 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
 import android.media.*
+import com.jarvis.companion.audio.VoiceEchoController
 import android.hardware.camera2.*
 import android.media.ImageReader
 import android.util.Base64 as AndroidBase64
@@ -71,7 +72,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var phoneControl: ImageButton
     private lateinit var attachmentBadge: TextView
     private var deferredPickerRequest: JSONObject? = null
-    private var ws: WebSocket? = null
+    @Volatile private var ws: WebSocket? = null
     private val attachmentItems = linkedMapOf<String,JSONObject>()
     private val sentAttachmentItems = linkedMapOf<String,JSONObject>()
     private var attachmentTab = "received"
@@ -103,6 +104,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var assistantTurnComplete = false
     @Volatile private var intentionalVoiceEnd = false
     private var recorder: AudioRecord? = null
+    @Volatile private var micGeneration = 0L
+    private var voiceEchoController: VoiceEchoController? = null
+    private var previousAudioMode: Int? = null
     private var player: AudioTrack? = null
     private val playbackQueue = LinkedBlockingQueue<ByteArray>(512)
     @Volatile private var playbackRunning = false
@@ -331,13 +335,13 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun connect(){
+    @Synchronized private fun connect(){
         if(ws != null) return
         intentionalVoiceEnd = false
         val server=prefs.getString("server",null)?:return; val id=identity().first
         val wsBase=server.replaceFirst("https://","wss://").replaceFirst("http://","ws://")
         ws=client.newWebSocket(Request.Builder().url("$wsBase/ws/device?device_id=$id").build(),object:WebSocketListener(){
-            override fun onMessage(w:WebSocket,text:String){ try {
+            override fun onMessage(w:WebSocket,text:String){ synchronized(this@MainActivity){ if(w !== ws)return; try {
                 val m=JSONObject(text); when(m.optString("type")){
                     "challenge"->{ val ch=m.getString("challenge"); val serverKey=prefs.getString("server_key","")!!; if(!verify(serverKey,"$id:$ch".toByteArray(),m.optString("server_signature"))){ ui("Server identity verification failed"); w.close(4003,"bad server proof"); return }; run {
                         val manifest=JSONObject()
@@ -386,13 +390,14 @@ class MainActivity : AppCompatActivity() {
                     }
                     "capability.call"->Thread { executeCapability(w,m) }.start()
                 }
-            } catch(_:Exception){ ui("Invalid message from JARVIS") } }
-            override fun onMessage(w:WebSocket,bytes:ByteString){
+            } catch(_:Exception){ ui("Invalid message from JARVIS") } }}
+            override fun onMessage(w:WebSocket,bytes:ByteString){ synchronized(this@MainActivity){
+                if(w !== ws)return
                 setVoiceState("SPEAKING")
                 enqueueAudio(bytes.toByteArray())
-            }
-            override fun onClosing(w:WebSocket,code:Int,reason:String){ runOnUiThread { if(approvalOwner===w) dismissApproval() }; stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }
-            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }
+            }}
+            override fun onClosing(w:WebSocket,code:Int,reason:String){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { if(approvalOwner===w) dismissApproval() }; stopMic(); stopPlayback(); ws=null; if(code==4001||code==4003){ prefs.edit().putBoolean("paired",false).apply(); showPair("Pairing revoked. Enter a new Pair Code.") } else { setEnded(); scheduleReconnect() } }}
+            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; runOnUiThread { status.text="Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }}
         })
     }
 
@@ -591,25 +596,68 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun startMic(){
+    @Synchronized private fun startMic(){
+        val socket = ws ?: return
+        if(intentionalVoiceEnd)return
         if(ActivityCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.RECORD_AUDIO),42); return }
         if(micRunning)return
-        val min=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(2048)
-        recorder=AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,min*2)
-        recorder?.startRecording(); micRunning=true
-        Thread {
-            val buf=ByteArray(1024)
-            while(micRunning){
-                val n=try{recorder?.read(buf,0,buf.size)?:-1}catch(_:Exception){-1}
-                if(n>0){
-                    val level=pcmLevel(buf,n)
-                    orb.audioLevel(level)
-                    ws?.send(ByteString.of(*buf.copyOf(n)))
+        val manager=getSystemService(AUDIO_SERVICE) as AudioManager
+        try {
+            previousAudioMode=manager.mode
+            manager.mode=AudioManager.MODE_IN_COMMUNICATION
+            val min=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(2048)
+            val capture=AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,min*2)
+            recorder=capture
+            check(capture.state==AudioRecord.STATE_INITIALIZED){"Microphone initialization failed"}
+            // Attach effects to this recording session, not an unrelated/new recorder.
+            val echo=VoiceEchoController(capture.audioSessionId)
+            voiceEchoController=echo
+            echo.start()
+            capture.startRecording()
+            check(capture.recordingState==AudioRecord.RECORDSTATE_RECORDING){"Microphone did not start"}
+            micGeneration+=1
+            val generation=micGeneration
+            micRunning=true
+            socket.send(JSONObject().put("type","audio.capture.status")
+                .put("aec_enabled",echo.echoCancellationActive)
+                .put("noise_suppression_enabled",echo.noiseSuppressionActive).toString())
+            Thread {
+                try {
+                    val buf=ByteArray(1024)
+                    while(micRunning && generation==micGeneration && socket === ws){
+                        val n=try{capture.read(buf,0,buf.size)}catch(_:Exception){-1}
+                        if(n<0)break
+                        // A blocked read can return after stop/reconnect. Never forward it.
+                        synchronized(this@MainActivity){
+                            if(n>0 && micRunning && generation==micGeneration && socket === ws){
+                                orb.audioLevel(pcmLevel(buf,n))
+                                socket.send(ByteString.of(*buf.copyOf(n)))
+                            }
+                        }
+                    }
+                } finally {
+                    synchronized(this@MainActivity){
+                        if(generation==micGeneration && recorder === capture)stopMic()
+                    }
                 }
-            }
-        }.apply { name="JarvisPhoneMic"; isDaemon=true; start() }
+            }.apply { name="JarvisPhoneMic"; isDaemon=true; start() }
+        } catch(e:Exception){
+            stopMic()
+            ui("Microphone error: ${e.message ?: e::class.java.simpleName}")
+        }
     }
-    private fun stopMic(){ micRunning=false; try{recorder?.stop()}catch(_:Exception){}; recorder?.release(); recorder=null }
+    @Synchronized private fun stopMic(){
+        micRunning=false
+        micGeneration+=1
+        val capture=recorder
+        recorder=null
+        try{capture?.stop()}catch(_:Exception){}
+        voiceEchoController?.close()
+        voiceEchoController=null
+        try{capture?.release()}catch(_:Exception){}
+        previousAudioMode?.let { mode -> try{ (getSystemService(AUDIO_SERVICE) as AudioManager).mode=mode }catch(_:Exception){} }
+        previousAudioMode=null
+    }
     private val audioLock=Any()
 
     private fun enqueueAudio(pcm:ByteArray){
@@ -674,7 +722,7 @@ class MainActivity : AppCompatActivity() {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
                 val attrs=AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
                 val created=AudioTrack.Builder()
@@ -749,7 +797,7 @@ class MainActivity : AppCompatActivity() {
         }
         return out
     }
-    private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
+    @Synchronized private fun endVoice(){ intentionalVoiceEnd=true; stopMic(); stopPlayback(); val current=ws; ws=null; current?.close(1000,"conversation ended"); setEnded() }
     private fun setEnded()=runOnUiThread { status.text=getString(R.string.conversation_ended); orb.state="SLEEPING"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }
     private fun pcmLevel(b:ByteArray,n:Int):Float { if(n<2)return 0f; var sum=0.0; var count=0; var i=0; while(i+1<n){ val v=((b[i+1].toInt() shl 8) or (b[i].toInt() and 255)).toShort().toInt(); sum+=v.toDouble()*v;count++;i+=2 }; if(count==0)return 0f; return (sqrt(sum/count)/3500.0).toFloat().coerceIn(0f,1f) }
 

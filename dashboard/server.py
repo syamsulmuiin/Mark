@@ -748,9 +748,16 @@ class DashboardServer:
                 category=decision.category,
                 action=decision.action.value,
             )
-            self._device_sockets.pop(device_id, None)
-            if self._active_voice_device == device_id:
-                self._active_voice_device = None
+            self._release_device_socket(device_id, ws)
+
+    def _release_device_socket(self, device_id, websocket) -> bool:
+        """A stale handler/send failure must never detach its replacement socket."""
+        if self._device_sockets.get(device_id) is not websocket:
+            return False
+        self._device_sockets.pop(device_id, None)
+        if self._active_voice_device == device_id:
+            self._active_voice_device = None
+        return True
 
     @property
     def active_voice_device(self) -> str | None:
@@ -1311,6 +1318,9 @@ class DashboardServer:
                     if packet.get("type") == "websocket.disconnect":
                         disconnect_reason = f"peer_closed:{packet.get('code', 'unknown')}"
                         break
+                    if self._device_sockets.get(device_id) is not websocket:
+                        disconnect_reason = "replaced_connection"
+                        break
                     audio = packet.get("bytes")
                     if audio is not None:
                         self._origin_device_id = device_id
@@ -1434,6 +1444,10 @@ class DashboardServer:
                             self._pending_attachment_picks.pop(request_id, None)
                             self._attachment_pick_results[request_id] = {"ok":False,"status":"cancelled","request_id":request_id}
                             print(f"[Attachment] picker cancelled request={request_id} device={device_id}")
+                    elif msg.get("type") == "audio.capture.status":
+                        _interaction_event("audio_capture_status", device_id=device_id,
+                            aec_enabled=msg.get("aec_enabled") is True,
+                            noise_suppression_enabled=msg.get("noise_suppression_enabled") is True)
                     elif msg.get("type") == "attachment.list":
                         await self._send_attachment_inbox(websocket, device_id)
                         await self._send_attachment_sent(websocket, device_id)
@@ -1476,10 +1490,7 @@ class DashboardServer:
                 for approval_id, approval in list(self._approval_pending.items()):
                     if approval["socket"] is websocket:
                         self._approval_pending.pop(approval_id, None)
-                if self._device_sockets.get(device_id) is websocket:
-                    self._device_sockets.pop(device_id, None)
-                if self._active_voice_device == device_id:
-                    self._active_voice_device = None
+                self._release_device_socket(device_id, websocket)
                 # Keep origin affinity across transient disconnects. The same paired
                 # device may reconnect while its Live turn/tool call is still active.
                 # call_device() still requires an actually connected socket, so retaining

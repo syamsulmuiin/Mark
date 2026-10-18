@@ -2004,7 +2004,7 @@ class JarvisLive:
                 # Android/Desktop UI operations merely because the request arrived
                 # through a companion; device work must use call_current_device or
                 # legacy.action explicitly.
-                _server_only_actions = {"code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
+                _server_only_actions = {"server_maintenance", "code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
 
                 # Mixed actions can contain both backend-only operations and operations that
                 # manipulate a device/host UI.  Classify the requested operation instead of

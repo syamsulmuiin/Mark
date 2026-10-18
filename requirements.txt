@@ -43,3 +43,6 @@ tinytuya
 # Browser-control Python runtime is part of the single server install.
 # First-time setup also installs isolated Chromium when the architecture supports it.
 playwright>=1.40,<2
+
+# Guarded self-repair validates candidates using the same server interpreter.
+pytest>=8,<10

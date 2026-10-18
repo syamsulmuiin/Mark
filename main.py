@@ -1611,7 +1611,14 @@ class JarvisLive:
                                 None,
                                 lambda: self._action_registry.run("self_repair_apply", _apply_args, _ctx),
                             )
-                            result += "\n\nSELF-REPAIR APPLY RESULT\n" + str(_apply_result or "Done.")
+                            # SELF-REPAIR APPLY RESULT retains structured source/deployment state.
+                            try:
+                                _apply_payload = json.loads(_apply_result) if isinstance(_apply_result, str) else _apply_result
+                            except (ValueError, TypeError):
+                                _apply_payload = _apply_result
+                            result = {"diagnostic": result, "plan_id": self._last_repair_plan_id,
+                                "result": _apply_payload if _apply_payload is not None else
+                                    {"status": "UNVERIFIED", "verified": False, "reason": "Repair returned no evidence"}}
 
                 # Diagnostic is handled exactly once above. Returning here prevents
                 # the generic action runner later in this method from executing it again.
@@ -1621,8 +1628,10 @@ class JarvisLive:
                         await _progress_task
                     except asyncio.CancelledError:
                         pass
+                from core.action_outcomes import assess
                 task_state.action_finished(name, result)
-                return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+                return types.FunctionResponse(id=fc.id, name=name,
+                    response={"result": result, "outcome": assess(result)})
 
             elif name == "task_continuity":
                 action = str(args.get("action", "")).strip().lower()

@@ -7,6 +7,7 @@ this file or weakening its policy.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -276,11 +277,14 @@ def select_related_tests(root: Path, changed_files: list[str]) -> list[str]:
 
 
 def _run_validators(root: Path, changed_files: list[str], timeout: int) -> tuple[bool, list[dict]]:
+    if importlib.util.find_spec("pytest") is None:
+        return False, [{"command": "repair validation preflight", "returncode": -1,
+            "output": "pytest is missing from the server interpreter. Run python -m pip install -r requirements.txt, then retry the reviewed repair."}]
     related = select_related_tests(root, changed_files)
     commands = [
         [sys.executable, "-c", "import core.repair_engine, actions.self_repair_apply, actions.self_repair_diagnostic"],
         [sys.executable, "-m", "compileall", "-q", "actions", "core", "dashboard", "main.py"],
-        [sys.executable, "-m", "pytest", "-q"],
+        [sys.executable, "-m", "pytest", "-q", "tests"],
     ]
     if related:
         commands.insert(2, [sys.executable, "-m", "pytest", "-q", *related])
@@ -302,7 +306,7 @@ def validate_sandbox(candidates: dict[str, str], timeout: int = VALIDATION_TIMEO
     """Validate a candidate in an isolated temporary repository copy first."""
     with tempfile.TemporaryDirectory(prefix="mark-repair-sandbox-") as td:
         root = Path(td) / "repo"
-        shutil.copytree(BASE_DIR, root, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", "storage", "build", "dist", ".pytest_cache"))
+        shutil.copytree(BASE_DIR, root, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", "storage", "build", "dist", ".pytest_cache", "pytest-of-root", "runtime"))
         for rel, text in candidates.items():
             target = root / normalize_rel(rel); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(text, encoding="utf-8")
         return _run_validators(root, list(candidates), timeout)

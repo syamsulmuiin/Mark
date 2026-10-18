@@ -13,7 +13,7 @@ import re
 
 _DIAGNOSTIC_INTENT_RE = re.compile(
     r"\b(diagnos(?:a|e|is|tic)?|debug|check|inspect|repair|fix|"
-    r"periksa|cek|telusuri|analisis|analis[ai]s|perbaiki)\b",
+    r"periksa|cek|telusuri|analisis|analis[ai]s|perbaik(?:i|an))\b",
     re.IGNORECASE,
 )
 
@@ -48,7 +48,11 @@ def has_explicit_repair_apply_intent(text: str) -> bool:
     utterance = text or ""
     # A prohibition is not approval. The Live model may still request the tool,
     # but only an affirmative user instruction may authorize a write.
-    if re.search(r"\b(jangan|tidak|belum|tanpa|do\s+not|don't|not|without)\b.{0,90}\b(apply|implement|repair|fix|lakukan|terapkan|perbaiki|lanjutkan)\b", utterance, re.I):
+    if re.search(r"\b(jangan|tanpa|do\s+not|don't|without)\b.{0,90}\b(apply|implement|repair|fix|lakukan|terapkan|perbaiki|lanjutkan)\b", utterance, re.I):
+        return False
+    # Negating the symptom ("tidak jalan, perbaiki") is not a prohibition.
+    # Keep negation tied to the repair verb rather than any preceding symptom.
+    if re.search(r"\b(tidak|belum|not)\s+(?:(?:usah|perlu|boleh|ingin|mau|akan|siap|setuju|ready|to|yet|untuk|saya|kamu|anda)\s+){0,4}(apply|implement|repair|fix|lakukan|terapkan|perbaiki|lanjutkan)\b", utterance, re.I):
         return False
     if re.search(r"\b(before|sebelum)\b.{0,90}\b(approve|setuju|menyetujui|persetujuan)\b", utterance, re.I):
         return False

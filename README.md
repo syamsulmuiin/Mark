@@ -22,6 +22,7 @@ The server has no local conversational GUI, microphone, speaker, or interactive 
 
 ```text
 --start
+--restart
 --stop
 --enable
 --disable

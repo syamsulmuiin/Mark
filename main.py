@@ -489,6 +489,8 @@ class JarvisLive:
         # deliver many audio frames in one burst; forwarding them immediately
         # overloads the client queue and sounds intermittent on mobile networks.
         self._audio_relay_cursor   = 0.0
+        self._approval_speech_queue = asyncio.Queue(maxsize=64)
+        self._approval_voice_targets = {}
         self.ui.on_push_to_talk   = self.set_push_to_talk
         self.ui.ptt_hold          = self._on_ptt
         self.ui.on_text_command   = self._on_text_command
@@ -682,6 +684,49 @@ class JarvisLive:
         # what they are waiting to see.
         return wake_install(logger=lambda m: print(f"[Wake] {m}"),
                             notify=lambda m: self.ui.write_log(f"SYS: {m}"))
+
+    def _queue_approval_speech(self, request_id: str, outcome: str) -> None:
+        owner = self._approval_voice_targets.get(request_id)
+        if not owner or not self._loop:
+            return
+        def enqueue():
+            try:
+                self._approval_speech_queue.put_nowait((owner, outcome, time.monotonic()))
+            except asyncio.QueueFull:
+                _trace_event("approval_voice_dropped", reason="queue_full", outcome=outcome)
+        self._loop.call_soon_threadsafe(enqueue)
+
+    async def _speak_approval_updates(self) -> None:
+        from core.approval_feedback import speech_instruction
+        while True:
+            owner, outcome, created = await self._approval_speech_queue.get()
+            while (not self.session or self._is_speaking or self.ui.muted
+                   or self._dashboard.active_voice_device != owner
+                   or owner not in self._dashboard._device_sockets):
+                if time.monotonic() - created > 120:
+                    _trace_event("approval_voice_dropped", reason="owner_or_live_unavailable", outcome=outcome)
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                try:
+                    done = self._turn_done_event
+                    if done:
+                        done.clear()
+                    await self.session.send_client_content(
+                        turns={"role": "user", "parts": [{"text": speech_instruction(outcome)}]},
+                        turn_complete=True,
+                    )
+                    _trace_event("approval_voice_requested", outcome=outcome, device_id=owner)
+                    if done:
+                        await asyncio.wait_for(done.wait(), timeout=30)
+                    # Do not replace an acknowledgement still awaiting/generated audio
+                    # with the following execution result.
+                    while (self._is_speaking
+                           or (getattr(self, "audio_in_queue", None) is not None and not self.audio_in_queue.empty())
+                           or time.monotonic() < getattr(self, "_audio_relay_cursor", 0.0)):
+                        await asyncio.sleep(0.1)
+                except Exception as exc:
+                    _trace_event("approval_voice_failed", outcome=outcome, error_type=type(exc).__name__)
 
     def plugin_say(self, instruction: str) -> None:
         """
@@ -2881,6 +2926,8 @@ class JarvisLive:
                     owner = await self._dashboard.send_active_approval(
                         pending["request_id"], title, detail,
                         timeout_seconds=int(pending["timeout_seconds"]))
+                    if owner is not None:
+                        self._approval_voice_targets[pending["request_id"]] = owner
                     if owner is None:
                         confirm_gate.resolve(False, expected_request_id=pending["request_id"])
                         raise RuntimeError(
@@ -2901,37 +2948,23 @@ class JarvisLive:
             def _approval_completed(request_id, key, title, success, result):
                 # Completion is independent of Gemini Live availability.
                 async def _report():
+                    self._dashboard.discard_pending_approval(request_id)
                     await self._dashboard.send_approval_completion(request_id, success)
                 try:
                     asyncio.run_coroutine_threadsafe(_report(), self._loop)
                 except Exception as e:
                     print(f"[Approval] completion dispatch failed: {type(e).__name__}")
-                # Only the harmless diagnostic action speaks automatically.
-                # Do not announce arbitrary sensitive action details.
-                if key != "flash_approval_smoke_test":
-                    return
-                if success:
-                    self.plugin_say(
-                        "The user approved the safe Flash Approval test and its "
-                        "callback finished successfully. Say briefly in Indonesian: "
-                        "'Pengujian Flash Approval berhasil.'"
-                    )
-                elif result == "rejected":
-                    self.plugin_say(
-                        "The user rejected the safe Flash Approval test. "
-                        "Say briefly in Indonesian that nothing was executed."
-                    )
-                elif result == "expired":
-                    self.plugin_say(
-                        "The safe Flash Approval test expired without approval. "
-                        "Say briefly in Indonesian that nothing was executed."
-                    )
+                if result not in ("rejected", "expired"):
+                    outcome = "succeeded" if success else ("nested_confirmation_pending" if result == "nested_confirmation_pending" else "failed")
+                    self._queue_approval_speech(request_id, outcome)
+                self._approval_voice_targets.pop(request_id, None)
 
             confirm_gate.bind(
                 show=_show_companion_approval,
                 hide=self.ui.hide_confirm,
                 log=self.ui.write_log,
                 on_result=_approval_completed,
+                on_decision=self._queue_approval_speech,
             )
             self._dashboard.set_interrupt_callback(self.interrupt)
             self._dashboard.set_attachment_result_callback(self._on_attachment_result)
@@ -2984,6 +3017,7 @@ class JarvisLive:
                 )
             # Runs for the whole lifetime, not just inside an active session.
             asyncio.create_task(self._process_dashboard_commands())
+            asyncio.create_task(self._speak_approval_updates())
         except Exception as e:
             print(f"[ERROR] Mark HTTP API startup failed: {e}", file=sys.stderr)
             raise

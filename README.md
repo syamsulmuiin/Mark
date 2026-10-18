@@ -391,3 +391,13 @@ Install updated requirements after pulling this language-hint change, then resta
 `python -m pip install -r requirements.txt` and `python main.py --restart`.
 The server requires Google Gen AI SDK 2.31+ for the transcription hint fields.
 No extra transcription model/API or new APK is introduced.
+
+### Spoken approval feedback
+
+Jarvis acknowledges permission received, rejection, and expiry in the selected
+response language. Permission received is separate from action completion:
+execution success/failure gets its own brief outcome. Sensitive action arguments
+are not spoken. The server expires unanswered approvals after 15 seconds, even
+if no client reply arrives. Feedback waits for the originating companion and an
+available Live session; muted/offline feedback is bounded to 120 seconds. It
+uses the configured Live model and does not request another approval.

@@ -127,3 +127,40 @@ def test_diagnosis_provider_failure_is_bounded_and_does_not_leak_exception(monke
     assert 'Diagnosis unavailable' in result and 'No repair was performed' in result
     assert 'do-not-show' not in result
     assert 'do not repeat' in result
+
+
+def test_missing_and_empty_logs_are_distinct(monkeypatch, tmp_path):
+    from actions import runtime_diagnostics as mod
+    monkeypatch.setattr(mod, 'RUNTIME_DIR', tmp_path)
+    (tmp_path / 'error.log').write_text('')
+    report = mod.collect_runtime_evidence()
+    assert 'error.log: present, 0 bytes' in report
+    assert 'interaction.log: missing' in report
+    assert 'does not prove absence' in report
+
+
+def test_diagnostics_finds_conversation_after_more_than_old_tail_limit(monkeypatch, tmp_path):
+    import json
+    from actions import runtime_diagnostics as mod
+    rows = [{'event': 'conversation_entry', 'speaker': 'jarvis', 'chars': 32, 'partial': False}]
+    rows += [{'event': 'audio_to_gemini', 'bytes': 1024}] * 5000
+    path = tmp_path / 'interaction.log'
+    path.write_text('\n'.join(json.dumps(row) for row in rows))
+    assert path.stat().st_size > mod._MAX_BYTES
+    monkeypatch.setattr(mod, 'RUNTIME_DIR', tmp_path)
+    report = mod.collect_runtime_evidence('interaction')
+    assert 'conversation_entry' in report and 'audio_to_gemini' not in report
+
+
+def test_recording_transcript_emits_payload_free_event():
+    import ast
+    from types import SimpleNamespace
+    tree = ast.parse((ROOT / 'main.py').read_text())
+    method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == '_record_transcript_entry')
+    namespace = {'_clean_transcript': lambda value: value.strip(), '_trace_event': lambda event, **fields: events.append((event, fields))}
+    events = []
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])), '<recording>', 'exec'), namespace)
+    runtime = SimpleNamespace(_asst_name='Jarvis', ui=SimpleNamespace(write_log=lambda text: None), _session_log=[], _dashboard=None)
+    namespace['_record_transcript_entry'](runtime, 'jarvis', 'private conversation', partial=True)
+    assert events == [('conversation_entry', {'speaker': 'jarvis', 'chars': 20, 'partial': True})]
+    assert 'private conversation' not in str(events)

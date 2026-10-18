@@ -11,6 +11,7 @@ RUNTIME_DIR = BASE_DIR / "runtime"
 _MAX_LINES = 200
 _MAX_BYTES = 96 * 1024
 _MAX_CHARS = 24_000
+_MAX_INTERACTION_SCAN = 2 * 1024 * 1024
 
 _SECRET_PATTERNS = (
     re.compile(r"(?i)([\"']?\b(?:api[_-]?key|authorization|password|passcode|pin|otp|token|secret)\b[\"']?\s*[:=]\s*)[\"']?([^\s,;\"'}]+)"),
@@ -35,10 +36,11 @@ def _tail(path: Path, lines: int, *, interaction: bool = False) -> str:
         with path.open("rb") as fh:
             fh.seek(0, 2)
             size = fh.tell()
-            fh.seek(max(0, size - _MAX_BYTES))
-            raw = fh.read(_MAX_BYTES)
+            limit = _MAX_INTERACTION_SCAN if interaction else _MAX_BYTES
+            fh.seek(max(0, size - limit))
+            raw = fh.read(limit)
         text = raw.decode("utf-8", errors="replace")
-        if size > _MAX_BYTES and "\n" in text:
+        if size > limit and "\n" in text:
             text = text.split("\n", 1)[1]
         rows = text.splitlines()
         if interaction:
@@ -72,6 +74,16 @@ def _metadata(path: Path) -> str:
         return "File timestamp unavailable."
 
 
+def _log_state(path: Path) -> str:
+    try:
+        size = path.stat().st_size
+        return f"{path.name}: present, {size} bytes; " + _metadata(path)
+    except FileNotFoundError:
+        return f"{path.name}: missing (no file at the server runtime path)."
+    except OSError as exc:
+        return f"{path.name}: inaccessible ({type(exc).__name__})."
+
+
 def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
     """Return bounded server diagnostics from fixed runtime paths only.
 
@@ -83,7 +95,11 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
     if scope not in {"all", "error", "interaction"}:
         scope = "all"
     lines = max(1, min(int(lines or 120), _MAX_LINES))
-    chunks: list[str] = []
+    chunks: list[str] = ["Server log availability (not companion-local logs):"]
+    if scope in {"all", "error"}:
+        chunks.append(_log_state(RUNTIME_DIR / "error.log"))
+    if scope in {"all", "interaction"}:
+        chunks.append(_log_state(RUNTIME_DIR / "interaction.log"))
 
     if scope in {"all", "error"}:
         current = _tail(RUNTIME_DIR / "error.log", lines)
@@ -100,8 +116,13 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
         interaction = _tail(RUNTIME_DIR / "interaction.log", lines, interaction=True)
         if interaction:
             chunks.append("===== runtime/interaction.log (relevant events; audio/VAD omitted) =====\n" + _metadata(RUNTIME_DIR / "interaction.log") + "\n" + interaction)
+        else:
+            chunks.append("No relevant interaction events returned from the bounded scan; see file availability above.")
 
-    return "\n\n".join(chunks) if chunks else "No server runtime diagnostics are currently available."
+    chunks.append("Error logs contain failures/warnings, not normal chat. An empty error log does not prove absence of failures. "
+                  "Interaction entries are event metadata, not a full conversation transcript. "
+                  "Interaction reads scan at most 2 MiB from the tail; older events may be outside this window.")
+    return "\n\n".join(chunks)
 
 
 def runtime_diagnostics(parameters: dict, **_kwargs) -> str:
@@ -117,7 +138,8 @@ TOOL = {
     "description": (
         "Read bounded, redacted Mark server runtime diagnostics from the fixed runtime/error.log "
         "and runtime/interaction.log locations. Use this when the user asks to inspect server errors, "
-        "warnings, crashes, reconnect failures, or why Mark failed. This action is read-only and cannot "
+        "warnings, crashes, reconnect failures, conversation activity, model usage, missing logs, or why Mark failed. "
+        "Call this tool before claiming logs are absent or empty. This action is read-only and cannot "
         "read arbitrary server files, credentials, configuration secrets, or companion-local logs."
     ),
     "parameters": {

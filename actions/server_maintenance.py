@@ -1,11 +1,19 @@
 """Conversation entry point; mutating operations use the host approval gate."""
 import json
-from core.server_maintenance import maintain
+from core.server_maintenance import maintain, LocalChangesError
 
 
 def server_maintenance(parameters, **kwargs):
     try:
         return json.dumps(maintain(str((parameters or {}).get('operation', 'status'))), ensure_ascii=False)
+    except LocalChangesError as exc:
+        from core.interaction_log import write_event
+        from core.server_maintenance import BASE_DIR
+        write_event(BASE_DIR / 'runtime' / 'interaction.log', 'server_maintenance_blocked',
+                    reason='local_changes', blocking_changes=exc.changes, blocking_change_count=exc.total_count)
+        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False,
+                           'error': str(exc), 'blocking_changes': exc.changes, 'blocking_change_count': exc.total_count,
+                           'instruction': 'These paths block applying an update. This does not mean GitHub has no update. Do not reset, clean, delete or overwrite local files automatically.'})
     except Exception as exc:
         return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False,
                            'error': str(exc) if isinstance(exc, (RuntimeError, ValueError)) else type(exc).__name__})

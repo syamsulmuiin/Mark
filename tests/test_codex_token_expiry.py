@@ -86,3 +86,8 @@ def test_setup_finishes_after_long_lived_device_login(tmp_path, monkeypatch):
     assert saved['llm_provider'] == 'openai_codex' and saved['chat_models'] == 'chosen-account-model'
     assert saved['live_provider'] == 'gemini' and saved['gemini_api_key'] == 'voice-key'
     assert store.load('openai_codex')['expires_at'] == NOW + 864000
+
+
+@pytest.fixture(autouse=True)
+def isolated_model_catalog(monkeypatch):
+    monkeypatch.setattr(codex, "list_models", lambda: [])

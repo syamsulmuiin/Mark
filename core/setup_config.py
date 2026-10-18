@@ -169,6 +169,33 @@ def _resolve_provider_choice(choice: str, default: str, catalog: tuple) -> str:
     raise ValueError(f"Unknown provider selection. Enter a menu number from 1 to {len(catalog)} or a provider ID; configuration unchanged")
 
 
+def _choose_codex_model(saved_model):
+    from core.llm_codex import list_models
+    try:
+        models = list_models()
+    except RuntimeError as exc:
+        print(f"Cannot load account model list: {exc}. Enter a model ID manually or cancel setup.")
+        models = []
+    if models:
+        print("OpenAI account Text models:")
+        for number, model in enumerate(models, 1):
+            print(f"  {number}. {model['name']} ({model['id']})")
+    else:
+        print("No selectable account models returned; manual model ID required.")
+    print("Choose a model number or enter its ID manually. No model is selected automatically.")
+    value = _safe_input(f"OpenAI Text model [{saved_model or 'required'}]: ").strip()
+    if not value:
+        return saved_model
+    if value.isdecimal():
+        number = int(value)
+        if 1 <= number <= len(models):
+            return models[number - 1]['id']
+        raise ValueError("Invalid model number; configuration unchanged")
+    if len(value) > 256 or any(not (c.isascii() and (c.isalnum() or c in '-_./:')) for c in value):
+        raise ValueError("Invalid model ID; configuration unchanged")
+    return value
+
+
 def interactive_llm_setup(*, force_keys: bool = False) -> bool:
     """Finish Text setup before displaying Live choices; save both atomically."""
     from core.model_config import DEFAULT_LIVE_MODEL, DEFAULT_TEXT_MODEL
@@ -226,7 +253,8 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
             if not saved_model and current.get("llm_provider") == provider:
                 saved_model = current.get("chat_models") or ""
             saved_model = str(saved_model).split(",")[0].strip()
-            model = _safe_input(f"{provider} text model ID [{saved_model or 'required'}]: ").strip() or saved_model
+            model = (_choose_codex_model(saved_model) if provider == "openai_codex" else
+                     _safe_input(f"{provider} text model ID [{saved_model or 'required'}]: ").strip() or saved_model)
             if not model:
                 print("Text model ID required; configuration unchanged.")
                 return False

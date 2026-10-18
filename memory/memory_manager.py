@@ -230,7 +230,7 @@ def format_memory_for_prompt(memory: dict | None) -> str:
             # was one of the reasons a Turkish question came back in English.
             core_lines.append(
                 f"Has spoken to you in: {val} (an observation about the past — "
-                f"always answer in the language of their CURRENT message)")
+                f"use only as a hint when no explicit response-language preference applies)")
         else:
             core_lines.append(f"{field.title()}: {val}")
     for key, entry in identity.items():

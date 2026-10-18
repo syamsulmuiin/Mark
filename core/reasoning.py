@@ -16,6 +16,11 @@ FAST, SMART = gemini.FAST, gemini.SMART
 def call(contents, tier=SMART, config=None, timeout_ms=30000):
     settings = load_config()
     if str(settings.get("llm_provider") or "gemini").strip().lower() == "gemini":
+        from core.response_language import language_instruction
+        policy = language_instruction(config=settings)
+        if policy:
+            config = dict(config or {})
+            config["system_instruction"] = str(config.get("system_instruction") or "") + "\n" + policy
         return gemini.call(contents, tier=tier, config=config, timeout_ms=timeout_ms)
     if isinstance(contents, list) and all(isinstance(item, str) for item in contents):
         contents = "\n".join(contents)

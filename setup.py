@@ -118,7 +118,7 @@ def main() -> None:
     # and the isolated Chromium runtime are installed by the first-time setup.
     print("[Setup] Playwright Python and Chromium runtime setup completed (or was explicitly skipped).")
 
-    from core.setup_config import configured, interactive_setup, interactive_llm_setup, _safe_input
+    from core.setup_config import configured, interactive_setup, interactive_llm_setup, interactive_language_setup, _safe_input
     if not configured():
         if not interactive_setup(force=True):
             raise SystemExit("JARVIS configuration was not completed.")
@@ -131,6 +131,8 @@ def main() -> None:
                 choice = ""
             if choice in ("y", "yes") and not interactive_llm_setup():
                 raise SystemExit("LLM selection was not completed.")
+            if not interactive_language_setup():
+                raise SystemExit("Language selection was not completed.")
         else:
             print("[Setup] Non-interactive setup: keeping existing LLM configuration.")
 

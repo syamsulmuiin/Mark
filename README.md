@@ -23,6 +23,7 @@ The server has no local conversational GUI, microphone, speaker, or interactive 
 ```text
 --start
 --restart
+--language LANGUAGE
 --stop
 --enable
 --disable
@@ -52,6 +53,7 @@ The root server installation intentionally excludes desktop GUI, local audio, ca
 | Command | Purpose |
 |---|---|
 | `python main.py --start` | Start the detached headless server worker |
+| `python main.py --language Indonesian` | Save primary response language; restart afterward |
 | `python main.py --restart` | Stop the existing worker and start again; abort if it cannot stop |
 | `python main.py --stop` | Stop the tracked server worker |
 | `python main.py --enable` | Enable per-user autostart and start the server |
@@ -329,3 +331,25 @@ Generated capabilities remain pure LOW-risk computation. Repeated runtime failur
 Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
 
 Phone speech requires 160 ms of consecutive above-threshold PCM before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
+
+## Primary response language
+
+Use `python main.py --language Indonesian` (or `English`, another language name,
+or a code such as `id-ID`), then `python main.py --restart`. Setup also offers
+this preference without changing provider selections or saved API keys.
+Use `python main.py --language auto` and restart to follow clear user language
+again. Empty setup input preserves the current preference.
+
+The saved `response_language` is a server-wide default shared by companions.
+It takes precedence over observed language memory and applies to both Text and
+Live system instructions. An explicit translation/other-language request is a
+per-request exception, not an automatic change to the default. Logs, tool output,
+foreign words and ambiguous transcriptions must not change it.
+When no setting exists, an explicitly saved identity/preferred_response_language
+memory supplies the default. The older identity/language memory remains only an
+observation. Explicit auto mode disables a fixed memory default. Asking voice
+to remember a preference uses the existing save_memory tool; saving remains
+model-driven and Live loads the preference on session creation. Use the CLI
+and restart for a directly verifiable setting. Typed chat does not execute settings.
+This is a model instruction, not a guarantee against all provider language errors;
+it does not change acoustic transcription or invoke an additional model.

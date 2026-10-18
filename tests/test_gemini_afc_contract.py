@@ -12,7 +12,7 @@ def _load(rel, name):
 
 
 def test_all_rest_calls_route_through_chat_in_both_runtimes():
-    for rel in ("core/gemini.py", "desktop-companion/runtime/core/gemini.py"):
+    for rel in ("core/gemini.py",):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "cl.chats.create(model=model, config=config)" in text, rel
         assert "chat.send_message(contents)" in text, rel

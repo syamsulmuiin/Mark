@@ -274,3 +274,12 @@ Capability manifests are descriptive only. They never grant authorization. Devic
 ## Capability evolution boundary
 
 The server may compose VERIFIED existing capabilities without generating code. If a genuinely missing capability is explicitly eligible for evolution, Mark's generated-skill path is limited to pure computation with no external authority. Filesystem, network, process, shell, credentials, dependency installation, and direct device control must continue to use existing authorized capabilities. Generated code is never imported into the server process; it is revalidated and executed through the restricted runner, and an integrity mismatch quarantines it.
+
+
+## Two model roles without automatic fallback
+
+All inference belongs to the configured Text role or the existing configured Live conversation. Helper tiers do not authorize a third provider/model. Only the primary configured model is used; legacy fallback IDs are not executed automatically. Text requests, including typed Gemini requests, never enter Live as a fallback. Selected-provider errors and unsupported media must be reported explicitly.
+
+Companion speech during playback is forwarded to the existing Live transport. Manual activity signals have one owner and Gemini automatic activity detection is disabled to avoid mixing boundaries. Gemini interruption events and cancelled OpenAI responses clear server playback and send audio.clear only to the active authenticated voice companion. Android clears its queued PCM; desktop aborts buffered output and restarts its output stream. Desktop retains its existing half-duplex mic transmission and explicit interrupt control; this change does not claim hands-free desktop barge-in or semantic filtering of background speech.
+
+Plain-text file and flight helpers use the selected Text reasoning facade. Grounded Gemini search is allowed only when Gemini is the selected Text provider; other providers use ordinary web search results. Unsupported multimodal Text requests cannot silently invoke Gemini. Legacy desktop-local inference is disabled; callers must reason on the server and send explicit device arguments or route image bytes through Live. Existing deterministic device actions remain available. No extra Live client is created for helper work.

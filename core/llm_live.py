@@ -44,4 +44,5 @@ def note_model_failure(model_name: str, error: str, config: dict | None = None) 
     if provider(config) == "openai_realtime":
         return False  # never switch to Gemini or a different provider on failure
     from core.gemini import note_live_failure
-    return note_live_failure(model_name, error)
+    note_live_failure(model_name, error)
+    return False  # failure is recorded, but no alternative model/provider is authorized

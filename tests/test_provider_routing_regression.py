@@ -94,8 +94,9 @@ def _runtime_type():
 
 
 @pytest.mark.parametrize('fails', [False, True])
-def test_typed_runtime_bypasses_live_even_on_provider_failure(monkeypatch, fails):
-    monkeypatch.setattr(setup_config, 'load_config', lambda: {'llm_provider': 'openai'})
+@pytest.mark.parametrize('provider', ['openai', 'deepseek', 'gemini'])
+def test_typed_runtime_bypasses_live_even_on_provider_failure(monkeypatch, fails, provider):
+    monkeypatch.setattr(setup_config, 'load_config', lambda: {'llm_provider': provider, 'live_provider': 'gemini'})
     calls, entries = [], []
     def respond(text, **kwargs):
         calls.append(text)

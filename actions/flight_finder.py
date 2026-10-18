@@ -61,17 +61,18 @@ def _parse_date(raw: str) -> str:
             return val.strftime("%Y-%m-%d")
 
     try:
-        from core import gemini
-        result = gemini.text(
+        from core import reasoning as gemini
+        response = gemini.call(
             f"Today is {today.strftime('%Y-%m-%d')}. "
             f"Convert this date expression to YYYY-MM-DD: '{raw}'. "
             f"Return ONLY the date string, nothing else.",
             tier=gemini.FAST,
         )
+        result = getattr(response, "text", "") or ""
         if re.match(r"\d{4}-\d{2}-\d{2}", result):
             return result
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Gemini date parse failed: {e}")
+        print(f"[FlightFinder] ⚠️ Text date parse failed: {e}")
 
     for month_name, month_num in _MONTH_MAP.items():
         if month_name in lower:
@@ -81,9 +82,7 @@ def _parse_date(raw: str) -> str:
                 year = today.year if month_num >= today.month else today.year + 1
                 return f"{year}-{month_num:02d}-{day:02d}"
 
-    # Last resort: today
-    print(f"[FlightFinder] ⚠️ Could not parse date '{raw}' — using today.")
-    return today.strftime("%Y-%m-%d")
+    raise ValueError("Date could not be resolved by the configured Text provider; provide YYYY-MM-DD.")
 
 _CABIN_CODE: dict[str, str] = {
     "economy":  "1",
@@ -149,8 +148,6 @@ def _parse_flights_with_gemini(
     destination: str,
     date:        str,
 ) -> list[dict]:
-    from google import genai as _genai
-    from google.genai import types
 
     prompt  = (
         f"Extract flight options from {origin} to {destination} on {date} "
@@ -162,24 +159,22 @@ def _parse_flights_with_gemini(
     )
 
     try:
-        from core import gemini
+        from core import reasoning as gemini
         response = gemini.call(
             prompt,
             tier=gemini.SMART,
             timeout_ms=30_000,
-            config=types.GenerateContentConfig(
-                system_instruction=(
+            config={"system_instruction": (
                     "You are a flight data extraction expert. "
                     "Extract flight information from raw webpage text. "
                     "Return ONLY valid JSON — no markdown, no explanation."
-                )
-            ),
+                )},
         )
         text     = re.sub(r"```(?:json)?", "", response.text).strip().rstrip("`").strip()
         flights  = json.loads(text)
         return flights if isinstance(flights, list) else []
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Gemini parse failed: {e}")
+        print(f"[FlightFinder] ⚠️ Text parse failed: {e}")
         return []
 
 def _format_spoken(

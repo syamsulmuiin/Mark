@@ -135,6 +135,7 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
     )
     current = load_config()
     print("\nCHAT / REASONING PROVIDER")
+    print("Only the primary configured Text and Live models are used; no automatic fallback.")
     for index, (key, label, ready) in enumerate(CHAT_PROVIDER_CATALOG, 1):
         print(f"  {index}. {label}" + ("" if ready else " [not implemented; installing a package will not enable it]"))
     print("\nLIVE / VOICE PROVIDER")

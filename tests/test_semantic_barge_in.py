@@ -1,44 +1,55 @@
+"""Audio interruptions use the configured Live session, never a third model."""
+import ast
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace as NS
+import time
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN = (ROOT / "main.py").read_text(encoding="utf-8")
-ANDROID = (ROOT / "android-companion/app/src/main/java/com/jarvis/companion/MainActivity.kt").read_text(encoding="utf-8")
 
 
-def test_android_does_not_interrupt_from_audio_level_only():
-    assert 'interruptLevelThreshold' not in ANDROID
-    assert 'interruptFrameCount' not in ANDROID
-    assert 'put("type","jarvis.interrupt")' not in ANDROID
-    assert 'ws?.send(ByteString.of(*buf.copyOf(n)))' in ANDROID
+def test_speaking_time_pcm_reaches_the_existing_live_transport():
+    tree = ast.parse((ROOT / 'main.py').read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'JarvisLive')
+    method = next(n for n in cls.body if getattr(n, 'name', '') == '_relay_phone_audio')
+    namespace = {'asyncio': asyncio, 'np': np, 'time': time}
+    module = ast.Module(body=[ast.ClassDef(name='Runtime', bases=[], keywords=[], body=[method], decorator_list=[])], type_ignores=[])
+    exec(compile(ast.fix_missing_locations(module), 'relay', 'exec'), namespace)
+    async def scenario():
+        runtime = namespace['Runtime']()
+        runtime._is_speaking = True
+        runtime.ui = NS(muted=False)
+        runtime._phone_activity_active = False
+        runtime._phone_last_voice = 0
+        runtime._dashboard = NS(_phone_audio_queue=asyncio.Queue())
+        runtime.out_queue = asyncio.Queue(maxsize=10)
+        pcm = np.full(1024, 1000, dtype='<i2').tobytes()
+        await runtime._dashboard._phone_audio_queue.put({'data': pcm, 'mime_type': 'audio/pcm;rate=16000'})
+        task = asyncio.create_task(runtime._relay_phone_audio())
+        assert await asyncio.wait_for(runtime.out_queue.get(), 1) == {'activity_start': True}
+        assert (await asyncio.wait_for(runtime.out_queue.get(), 1))['data'] == pcm
+        assert await asyncio.wait_for(runtime.out_queue.get(), 2) == {'activity_end': True}
+        task.cancel()
+        try: await task
+        except asyncio.CancelledError: pass
+    asyncio.run(scenario())
 
 
-def test_semantic_classifier_is_multilingual_and_fail_closed():
-    block = MAIN.split('async def _classify_barge_in', 1)[1].split('async def _relay_phone_audio', 1)[0]
-    assert 'ANY human language' in block
-    assert 'When uncertain return IGNORE' in block
-    assert 'verdict == "INTERRUPT"' in block
-    assert 'barge_semantic_decision' in block
+def test_no_auxiliary_classifier_or_live_session_in_server_or_companion():
+    main = (ROOT / 'main.py').read_text()
+    assert '_classify_barge_in' not in main
+    assert 'auxiliary_model_request' not in main
+    assert '_barge_audio' not in main
+    gemini = (ROOT / 'core/gemini.py').read_text()
+    assert 'aio.live.connect' not in gemini
+    companion = (ROOT / 'desktop-companion/runtime/core/gemini.py').read_text()
+    assert 'genai' not in companion and 'aio.live.connect' not in companion
 
 
-def test_accepted_barge_replays_original_audio_to_live():
-    block = MAIN.split('async def _classify_barge_in', 1)[1].split('async def _relay_phone_audio', 1)[0]
-    assert 'self.interrupt()' in block
-    assert 'await self.out_queue.put({"activity_start": True})' in block
-    assert 'pcm[i:i + CHUNK_SIZE]' in block
-    assert 'await self.out_queue.put({"activity_end": True})' in block
-
-
-def test_speaking_path_does_not_send_empty_activity_boundaries():
-    block = MAIN.split('async def _relay_phone_audio', 1)[1].split('\n    async def ', 1)[0]
-    speaking = block.split('if speaking:', 1)[1].split('# Normal listening path.', 1)[0]
-    assert 'activity_start' not in speaking
-    assert 'activity_end' not in speaking
-    assert '_barge_audio.extend' in speaking
-
-
-def test_semantic_barge_audio_is_bounded_and_not_logged():
-    assert 'self._barge_max_bytes = SEND_SAMPLE_RATE * 2 * 8' in MAIN
-    block = MAIN.split('async def _classify_barge_in', 1)[1].split('async def _relay_phone_audio', 1)[0]
-    assert '_trace_event("barge_semantic_decision", accepted=accepted)' in block
-    assert '_trace_event("barge_semantic_unavailable", error=type(exc).__name__)' in block
-    assert 'pcm=' not in block
+def test_clients_handle_playback_clear_without_losing_microphone_input():
+    android = (ROOT / 'android-companion/app/src/main/java/com/jarvis/companion/MainActivity.kt').read_text()
+    desktop = (ROOT / 'desktop-companion/companion.py').read_text()
+    assert '"audio.clear"->{ stopPlayback(); setVoiceState("LISTENING") }' in android
+    assert "elif typ=='audio.clear':" in desktop
+    assert 'self.out.abort()' in desktop

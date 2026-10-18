@@ -26,8 +26,8 @@ from pathlib import Path
 from datetime import datetime
 from core.artifact_paths import artifact_path
 
-# Model choice, timeout and fallback ladder all live in core/gemini.py.
-from core import gemini
+# All reasoning follows the selected Text provider; unsupported media fails explicitly.
+from core import reasoning as gemini
 
 def _get_api_key() -> str:
     config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
@@ -42,7 +42,7 @@ def _gemini_client(tier: str = gemini.SMART):
         def generate_content(self, contents):
             resp = gemini.call(contents, tier=tier, timeout_ms=90000)
             if resp is None:
-                raise RuntimeError("every Gemini model on the ladder failed")
+                raise RuntimeError("the configured Text provider returned no response")
             return resp
 
     return _W()

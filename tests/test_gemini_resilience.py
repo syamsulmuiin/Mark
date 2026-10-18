@@ -64,21 +64,20 @@ def test_ladders_use_configured_text_primary_and_fallback_only(gemini):
     )
 
 
-def test_live_model_failover_skips_cooled_model(gemini):
+def test_live_model_never_switches_to_a_secondary(gemini):
     first, second = gemini.LIVE_MODELS[:2]
     gemini._cool(first, seconds=300)
-    assert gemini.live_model() == second
+    assert gemini.live_model() == first
     assert gemini.note_live_failure(second, "503 UNAVAILABLE")
     assert gemini.live_model() == first
 
 
-def test_one_shot_live_compatibility_uses_healthy_model(gemini):
-    first, second = gemini.LIVE_MODELS[:2]
-    gemini._cool(first, seconds=300)
-    assert gemini._live_model() == second
+def test_one_shot_live_is_rejected(gemini):
+    with pytest.raises(ValueError, match="auxiliary Live"):
+        gemini.call("hello", tier=gemini.LIVE)
 
 
-def test_call_skips_resting_model_and_uses_next(monkeypatch, gemini):
+def test_call_does_not_use_secondary_when_primary_is_resting(monkeypatch, gemini):
     gemini._LADDERS[gemini.FAST] = ("first", "second")
     gemini._cool("first", seconds=300)
     calls = []
@@ -93,9 +92,9 @@ def test_call_skips_resting_model_and_uses_next(monkeypatch, gemini):
     monkeypatch.setattr(gemini, "client", lambda **_: Client())
     monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
     response = gemini.call("hello", tier=gemini.FAST)
-    assert response.text == "fallback response"
-    assert calls[0] == ("create", "second")
-def test_call_cools_unavailable_model_then_falls_back(monkeypatch, gemini):
+    assert response is None
+    assert calls == []
+def test_call_cools_unavailable_primary_without_fallback(monkeypatch, gemini):
     gemini._LADDERS[gemini.FAST] = ("unhealthy", "healthy")
     calls = []
     class Response: text = "healthy response"
@@ -111,8 +110,8 @@ def test_call_cools_unavailable_model_then_falls_back(monkeypatch, gemini):
     monkeypatch.setattr(gemini, "client", lambda **_: Client())
     monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
     response = gemini.call("hello", tier=gemini.FAST)
-    assert response.text == "healthy response"
-    assert calls == ["unhealthy", "healthy"]
+    assert response is None
+    assert calls == ["unhealthy"]
     assert gemini._cooling("unhealthy")
     assert gemini._cooldown["unhealthy"] - gemini.time.monotonic() == pytest.approx(60, abs=1)
 def test_tool_backed_call_uses_chat_afc(monkeypatch, gemini):
@@ -157,4 +156,4 @@ def test_failed_ladder_preserves_errors_for_caller(monkeypatch, gemini):
     monkeypatch.setattr(gemini, "client", lambda **_: Client())
     monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
     assert gemini.call("x", tier=gemini.SEARCH) is None
-    assert gemini.last_call_errors() == (("quota", "429 RESOURCE_EXHAUSTED"), ("busy", "503 UNAVAILABLE"))
+    assert gemini.last_call_errors() == (("quota", "429 RESOURCE_EXHAUSTED"),)

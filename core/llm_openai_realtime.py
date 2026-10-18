@@ -249,7 +249,8 @@ class RealtimeSession:
                 if calls:
                     yield _response(calls=calls)
                 else:
-                    yield _response(sc=_content(turn_complete=True))
+                    yield _response(sc=_content(turn_complete=True,
+                                                interrupted=response.get('status') == 'cancelled'))
         raise ConnectionError('OpenAI Realtime connection closed')
 
 

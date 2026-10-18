@@ -73,7 +73,7 @@ def test_all_rest_text_models_in_cooldown_are_not_retried(monkeypatch):
         monkeypatch.setattr(gemini, "api_key", lambda refresh=False: "test-key")
         monkeypatch.setattr(gemini, "client", lambda **_: (_ for _ in ()).throw(AssertionError("client must not be called")))
         assert gemini.call("hello", tier=gemini.FAST) is None
-        assert gemini.last_call_errors() == (("one", "cooldown"), ("two", "cooldown"))
+        assert gemini.last_call_errors() == (("one", "cooldown"),)
     finally:
         gemini._LADDERS[gemini.FAST] = old
         gemini._cooldown.clear()

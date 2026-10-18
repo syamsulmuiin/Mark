@@ -113,3 +113,12 @@ def test_live_config_and_realtime_receive_the_same_preference(tmp_path, monkeypa
     assert 'primary response language is Indonesian' in live_config.system_instruction
     realtime = session_options(live_config, {})
     assert realtime['instructions'] == live_config.system_instruction
+
+
+@pytest.mark.parametrize('code,name', [('id','Indonesian'), ('EN','English'), ('ja','Japanese'), ('zh','Chinese')])
+def test_short_codes_are_normalized_and_expanded_for_models(code, name, tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_config, 'CONFIG_FILE', tmp_path / 'api_keys.json')
+    saved = setup_config.save_response_language(code)
+    assert saved['response_language'] == code.upper()
+    assert server_lifecycle._runtime_mode(['--language', code]) == 'language:' + code.upper()
+    assert f'primary response language is {name}.' in language.language_instruction(saved, {})

@@ -296,7 +296,7 @@ def _runtime_mode(argv=None):
     g=parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--start",action="store_true",help="start server")
     g.add_argument("--enable",action="store_true",help="enable autostart and start server")
-    g.add_argument("--language", type=normalize_language, metavar="LANGUAGE", help="save primary response language, or auto; restart afterward")
+    g.add_argument("--language", type=normalize_language, metavar="LANGUAGE", help="save primary response language (ID, EN, etc.) or auto; restart afterward")
     g.add_argument("--restart",action="store_true",help="stop the tracked worker, then start server")
     g.add_argument("--stop",action="store_true",help="stop server")
     g.add_argument("--disable",action="store_true",help="disable autostart")

@@ -19,5 +19,5 @@ def capability_instruction(names):
                      'A new extension does not inherently require implementing a new tool. '
                      'Check actual dependencies/execution evidence; do not promise every format or bypass execution approval.')
     if 'document_editor' in tools:
-        notes.append('document_editor is a specialized DOCX path, not the exclusive route for creating all files.')
+        notes.append('document_editor is an optional specialized DOCX path, not the exclusive route for creating all files, including new DOCX papers. General creation remains available through loaded code/file tools; preserve execution approval.')
     return '[LOADED HOST CAPABILITIES]\n' + json.dumps({'tools': tools}) + '\n' + ' '.join(notes) + '\n\n'

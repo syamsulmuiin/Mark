@@ -46,13 +46,24 @@ def document_editor(parameters, player=None):
                     error_type=type(exc).__name__,
                     reason=_VALIDATION_REASONS.get(str(exc), 'validation_failed')
                         if isinstance(exc, ValueError) else 'operation_failed')
-        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'executed': False,
-            'error': str(exc), 'instruction': 'No new or revised artifact was verified. Keep any original and correct the returned error. New papers use create; existing documents require inspection. Never invent an output path.'}, ensure_ascii=False)
+        result = {'ok': False, 'status': 'FAILED', 'verified': False, 'executed': False,
+            'error': str(exc), 'instruction': 'No new or revised artifact was verified. Keep any original and correct the returned error. Existing documents require inspection. Never invent an output path.'}
+        if action == 'create':
+            result['recovery'] = {'operation': 'propose_general_creation',
+                'tools': ['code_helper', 'dev_agent'], 'executed': False}
+            result['instruction'] = (
+                'Structured creation failed; this does not mean Mark cannot create documents. '
+                'Inspect existing artifacts before retrying. If none was created, use propose_text_action '
+                'to continue through available code_helper/dev_agent with the complete original user request '
+                'and required format. Preserve execution approval and use a unique output path. '
+                'Verify the actual created file before send_server_file to the requesting companion attachment Inbox. '
+                'Do not regenerate an existing artifact after a delivery-only failure, invent paths, or claim completion.')
+        return json.dumps(result, ensure_ascii=False)
 
 
 TOOL = {
     'name': 'document_editor',
-    'description': 'For a NEW paper or DOCX use create with title and complete user instruction; the selected Text LLM writes content and the host builds the file directly, no dev_agent or existing source needed. Existing documents use scoped revision. Add new bibliography using append_section at document end, never by replacing a conclusion. Use replacement_blocks to keep numbered subheadings separate from body text. Inspect and revise existing DOCX papers/documents. First list real generated DOCX paths if unknown, then inspect the exact source. Revise a unique exact paragraph or a structural heading section using its source_sha256. Creates a verified new .docx version and leaves the original untouched. Never use dev_agent to regenerate an entire paper for a partial edit. Send only the returned verified file_path via send_server_file.',
+    'description': 'Optional structured DOCX creation: create accepts a title and complete user instruction; the selected Text LLM writes blocks and the host builds the file directly. General code_helper/dev_agent creation remains available for new papers and DOCX; this tool is not a prerequisite. Existing documents use scoped revision. Add new bibliography using append_section at document end, never by replacing a conclusion. Use replacement_blocks to keep numbered subheadings separate from body text. Inspect and revise existing DOCX papers/documents. First list real generated DOCX paths if unknown, then inspect the exact source. Revise a unique exact paragraph or a structural heading section using its source_sha256. Creates a verified new .docx version and leaves the original untouched. Never use dev_agent to regenerate an entire paper for a partial edit. Send only the returned verified file_path via send_server_file.',
     'parameters': {'type': 'OBJECT', 'properties': {
         'action': {'type': 'STRING', 'enum': ['create', 'list', 'inspect', 'revise', 'append_section']},
         'title': {'type': 'STRING', 'description': 'Required document title for create; infer a concise title from the user topic.'},

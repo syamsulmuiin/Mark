@@ -104,7 +104,10 @@ class SeverityFilteredStream(io.TextIOBase):
         if lowered.startswith(("err:", "error:", "warn:", "warning:", "critical:", "fatal:")):
             return True
         if lowered.startswith(("sys:", "live:", "net:")):
-            return any(marker in lowered for marker in _WARNING_MARKERS)
+            # Tool-result payloads contain generic FAILED/error instructions even
+            # for successful approvals. Classify the human status before JSON.
+            status = lowered.split("{", 1)[0]
+            return any(marker in status for marker in _WARNING_MARKERS)
         if stripped.startswith(("You:", "JARVIS:")):
             return False
         if (lowered.startswith("[plugins] plugin discovery complete:") and "0 rejected" in lowered

@@ -71,3 +71,39 @@ def test_completed_and_interrupted_voice_turns_emit_metadata(interrupted):
     assert values == {'user': {'speaker': 'user', 'chars': 12, 'partial': interrupted},
                       'jarvis': {'speaker': 'jarvis', 'chars': 17, 'partial': interrupted}}
     assert 'private' not in str(events)
+
+
+def test_approval_payload_does_not_turn_normal_status_into_error():
+    payload = '{"outcome":"WAITING","completion_rule":"FAILED/error is not success"}'
+    assert not SeverityFilteredStream._should_persist('SYS: Confirmed — Server maintenance. ' + payload)
+    assert SeverityFilteredStream._should_persist('SYS: Tool failed. ' + payload)
+
+
+@pytest.mark.parametrize('connected,age,expected', [(True,3480,3),(True,2,60),(False,3480,60)])
+def test_live_backoff_resets_after_sustained_connection(connected, age, expected):
+    import time
+    tree = ast.parse((ROOT / 'main.py').read_text())
+    branch = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                  and '_connected_this_attempt and' in ast.unparse(n.test)
+                  and '_last_live_connected_at' in ast.unparse(n.test))
+    state = SimpleNamespace(_conn_backoff=60, _quota_backoff=300,
+                            _last_live_connected_at=time.monotonic()-age)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[branch],type_ignores=[])),
+                 '<live recovery>', 'exec'), {'self':state,'time':time,'_connected_this_attempt':connected})
+    assert state._conn_backoff == expected
+    assert state._quota_backoff == (0 if expected == 3 else 300)
+
+
+def test_document_validation_reason_is_logged_without_content(tmp_path, monkeypatch):
+    import json
+    from actions import document_editor as module
+    from core import document_revisions, llm_text
+    monkeypatch.setattr(document_revisions, 'BASE_DIR', tmp_path)
+    monkeypatch.setattr(llm_text, 'generate', lambda *a, **kw: 'private malformed document')
+    result = json.loads(module.document_editor({'action':'create','title':'Paper','instruction':'Write body'}))
+    assert result['status'] == 'FAILED'
+    log = (tmp_path / 'runtime/interaction.log').read_text()
+    event = json.loads(log.splitlines()[-1])
+    assert event['reason'] == 'invalid_blocks_json'
+    assert event['operation'] == 'create'
+    assert 'private malformed' not in log

@@ -3,7 +3,23 @@ import json
 from core import document_revisions
 
 
+# Fixed validation messages only: never persist generated document text or paths.
+_VALIDATION_REASONS = {
+    'Text provider returned invalid or oversized document content': 'invalid_content_size',
+    'Text provider did not return structured document blocks; no file was created': 'invalid_blocks_json',
+    'Text provider omitted document blocks; no file was created': 'missing_blocks',
+    'Document content is an outline or ends in an empty heading; complete body paragraphs are required': 'incomplete_body',
+    'Bibliography must be the final section': 'bibliography_not_last',
+    'Bibliography title must be a heading block': 'bibliography_not_heading',
+    'Each replacement block must be a paragraph or heading': 'invalid_block_type',
+    'Each block needs one nonempty text line; separate paragraphs into blocks': 'invalid_block_text',
+    'Literal escaped newlines/code fences are not document paragraphs. Use actual newlines or replacement_blocks; never decode paths blindly.': 'escaped_content',
+    'Numbered subheadings must be heading blocks, separate from body paragraphs': 'unstructured_subheading',
+}
+
+
 def document_editor(parameters, player=None):
+    action = 'invalid'
     try:
         action = parameters.get('action', 'inspect')
         source = parameters.get('file_path', '')
@@ -26,7 +42,10 @@ def document_editor(parameters, player=None):
     except Exception as exc:
         from core.interaction_log import write_event
         write_event(document_revisions.BASE_DIR / 'runtime' / 'interaction.log', 'document_operation_failed',
-                    error_type=type(exc).__name__)
+                    operation=action if action in {'create','list','inspect','revise','append_section'} else 'invalid',
+                    error_type=type(exc).__name__,
+                    reason=_VALIDATION_REASONS.get(str(exc), 'validation_failed')
+                        if isinstance(exc, ValueError) else 'operation_failed')
         return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'executed': False,
             'error': str(exc), 'instruction': 'No new or revised artifact was verified. Keep any original and correct the returned error. New papers use create; existing documents require inspection. Never invent an output path.'}, ensure_ascii=False)
 

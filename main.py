@@ -3246,6 +3246,13 @@ class JarvisLive:
                     self._conn_backoff = 0
                     continue
 
+                # Reset failure history only after sustained service, not a handshake.
+                # Otherwise independent hourly session deadlines accumulate a 60s outage.
+                if (_connected_this_attempt and time.monotonic()
+                        - self._last_live_connected_at >= 60):
+                    self._conn_backoff = 3
+                    self._quota_backoff = 0
+
                 err_str = _flat_err
                 _err_lower = _flat_lower
                 decision = classify_error(Boundary.LIVE_SESSION, e)
@@ -3430,7 +3437,7 @@ class JarvisLive:
                     self._conn_backoff = _conn_backoff
                     self.ui.write_log(
                         f"NET: Connection failed — retrying in {_conn_backoff}s. "
-                        "(a VPN may be required)"
+                        "The configured Live provider will be reconnected."
                     )
                 else:
                     self._conn_backoff = 3

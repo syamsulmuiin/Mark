@@ -59,3 +59,5 @@ Repeated/background speech needs device-level investigation. Local VAD, onset ga
 Diagnosis is read-only. Apply requires explicit repair authorization and a validated plan; high-risk changes need separate approval. Repair Guard restricts paths, protected areas, risk, and change budgets. Candidates are checked in isolation, then in the working tree; failures restore transaction snapshots. Historical repair knowledge must be checked against current source.
 
 Repair does not install dependencies, change privileges, bypass its own guard, commit/push, or restart itself. A validated Python edit still needs activation and reproduction of the original task. Android changes require rebuilding and installing the APK.
+
+Live reconnect delays reset after at least 60 seconds of connected service; immediate failures retain bounded backoff. Reconnects preserve the configured model/provider. A provider deadline alone does not prove quota exhaustion or a need for a VPN. Document failures include a fixed validation reason code in the interaction log without generated content; older logs containing only `ValueError` cannot identify the rejected structure.

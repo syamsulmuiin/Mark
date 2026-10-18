@@ -1350,6 +1350,8 @@ class JarvisLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
+        _document_origin = (getattr(getattr(self, "_dashboard", None), "origin_device_id", None)
+                            if name == "document_editor" and args.get("action") == "create" else None)
 
         _trace_event("tool_requested", tool=name)
         print(f"[JARVIS] 🔧 {name} argument_names={sorted(args)}")
@@ -2085,6 +2087,11 @@ class JarvisLive:
                     if name in {"document_editor", "file_processor"}:
                         try:
                             artifact = json.loads(r) if isinstance(r, str) else r
+                            if isinstance(artifact, dict) and artifact.get("status") == "created" and artifact.get("verified") is True:
+                                _trace_event("document_created_verified", file_path=artifact["file_path"], sha256=artifact["sha256"])
+                                from core.document_delivery import deliver_created_document
+                                artifact = await deliver_created_document(artifact, self._dashboard, _document_origin)
+                                result = json.dumps(artifact, ensure_ascii=False)
                             if isinstance(artifact, dict) and artifact.get("status") == "revised" and artifact.get("verified") is True:
                                 _trace_event("document_revision_verified", file_path=artifact["file_path"],
                                     sha256=artifact["sha256"], source_path=artifact["source_path"],

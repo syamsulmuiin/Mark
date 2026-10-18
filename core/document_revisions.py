@@ -108,7 +108,7 @@ def _bibliography(text):
     return label in {'daftar pustaka', 'bibliography', 'references'}
 
 
-def _blocks(replacement, explicit, preserved_heading='', parent_level=None):
+def _blocks(replacement, explicit, preserved_heading='', parent_level=None, *, allow_bibliography=False):
     if explicit is not None:
         if replacement is not None or not isinstance(explicit, list) or not explicit or len(explicit) > 1000:
             raise ValueError('Provide replacement_blocks OR replacement_text, not both')
@@ -138,7 +138,7 @@ def _blocks(replacement, explicit, preserved_heading='', parent_level=None):
             raise ValueError('Literal escaped newlines/code fences are not document paragraphs. Use actual newlines or replacement_blocks; never decode paths blindly.')
         if not result and preserved_heading and text.strip() == preserved_heading.strip():
             continue  # The selected heading is already preserved by the editor.
-        if _bibliography(text) and not _bibliography(preserved_heading):
+        if _bibliography(text) and not _bibliography(preserved_heading) and not allow_bibliography:
             raise ValueError('Do not replace a section with a bibliography. Use append_section for a new bibliography at document end.')
         item = {'type': block['type'], 'text': text}
         if block['type'] == 'heading':
@@ -298,6 +298,93 @@ def revise(source, params, generate=None):
                 'sha256': digest(output), 'size': output.stat().st_size,
                 'source_path': str(path), 'source_sha256': before, 'source_unchanged': True, 'text_and_structure_verified': True, 'layout_rendered': False,
                 'instruction': 'Send this exact verified file_path with send_server_file. The original remains unchanged. Do not claim delivery before its result.'}
+    except Exception:
+        if created:
+            output.unlink(missing_ok=True)
+        raise
+
+
+def create(params, generate=None):
+    """Create an inert DOCX directly, without generating/executing a program."""
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    title = params.get('title')
+    if not isinstance(title, str) or not title.strip() or len(title) > 500 or '\n' in title or r'\n' in title:
+        raise ValueError('Provide a short document title on one line')
+    explicit = params.get('replacement_blocks')
+    if params.get('replacement_text') is not None:
+        raise ValueError('New documents use replacement_blocks or an instruction, not replacement_text')
+    if explicit is None:
+        instruction = params.get('instruction')
+        if not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 20000 or generate is None:
+            raise ValueError('Provide a creation instruction or complete replacement_blocks')
+        raw = generate('Write the complete requested document now, not a plan, refusal of file-writing ability, or program. '
+            'The host will create the DOCX. Return ONLY a JSON object with blocks: an array of '
+            '{"type":"heading","level":1,"text":"Section title"} and {"type":"paragraph","text":"Body paragraph"}. '
+            'Use a separate heading block for every numbered subheading and separate body paragraphs. '
+            'Do not repeat the document title. Place any bibliography last. Never invent sources, author names, '
+            'university, student ID, or claim citations were verified. Use source details supplied in the request only. '
+            'Request data:\n' + json.dumps({'title': title, 'request': instruction}, ensure_ascii=False))
+        if not isinstance(raw, str) or len(raw) > 150000:
+            raise ValueError('Text provider returned invalid or oversized document content')
+        try:
+            payload = json.loads(raw)
+            explicit = payload['blocks'] if isinstance(payload, dict) else None
+        except (ValueError, KeyError, TypeError):
+            raise ValueError('Text provider did not return structured document blocks; no file was created') from None
+        if explicit is None:
+            raise ValueError('Text provider omitted document blocks; no file was created')
+    blocks = _blocks(None, explicit, allow_bibliography=True)
+    if not any(block['type'] == 'paragraph' for block in blocks) or blocks[-1]['type'] == 'heading':
+        raise ValueError('Document content is an outline or ends in an empty heading; complete body paragraphs are required')
+    bibliography = False
+    for block in blocks:
+        if block['type'] == 'heading':
+            if bibliography:
+                raise ValueError('Bibliography must be the final section')
+            bibliography = _bibliography(block['text'])
+        elif _bibliography(block['text']):
+            raise ValueError('Bibliography title must be a heading block')
+    document = Document()
+    document.core_properties.author = ''
+    for section in document.sections:
+        section.top_margin = section.bottom_margin = Inches(1)
+        section.left_margin = section.right_margin = Inches(1)
+    normal = document.styles['Normal']
+    normal.font.name = 'Times New Roman'
+    normal.font.size = Pt(12)
+    normal.paragraph_format.line_spacing = 1.5
+    for name in ['Title', *[f'Heading {level}' for level in range(1, 10)]]:
+        document.styles[name].font.color.rgb = RGBColor(0, 0, 0)
+    document.add_paragraph(title.strip(), style='Title')
+    for block in blocks:
+        if block['type'] == 'heading':
+            document.add_heading(block['text'], level=block['level'])
+        else:
+            document.add_paragraph(block['text'])
+    name = Path(str(params.get('output_name') or 'document.docx')).name
+    if Path(name).suffix.lower() != '.docx':
+        raise ValueError('Output filename must end in .docx')
+    folder = ARTIFACT_ROOT / 'documents'
+    folder.mkdir(parents=True, exist_ok=True)
+    output = folder / f'{Path(name).stem}-{uuid.uuid4().hex[:12]}.docx'
+    created = False
+    try:
+        with output.open('xb') as stream:
+            created = True
+            document.save(stream)
+        _, parts, _, body, _ = _load(output)
+        paragraphs = [node for node in body if node.tag == W + 'p']
+        if [_text(node) for node in paragraphs] != [title.strip(), *[b['text'] for b in blocks]]:
+            raise ValueError('Created document text did not verify')
+        styles = _style_levels(parts)
+        for node, block in zip(paragraphs[1:], blocks):
+            if block['type'] == 'heading' and _level(node, styles) != block['level'] - 1:
+                raise ValueError('Created heading structure did not verify')
+        return {'ok': True, 'status': 'created', 'verified': True, 'file_path': str(output),
+                'sha256': digest(output), 'size': output.stat().st_size,
+                'text_and_structure_verified': True, 'layout_rendered': False, 'citations_verified': False,
+                'instruction': 'The DOCX exists at this exact path. Deliver via the companion attachment inbox; never claim a device download or source verification.'}
     except Exception:
         if created:
             output.unlink(missing_ok=True)

@@ -1,398 +1,66 @@
-# Mark server / companion architecture
+# Server and companion architecture
 
-This document describes the current architecture. Historical GUI/CLI/background runtime modes are obsolete and are not supported server access surfaces.
-> Compatibility note: protocol identifiers such as `jarvis.command`, `X-Jarvis-Local`, and the Android package `com.jarvis.companion` remain stable because they identify the JARVIS protocol and installed Android application, not a Mark generation.
+Mark is a headless orchestration server. Android and desktop companions provide the interactive surfaces and local execution endpoints.
 
+## Components
 
-### Live voice liveness recovery
+| Component | Responsibility |
+| --- | --- |
+| Server | Text/Live adapters, memory, task continuity, scheduling, backend tools, device mesh, and file transport |
+| Android companion | Microphone/playback, native device capabilities, optional Accessibility automation, and attachments |
+| Desktop companion | Microphone/playback, PyQt interface, desktop actions, and attachments |
 
-The server treats transport connectivity and conversational liveness as separate states. A Gemini Live socket can remain open while no longer producing response events, so voice recovery is not exception-only. Completed companion voice-activity boundaries are tracked against meaningful provider progress. Two consecutive ended voice turns with no provider content trigger a context-preserving Live-session recycle. A new user voice turn also clears stale interruption state so an interrupted response cannot suppress later response audio indefinitely. Session-resumption handles and the local transcript fallback remain the continuity mechanisms across that recycle.
+The server does not open local conversational audio, desktop windows, camera, or input-control devices. Server browser automation is a headless backend capability, distinct from using a companion browser.
 
+## Routing
 
-### Voice interruption
+`origin_device_id` identifies the target for a turn's device-local effects. `active_voice_device` independently identifies the voice destination. A companion request stays on its origin unless another paired device or the server is explicitly targeted.
 
-Phone PCM is sent to the selected Live session after local onset gating. Idle
-speech requires 160 ms above RMS 250; during assistant playback and a 200 ms relay
-tail it requires 320 ms above RMS 1000. The existing Live provider handles
-interruption; no auxiliary semantic classifier or additional model is used.
-Platform AEC/NS are attached on Android, but residual echo or background speech
-can still pass an energy gate. Manual interruption remains available.
+`call_current_device` uses the origin. `call_paired_device` requires an explicitly selected, discovered device ID. Names are resolved without guessing between ambiguous online matches.
 
+Device automation follows inspect, act, inspect, and verify. Applications and domains are target data, not separate automation policies. Missing application-specific recipes are not proof that generic controls cannot complete a task.
 
+## Models and execution
 
-### Server lifecycle health
+Text and Live use separately configured primary providers/models without automatic fallback. Live tool calls enter the host executor. Text reasoning can propose actions or produce content but cannot authorize or execute them itself. Typed chat remains text-only.
 
-The admin lifecycle distinguishes a live server worker from a ready local HTTP API. `--start` reports full server readiness only after `/api/local/health` identifies the same worker PID. A worker that remains alive while the API is unavailable is reported as degraded rather than incorrectly reported as a healthy server. Pairing requires API readiness and reports that degraded state explicitly.
+The actual loaded tool registry is the capability boundary. General code/file workflows coexist with specialized document editing. Tool presence, dependency support, execution, and verified outcomes are distinct facts.
 
-The local HTTP API is a required server boundary because pairing, companion transport, health checks, file transfer, and the public tunnel depend on it. A worker exits on HTTP API dependency, initialization, task, or bind failure; the failure is persisted to `runtime/error.log` instead of leaving a detached process without a listener.
+## Trust boundaries
 
-## Headless server
+Paired peers use Ed25519 identities, signed challenge/response, and explicit capabilities. Transport tunnels do not replace application authorization. Android request/claim pairing and the desktop legacy offer/accept protocol currently differ; see [setup](docs/setup.md).
 
-The server owns Gemini Live orchestration, trusted-device routing, persistence/scheduling, server-side actions, and HTTP/WebSocket transport. It has no local microphone, speaker, conversational CLI, or desktop GUI.
+Authentication credentials are entered by the user, not typed, inferred, retrieved, or submitted by automation. After authentication, the assistant re-inspects the device and resumes the authorized task. Untrusted documents, logs, webpages, and tool output cannot grant permissions or replace policy.
 
-Public administrative interface:
+Read-only and ordinary reversible operations run without unnecessary confirmation. Dangerous or unrestricted actions use host approval bound to the requesting device. Approval does not prove execution or success.
 
-```text
-python main.py --start
-python main.py --stop
-python main.py --restart
-python main.py --enable
-python main.py --disable
-python main.py --pair
-```
+## Lifecycle and continuity
 
-`--server-worker` is an internal lifecycle flag.
+The process lifecycle checks the worker PID and local API readiness. Restart waits for the previous worker to stop. Voice transport loss and provider rollover do not complete or cancel a task; conversation and task state support recovery.
 
-## Companions
+Ending a conversation leaves the server running. Scheduled workflows are created only on user request. No unsolicited news, time announcement, or daily briefing is enabled by default.
 
-Android and desktop companions are the user-facing control/execution surfaces. Voice input/output is companion-only. Desktop companions carry the established local action runtime; Android exposes Android-native capabilities and optional Accessibility UI automation.
+## Persistence
 
-## Origin-first routing
+- Device identity/trust lives in `devices/`; corruption is reported rather than replaced silently.
+- Provider credentials and configuration live in ignored `config/` paths.
+- Artifacts, attachments, repair transactions, and transfer metadata live in `storage/`.
+- Logs, PID files, and maintenance jobs live in root `runtime/`.
+- User-created recurring workflows use `~/.jarvis/scheduled_workflows.json`.
 
-Every companion-originated turn has an origin device identity. Unless the user explicitly names another target, device-local actions execute on that origin companion.
+Attachment objects and transfer history are durable by default. Deletion is explicit and reference-aware. See [file handling](docs/files.md).
 
-Two states must remain separate:
+## Module boundaries
 
-- `origin_device_id`: execution target for the current turn.
-- `active_voice_device`: interactive audio destination.
+| Module | Responsibility |
+| --- | --- |
+| `main.py` | Live orchestration and host tool dispatch |
+| `core/server_lifecycle.py` | Process startup, readiness, restart, and shutdown |
+| `core/server_maintenance.py` | Guarded GitHub updates and detached restart jobs |
+| `core/llm_*`, `core/chat_router.py` | Provider adapters and Text/Live routing |
+| `core/action_loader.py`, `core/action_policy.py` | Tool discovery and host confirmation policy |
+| `dashboard/server.py` | HTTP/WebSocket transport, approvals, and device/file coordination |
+| `core/document_revisions.py` | Structured DOCX creation and versioned revisions |
+| `core/repair_engine.py` | Guarded source-edit transactions and validation |
 
-`call_current_device` uses the turn origin. `call_paired_device` is for another explicitly targeted paired device. Device-name resolution prefers an online matching record and should resolve to the canonical paired UUID.
-
-## Voice lifecycle
-
-The server receives/forwards live-session audio but does not render audio. Interactive audio returns to the active voice companion. Command routing must never clear or repurpose voice state. Gemini session rollover/reconnect should preserve active conversational context rather than treating transport rollover as a completed conversation.
-
-## Device mesh and pairing
-
-Paired devices use Ed25519 identities, signed challenge/response, and explicit capabilities. Pairing is available through the configured remote endpoint (`https://auth.kasirdigital.web.id`) and supported local transport. `--pair` creates a short-lived Pair Code on an already-running server.
-
-Cloudflare transport does not replace application-level device authentication or capability authorization.
-
-## Android UI execution
-
-Android Accessibility is opt-in. UI automation follows `inspect -> act -> verify/recover`. Blind scrolling/clicking is not the default strategy. A failed UI operation is not evidence by itself that Internet connectivity or Accessibility is unavailable.
-
-## Scheduling/background behavior
-
-There is no default morning briefing, news poll, or time announcement. News/time are fetched on demand. The scheduler exists to execute workflows explicitly created by the user. Recurring workflow state is stored under `~/.jarvis/scheduled_workflows.json`.
-
-## Safe self-repair boundary
-
-Self-repair is server-side and user-initiated. Diagnosis is read-only and may inspect the complete relevant dependency path. It may recall persistent repair knowledge, but previous incidents are untrusted historical evidence until the current source confirms the same root cause.
-
-Apply is a separate transaction. Repair Guard performs scope, protected-area, risk, path and change-budget checks before a snapshot is created. LOW/MEDIUM repairs still require explicit repair authorization; HIGH-risk repairs additionally require `HIGH_RISK_REPAIR_APPROVED`. The autonomous path cannot edit its repair policy, rollback/validation implementation, credential protection, loader/permission boundaries, deployment workflows, or audit state. It cannot install dependencies, elevate privileges, restart services, commit, push, or execute shell commands supplied by a model, user, website, log, plugin, or other untrusted content.
-
-A candidate is validated in an isolated temporary repository copy using fixed import, compile and full-test commands. Only a passing candidate reaches the working tree, where the fixed health checks run again. Failure restores the complete transaction snapshot. Interrupted candidate transactions are recovered before the next repair. Attempts are capped at three. Verified successful repairs and failed approaches are recorded separately under ignored `storage/self_repair/knowledge/`; secrets are redacted from the JSONL audit trail.
-
-## Runtime module boundaries
-
-`main.py` remains the Live conversation orchestrator. Headless process lifecycle is isolated in `core/server_lifecycle.py`; Live-bound tool schemas are isolated in `core/live_tools.py`; model selection is centralized in `core/model_config.py`; and bounded worker stdout/stderr rotation is handled by `core/runtime_log.py`. This separation is structural only and does not move voice or device execution back onto the server.
-
-
-## Default network configuration
-Server deployment endpoints and ports are edited in `config/network.json`. The desktop companion standalone runtime mirrors the same defaults in `desktop-companion/runtime/config/network.json`. Environment variables are optional deployment overrides; if absent, the JSON values are used, with built-in constants retained only as final safety defaults.
-
-
-## Headless server boundary
-
-The server does not enumerate or open microphone/speaker devices and does not depend on a desktop GUI toolkit. Companion clients own local audio capture, playback, and user-interface presentation. The server may process PCM data received from companions, but that does not require local audio hardware.
-
-
-## Language compatibility boundary
-
-Project-facing documentation, comments, prompts, logs, UI text, and examples are English-only. Multilingual input aliases required for natural-language compatibility are isolated from orchestration code in `core/language_compat.py`. This keeps the project text consistent without removing the ability to understand supported non-English commands.
-
-## Headless installation boundary
-
-The root Python environment is the server environment. It must not require a display server, local microphone/speaker stack, camera, screen capture, keyboard/mouse automation, or desktop window APIs. Those dependencies belong to desktop companions. Linux server setup uses a project-local virtual environment when necessary so Debian-family distributions, including Armbian, are not forced to modify an externally managed system Python.
-
-Server-side Playwright automation is part of the normal headless server installation. The root `requirements.txt` installs the Playwright Python API, and `setup.py` installs an isolated Chromium runtime on supported x86_64 and ARM64 hosts. `SKIP_BROWSER_INSTALL=1` may explicitly skip the Chromium runtime; in that case `web_search` remains available while `browser_control` remains unavailable until a compatible runtime is installed. Desktop companion browser automation remains a separate local capability with its own dependency set.
-
-
-## Operation-aware origin routing
-
-Companion-originated requests preserve the origin device as the execution target for local UI and device operations. Pure backend computation can still run on the server. Mixed actions are classified by operation so a backend helper does not accidentally open, type, click, launch, or update something on the headless server. Device-local execution must continue through `call_current_device`.
-
-
-## Autonomous companion UI execution
-
-A companion is responsible for completing normal UI workflows on its own device. JARVIS uses an inspect -> act -> verify loop instead of asking the user to position a cursor or manually navigate ordinary application UI. If a target is not visible, JARVIS can inspect, scroll, navigate, search, type ordinary text, select controls, and re-inspect until the requested state is reached.
-
-Automation pauses only at the credential boundary (PIN/password/passcode/authentication) or when the companion genuinely lacks a required capability. After authentication is completed by the user, JARVIS re-inspects the existing session and resumes the unfinished task.
-
-## Application-agnostic device automation
-
-Device automation is capability-driven rather than application-driven. Application/package names and domain values are target data only. The companion exposes generic primitives for launch/close, UI inspection, click/tap, ordinary text entry, scrolling, supported global navigation, and verification. Android additionally advertises native `audio.volume` control for generic media-volume adjustment; this is a device capability, not an app-specific recipe.
-
-The same inspect -> act -> verify loop applies to every application, including applications installed after Mark was built. Legacy actions may perform backend computation but do not define companion UI behavior. Credential/authentication input remains the intentional user-intervention boundary apart from a genuinely unavailable capability.
-
-## Conversation lifecycle versus server lifecycle
-
-Conversation lifecycle and server lifecycle are separate. Ending or closing a conversation only completes the current conversational session; it does not stop the JARVIS process, server, remote access, or paired companions. Server shutdown is a separate privileged lifecycle action and is selected only from explicit server/service shutdown intent.
-
-## Documentation synchronization status
-
-This document describes the current server/companion architecture. The root `readme.md` is the operational entry point. Current invariants are: headless server; companion-only conversational audio; origin-first routing; application-agnostic inspect -> act -> verify device automation; credential input protection; conversation lifecycle separate from server lifecycle; explicit-only scheduling; and no claim of full cross-device file sharing until a common transfer protocol exists across companions.
-
-## Companion voice transport recovery
-
-Interactive voice output is owned by the companion that owns the live interaction. The server relays model PCM to that companion and does not use server-local speaker output.
-
-Android voice playback is a recoverable transport resource rather than a process-lifetime assumption. Before streaming PCM, the companion validates the current `AudioTrack`. If Android reports a dead or invalid playback object, the companion releases the stale player, creates a new initialized streaming player, and retries playback. This prevents a stale platform audio object from requiring an application process restart.
-
-Unexpected companion WebSocket closure or failure performs transport cleanup:
-
-```text
-unexpected transport loss
-        -> stop companion microphone stream
-        -> release stale AudioTrack
-        -> clear the stale WebSocket reference
-        -> schedule companion reconnect
-        -> authenticate/re-establish device transport
-        -> recreate playback state when new audio arrives
-```
-
-Authentication revocation is not auto-recovered as an ordinary transport failure; the companion returns to pairing as required.
-
-Intentional conversation end is separate from unexpected transport recovery. When the user ends the conversation, the companion stops microphone capture, releases playback resources, closes the current conversation socket, and remains in the explicit ended state. It must not immediately reconnect merely because the user intentionally ended that conversation.
-
-Voice routing and command routing remain separate. `call_current_device` targets the origin/current companion. `call_paired_device` is used for another explicitly targeted paired device and requires an exact discovered device identifier; aliases or placeholders for the current device must not be used as paired-device IDs.
-
-The recovery path is transport-generic and does not depend on the application currently open on the companion.
-
-## Live transcript streaming and rollover recovery
-
-Live input/output transcription is broadcast as `transcript.delta` while audio is still flowing. Companion clients render the current cumulative turn and replace it with the final `log` entry at `turn_complete`; progress/status events remain outside the transcript. If the provider session expires or the receive task fails before `turn_complete`, the server records bounded `You [partial]`/`JARVIS [partial]` entries, disables phone audio immediately, drains the phone queue, and reconnects with the preserved context. This keeps provider rollover separate from the authenticated device WebSocket.
-
-
-`runtime/error.log` is reserved for actionable diagnostics rather than a complete runtime transcript. The detached headless worker filters normal stdout so routine INFO/debug events, successful device/tool operations, connection-state chatter, and user/assistant transcript lines are not persisted in the error file.
-
-Warning/error-like stdout diagnostics are retained. Python stderr is written directly to the same rotating sink so exceptions and tracebacks remain complete. The error sink keeps the existing bounded size-based rotation and backup limits.
-
-Mark does not create a second persistent full-runtime transcript as part of this change. Normal runtime output remains ephemeral unless a dedicated diagnostic facility explicitly captures it.
-
-## Intentional voice termination state
-
-Voice recovery distinguishes intentional session end from unexpected transport failure. End-call first sets explicit intentional-end state, then stops audio and closes the WebSocket. Close/failure callbacks cannot reconnect while that state is active. Unexpected failures still permit automatic reconnect. A new explicit voice connection clears the state.
-
-## Server browser capability and origin routing
-
-`browser_control` is a server action. It supports installed-browser automation in visible desktop mode and automatically switches to headless mode on a display-less Linux host. Ordinary information lookup still uses `web_search`; browser automation is reserved for an explicit host/browser workflow or a page interaction that requires a browser context.
-
-## Host browser runtime policy
-
-Server-side `browser_control` depends on the Playwright Python API. First-time setup installs an isolated Chromium runtime on supported architectures; on a VPS without X11/Wayland it runs headless, with a bounded viewport and no visible window. Missing Playwright or browser runtime is reported as unavailable; Mark does not copy Companion cookies/session state to the server.
-
-This policy is independent of origin routing: companion-origin browser/UI operations remain on the originating companion unless the user explicitly targets the server/host. Android browser workflows use `browser.open`/`browser.search` followed by `android.ui.inspect` -> action -> inspect verification.
-
-## Generic task continuity
-
-Task continuity is application-agnostic and separate from conversational session resumption. `runtime/active_task.json` is written atomically and contains only the active task state/checkpoints needed for recovery. Multi-step work begins through the `task_continuity` Live tool; operational tool start/results are recorded automatically. On a new Live connection, unfinished state is injected into context and a continuation turn is scheduled. External state must be inspected/reconciled before stale checkpoints are trusted. Tasks pause at credential/user-only authentication boundaries and complete only after end-state verification.
-## Vision and file-storage boundary
-
-Visual analysis requires real image bytes. All camera-capable companions use the same `camera.capture` contract. Android provides one-shot front/back JPEG capture through Camera2. The shared Windows/Linux/macOS desktop companion provides one-shot JPEG capture from its configured/default host webcam through OpenCV and reports `default` when the host camera has no reliable front/back semantic. `android.ui.inspect` remains structured accessibility data and is never a vision substitute. Camera applications do not need to be launched for capture.
-
-Server transfer storage is project-local and single-copy: content is addressed by SHA-256 under `storage/objects/`, while transfer/name state is metadata. Upload, share, and download are not separate physical copies. Cross-companion transfers use short-lived one-time HTTP tickets so bytes stream outside the WebSocket control channel. The server verifies source upload hash/size and queues a durable attachment reference for the destination, even if offline. The recipient chooses when to download, open, save, or share; download and save are verified separately. Temporary objects expire with their final inbox reference after 30 days unless the user explicitly requests permanent server retention. Legacy `storage/uploads`, `storage/share`, and `storage/downloads` files are ingested into the object store on startup. The entire `storage/` tree is runtime data and excluded from Git.
-
-
-
-### Vision origin continuity
-Companion-origin vision remains bound to the originating paired device across transient WebSocket reconnects. Missing/offline companion vision never falls back to server camera or screen hardware. The server is headless and exposes no local screen/camera capture; visual input must come from a companion that advertises the required capture capability.
-
-
-### Android camera capture readiness
-Android `camera.capture` performs a bounded Camera2 3A warm-up before still capture so exposure, white balance, and focus can settle. This is internal to the Android companion and does not change the generic `camera.capture` capability contract shared with desktop companions.
-
-
-### Explicit re-pair replacement
-A normal disconnect never deletes trust. An explicit Pair Code may replace a stale identity created by reinstalling a companion. Replacement is automatic only when exactly one non-revoked, offline trusted record has the same companion-reported name; ambiguous same-name records are preserved. The new identity, capabilities, origin affinity, and voice affinity then become authoritative. This rule is platform-neutral for Android, Windows, Linux, and macOS companions.
-
-
-### Live vision session binding and action rejection guard
-Captured vision bytes are scoped to the Live connection generation that produced the tool result. A reconnect invalidates pending bytes from the previous generation; the task may continue, but rejected/stale media payloads are not replayed blindly. Device automation also records an exact rejected `(device, capability, arguments)` signature. The same rejected action cannot execute unchanged again until the device is re-inspected, the plan changes through a different successful action/arguments, or a new user turn begins. Tool execution also keeps a per-user-turn idempotency cache keyed by tool name plus normalized arguments, so provider replay cannot repeat the same side effect inside one turn; a new user turn clears that cache. This rule is shared across Android and Desktop companion routing.
-
-
-### Deferred attachment selection and companion controls (v60.10)
-Interactive voice file selection is asynchronous: JARVIS completes its spoken instruction before the source companion opens its native file picker. The selected file then continues through the existing single-copy SHA-256 attachment pipeline. Android exposes dedicated Attachments and Device Control actions; Device Control always delegates enablement to Android Accessibility Settings and never enables the service silently. Attachment transfer failures are logged as diagnostics without file contents or one-time transfer tokens.
-
-
-### Overflow companion menu and final-turn attachment picker (v60.11)
-Android keeps the main voice surface uncluttered: Attachments and Device Control are grouped under the top-right overflow menu. Each destination opens a richer status/action dialog instead of occupying the app bar. Deferred attachment selection no longer uses transient SPEAKING/LISTENING state changes. The runtime emits `assistant.turn.complete` only after the completed Live turn has drained from the companion audio queue; Android and Desktop release a pending native file picker only on that event. Attachment lifecycle diagnostics use warning/error severity markers so detached-server `runtime/error.log` retains picker queued/selected/cancelled, transfer complete, and transfer failure checkpoints without file contents, local source paths, hashes, or transfer tokens.
-
-
-### Single-request attachment transaction and companion-styled menus (v60.12)
-A Live user turn owns at most one attachment transaction for a source/destination pair. Once native selection is queued, repeated `transfer_file` calls in the same user turn—including model-generated content URIs—reuse the existing transaction status and cannot open another picker or upload another file. The server records completion/failure/cancellation for that request so a retry receives the real outcome rather than starting over. Android companion submenus now follow the main dark/cyan visual language with circular action icons, clearer status copy, and middle-ellipsized filenames that keep the file extension visible.
-
-
-### Multi-file attachment batches (v60.13)
-A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
-
-
-### Android companion panel (v60.20)
-
-The Android companion renders overflow navigation and attachment actions within one dialog view. This is a client presentation change; attachment routing and server storage contracts are unchanged.
-
-### Explicit server storage destination (v60.19)
-
-The transfer_file tool accepts source_device=current and destination_device=server. The server forces permanent object storage and creates a durable file alias for each upload, adding a numeric suffix on filename collisions. It records read-only sender history without creating a recipient inbox entry or starting an assistant edit task. On startup, previous self-routed uploads with available objects are promoted to permanent server aliases and reclassified as server storage. Companion destinations continue to use recipient inbox references and recipient-controlled saving.
-
-### Assistant uploads and delivery completion (v60.18)
-
-A transfer whose source and destination are the same authenticated companion is an assistant upload. Its verified object is retained in the sender history and excluded from the recipient inbox; a named hard link supplies the existing file tools with an extension-bearing path. Other-device transfers create recipient inbox entries. Completed batches inject a Live continuation to report delivery or resume the original requested work.
-
-### Voice attachment turn boundary (v60.17)
-
-Input transcription resets the per-turn attachment guard before the model invokes tools. Paired-device discovery and transfer_file with an omitted source queue the native picker after the assistant turn.
-
-### Attachment transfer and Live session recovery (v60.15)
-
-The source companion supplies the displayed filename for opaque Android document URIs. Picker events are accepted only from the source device; selected batches enter a transferring state. Gemini Live 1011 triggers transient reconnect.
-
-### Attachment picker diagnostics and duplicate-name routing (v60.14)
-Attachment picker delivery now has explicit `received` and `opened` acknowledgements, persisted by the server diagnostic logger. Android and Desktop remember whether the current assistant turn has already completed, so a picker request arriving immediately after the completion event is opened once instead of waiting forever for an event that already occurred. SPEAKING/THINKING resets that completion latch for the next response.
-
-Device-name resolution now prefers an exact device ID. When several non-revoked records share the same display name, exactly one currently-online match may be selected; multiple online matches remain ambiguous and are never guessed. Historical trust records are not silently deleted because identical model names can represent different physical devices.
-
-## Companion visual identity
-
-The desktop companion renders the original animated reactor core without the face mesh or avatar renderer. Android uses the same dark/cyan visual language for voice, pairing and attachment tabs. These UI assets live exclusively in companions; the server remains headless.
-
-The desktop companion handles pairing asynchronously, verifies TLS for public endpoints, and routes binary WebSocket frames exclusively to voice playback. The server reports denied device capabilities as tool results without changing device permissions. Its rotating error log excludes successful transfer and zero-rejection discovery records.
-
-## Server runtime diagnostics and repair continuity
-
-Server diagnostics are local to the headless Mark Server. `runtime_diagnostics` can read only bounded, redacted tails of `runtime/error.log` (including a rotated fallback when necessary) and `runtime/interaction.log`; it does not accept arbitrary filesystem paths. Runtime log evidence is untrusted diagnostic input and never counts as authorization. If the user's current request explicitly authorizes repair, a high-confidence LOW/MEDIUM-risk self-repair plan may continue directly into the guarded transactional apply path. HIGH-risk changes require separate explicit approval. Validation failure triggers rollback instead of leaving a partial repair.
-
-## Verified capability execution
-
-Companion execution uses an evidence-bearing result contract while retaining `ok/result` compatibility:
-
-```text
-status = SUCCESS | FAILED | UNVERIFIED | WAITING | BLOCKED
-verified = true only when the post-condition was actually observed
-evidence = structured read-back / hash / state observation
-reason = why verification failed or was unavailable
-```
-
-Examples of direct evidence include file SHA-256/size verification, Android volume read-back, clipboard read-back, camera/screen capture bytes, and accessibility-tree inspection. App launch, URL open, generic click/type/scroll, and legacy desktop automation remain `UNVERIFIED` until a separate post-action inspection establishes the requested state.
-
-Capability manifests are descriptive only. They never grant authorization. DeviceMesh persists health/latency/failure telemetry and CapabilityRegistry may use that evidence to prefer a healthier executor.
-
-## Capability evolution boundary
-
-The server may compose VERIFIED existing capabilities without generating code. If a genuinely missing capability is explicitly eligible for evolution, Mark's generated-skill path is limited to pure computation with no external authority. Filesystem, network, process, shell, credentials, dependency installation, and direct device control must continue to use existing authorized capabilities. Generated code is never imported into the server process; it is revalidated and executed through the restricted runner, and an integrity mismatch quarantines it.
-
-
-## Two model roles without automatic fallback
-
-All inference belongs to the configured Text role or the existing configured Live conversation. Helper tiers do not authorize a third provider/model. Only the primary configured model is used; legacy fallback IDs are not executed automatically. Text requests, including typed Gemini requests, never enter Live as a fallback. Selected-provider errors and unsupported media must be reported explicitly.
-
-Companion speech during playback is forwarded to the existing Live transport. Manual activity signals have one owner and Gemini automatic activity detection is disabled to avoid mixing boundaries. Gemini interruption events and cancelled OpenAI responses clear server playback and send audio.clear only to the active authenticated voice companion. Android clears its queued PCM; desktop aborts buffered output and restarts its output stream. Desktop retains its existing half-duplex mic transmission and explicit interrupt control; this change does not claim hands-free desktop barge-in or semantic filtering of background speech.
-
-Plain-text file and flight helpers use the selected Text reasoning facade. Grounded Gemini search is allowed only when Gemini is the selected Text provider; other providers use ordinary web search results. Unsupported multimodal Text requests cannot silently invoke Gemini. Legacy desktop-local inference is disabled; callers must reason on the server and send explicit device arguments or route image bytes through Live. Existing deterministic device actions remain available. No extra Live client is created for helper work.
-
-Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
-
-Idle phone speech requires 160 ms above RMS 250; during assistant playback (including a 200 ms relay tail), onset requires 320 ms above RMS 1000 before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
-
-Android microphone capture now owns a fixed AudioRecord, WebSocket, and generation
-for each session. A read that completes after stop/reconnect cannot send PCM to
-the replacement session. Old WebSocket callbacks/packets cannot update the new
-session, and server disconnect cleanup preserves a replacement socket's audio route.
-The existing VoiceEchoController is now connected to the recording session;
-communication audio mode and voice-communication playback are used. Effects and
-recording resources are released on stop/start failure; the previous audio mode
-is restored. The manifest declares MODIFY_AUDIO_SETTINGS.
-`audio_capture_status` logs report AEC/NS enabled state, while
-`live_input_transcription` records provenance and character count without text/audio.
-These changes address proven lifecycle/echo-control gaps, not proof that the
-specific repeated “¿Qué?” was acoustically generated by them. Hardware testing
-is still required; no word blacklist or additional model is used.
-
-Queued device PCM carries internal socket ownership; the relay discards frames from superseded connections and closes the old activity before a valid source socket changes.
-
-## Primary response language
-
-Use `python main.py --language ID` (or `EN`, another language code/name,
-or a regional tag such as `id-ID`), then `python main.py --restart`. Setup also offers
-this preference without changing provider selections or saved API keys.
-Use `python main.py --language auto` and restart to follow clear user language
-again. Empty setup input preserves the current preference.
-
-The saved `response_language` is a server-wide default shared by companions.
-It takes precedence over observed language memory and applies to both Text and
-Live system instructions. An explicit translation/other-language request is a
-per-request exception, not an automatic change to the default. Logs, tool output,
-foreign words and ambiguous transcriptions must not change it.
-When no setting exists, an explicitly saved identity/preferred_response_language
-memory supplies the default. The older identity/language memory remains only an
-observation. Explicit auto mode disables a fixed memory default. Asking voice
-to remember a preference uses the existing save_memory tool; saving remains
-model-driven and Live loads the preference on session creation. Use the CLI
-and restart for a directly verifiable setting. Typed chat does not execute settings.
-This is a model instruction, not a guarantee against all provider language errors;
-input transcription also receives the matching language hint; no additional model is invoked.
-
-Live recovery recognizes `BidiGenerateContent session not found or expired` as
-session expiry, drops the stale resumption handle and reconstructs the same
-configured model with local conversation context. Failed connection attempts
-increase retry delay rather than inheriting a successful old session's uptime.
-Quota/rate-limit messages take precedence over generic WebSocket 1011 handling;
-retries wait 60, 120, 240, then 300 seconds without model/provider fallback.
-Expected provider failures use structured diagnostics instead of duplicate stack
-traces. Credential redaction handles whitespace and Bearer authorization values.
-Playback-aware onset filters quiet residuals even when platform AEC reports active;
-quiet spoken interruptions may need a clearer/louder utterance. This is an audio
-heuristic, not a guaranteed acoustic echo canceller or word blacklist.
-
-Phone PCM now passes a local WebRTC VAD (mode 2) before energy/onset gating.
-Packets are reassembled into complete 20 ms PCM16 frames; accepted frames keep
-source ownership metadata and their original byte order. Non-speech cannot
-start an activity or extend the speech timeout solely through high RMS. Framing
-and VAD history reset on source changes, mute and input gaps. This is local signal
-classification, not another LLM or a provider fallback. Real background speech
-or residual spoken echo can still pass; physical-device verification is required.
-Install updated requirements before restart. Startup checks the required detector
-before opening services/Live sessions and reports an explicit missing-dependency
-error. Input-transcription diagnostics include a casefolded SHA-256 fingerprint
-(first 16 hex characters) to correlate repeats without storing transcript text
-in interaction.log; matching fingerprints reveal repeats, not the acoustic cause.
-
-Primary response language now also supplies an input-ASR language hint. Common
-short codes/display names map to BCP-47 (`ID`/Indonesian → `id-ID`); regional tags
-are preserved. Auto mode leaves language detection automatic; unknown language
-display names are not sent as invalid BCP-47. Gemini uses
-input_audio_transcription.language_codes in the same configured Live session.
-OpenAI Realtime receives the corresponding two-letter transcription language
-while preserving its selected transcription model/manual audio turns. This is a
-hint, not a guaranteed language lock or a new model. Runtime routing diagnostics
-include resolved response language and input hints; transcription diagnostics
-also include the provider language code when returned. Install requirements
-(Google Gen AI SDK >=2.31) before restarting. No Android rebuild is needed.
-
-### Spoken approval feedback
-
-Jarvis acknowledges permission received, rejection, and expiry in the selected
-response language. Permission received is separate from action completion:
-execution success/failure gets its own brief outcome. Sensitive action arguments
-are not spoken. The server expires unanswered approvals after 15 seconds, even
-if no client reply arrives. Feedback waits for the originating companion and an
-available Live session; muted/offline feedback is bounded to 120 seconds. It
-uses the configured Live model and does not request another approval.
-
-### Partial Word document revisions
-
-For an existing DOCX, use `document_editor`: `list` to locate actual generated files, `inspect` to obtain the current text and SHA-256, then `revise` with that hash and one exact paragraph or heading section. A revision creates a unique, verified `.docx` under `storage/artifacts/documents/`; the source stays unchanged. Other sections and package resources are retained. Targets containing tables, fields, or embedded content fail explicitly rather than discarding them; select a plain paragraph instead. Revised text uses the first selected paragraph/run style; mixed formatting inside the replaced text is not preserved.
-
-Send the exact verified `file_path` through `send_server_file`. Default delivery is a new attachment on Android/Desktop, with both versions retained. Direct saving remains available only when explicitly requested. A missing source, stale version, failed generation, or unchanged result is a failure, never a successful revision or delivery. The Text provider configured in setup performs requested rewriting; literal `replacement_text` needs no model call. Do not regenerate a whole paper with `dev_agent` for a partial edit or guess an updated filename.
-
-
-Activity outcome verification applies to every activity, not only DOCX. A tool returning or user approval does not prove success. FAILED, WAITING and UNVERIFIED cannot become verified checkpoints or completed tasks. Plain legacy success strings and empty results remain UNVERIFIED until a tool reports verification of the actual postcondition. Inspect before retrying side effects; never repeat a confirmed action blindly. VERIFIED describes only that step: artifact existence does not prove content correctness, notification is not saving on the device, and queued delivery is still waiting. Use actual returned paths and preserve prior versions for revisions. File processor output filenames are unique across formats and saved outputs return paths, sizes and hashes; short requested text edits are saved too. This is a shared execution/reporting contract, not an implementation of arbitrary format-specific editors or rollback for every external application.
-
-
-Guarded self-repair requires `pytest` in the same server interpreter (included in `requirements.txt`). Install updated dependencies with `python -m pip install -r requirements.txt`. It validates exact edits in an isolated sandbox and again after writing, preserving snapshots for rollback. Multiple replacements in one file are grouped into one candidate. Concurrent repairs wait, and source changes detected during validation are not overwritten. A failed validator returns its bounded result instead of a generic success claim.
-
-Source validation is not runtime activation. A validated Python patch reports `WAITING` with `activation_required=restart_server`; use `python main.py --restart`, then reproduce the original action. Android source changes require APK rebuild/install. Resource changes require a reload. Repair does not restart itself or claim the original symptom was fixed merely because tests passed. Missing format support is a capability gap, not a guarantee that self-repair can safely invent and deploy a working editor. Provider/configuration errors require their actual cause to be resolved; Text remains the only diagnosis provider, without a Live fallback.
-
-
-Native provider authentication is confined to setup and provider adapters. `openai_codex` uses Mark-owned device-code OAuth credentials and the account Responses HTTP stream, never a subprocess or CLI token import. `google_oauth` is a separate Text adapter using a user-owned Desktop OAuth client/Cloud project and the Gemini Developer API; Google Live remains independently configured with its API key. OpenRouter can exchange a PKCE headless authorization code for a user-controlled key. Claude and other API providers retain direct API-key access. Credentials stay under ignored `config/provider_auth/`, outside exported artifact roots and source-discovery contexts. Failed/revoked auth never authorizes a provider/model fallback. No login token is sent to a model as prompt content.
+Protocol identifiers such as `jarvis.command`, `X-Jarvis-Local`, and `com.jarvis.companion` remain stable for compatibility. Detailed procedures belong in [operations](docs/operations.md), not in architecture history.

@@ -2,13 +2,26 @@
 from __future__ import annotations
 
 
+LANGUAGE_NAMES = {
+    "ID": "Indonesian", "EN": "English", "JA": "Japanese",
+    "KO": "Korean", "ZH": "Chinese", "AR": "Arabic",
+    "ES": "Spanish", "FR": "French", "DE": "German",
+    "PT": "Portuguese", "RU": "Russian", "HI": "Hindi",
+    "MS": "Malay", "TH": "Thai", "VI": "Vietnamese",
+    "TR": "Turkish", "IT": "Italian", "NL": "Dutch",
+}
+
 def normalize_language(value: str) -> str:
     if not isinstance(value, str):
         raise ValueError("Language must be a name/code or auto")
     value = value.strip()
     if not value or len(value) > 64 or not all(c.isalpha() or c in ' -_' for c in value):
-        raise ValueError("Use a language name/code, for example Indonesian, id-ID, or auto")
-    return 'auto' if value.lower() == 'auto' else value
+        raise ValueError("Use a language name/code, for example ID, EN, id-ID, or auto")
+    if value.lower() == 'auto':
+        return 'auto'
+    if len(value) == 2 and value.isascii():
+        return value.upper()
+    return value
 
 
 def preferred_language(config=None, memory=None) -> str:
@@ -40,6 +53,7 @@ def language_instruction(config=None, memory=None) -> str:
     language = preferred_language(config, memory)
     if not language:
         return ''
+    language = LANGUAGE_NAMES.get(language, language)
     return (
         f"RESPONSE LANGUAGE POLICY: The user's primary response language is {language}. "
         "Use it for all user-facing answers and spoken acknowledgements. Switch only "

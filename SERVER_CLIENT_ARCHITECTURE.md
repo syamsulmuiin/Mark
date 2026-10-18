@@ -307,8 +307,8 @@ Queued device PCM carries internal socket ownership; the relay discards frames f
 
 ## Primary response language
 
-Use `python main.py --language Indonesian` (or `English`, another language name,
-or a code such as `id-ID`), then `python main.py --restart`. Setup also offers
+Use `python main.py --language ID` (or `EN`, another language code/name,
+or a regional tag such as `id-ID`), then `python main.py --restart`. Setup also offers
 this preference without changing provider selections or saved API keys.
 Use `python main.py --language auto` and restart to follow clear user language
 again. Empty setup input preserves the current preference.

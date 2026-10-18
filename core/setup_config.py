@@ -29,7 +29,7 @@ def interactive_language_setup() -> bool:
     current = load_config().get("response_language", "auto")
     print("Response language: use a primary language to prevent accidental switching.")
     try:
-        value = _safe_input(f"Primary response language (Indonesian / English / other name; auto follows user) [{current}]: ").strip()
+        value = _safe_input(f"Primary response language (ID / EN / other code or name; auto follows user) [{current}]: ").strip()
         if value:
             save_response_language(value)
         return True

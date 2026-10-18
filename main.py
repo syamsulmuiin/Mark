@@ -1130,7 +1130,7 @@ class JarvisLive:
         if _delegation_policy:
             parts.append(_delegation_policy)
 
-        from core.response_language import language_instruction
+        from core.response_language import language_instruction, input_language_codes
         _language_policy = language_instruction(memory=memory)
         if _language_policy:
             parts.append(_language_policy)
@@ -1138,7 +1138,7 @@ class JarvisLive:
         cfg = dict(
             response_modalities=["AUDIO"],
             output_audio_transcription={},
-            input_audio_transcription={},
+            input_audio_transcription={"language_codes": input_language_codes(memory=memory)},
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
                 activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
@@ -2358,7 +2358,8 @@ class JarvisLive:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
                                 _trace_event("live_input_transcription", source="configured_live_provider",
-                                    chars=len(txt), fingerprint=hashlib.sha256(txt.casefold().encode("utf-8")).hexdigest()[:16],
+                                    chars=len(txt), provider_language_code=getattr(sc.input_transcription, "language_code", None),
+                                    fingerprint=hashlib.sha256(txt.casefold().encode("utf-8")).hexdigest()[:16],
                                     device_id=getattr(getattr(self, "_dashboard", None), "active_voice_device", None))
                                 if not in_buf:
                                     # New voice input arrives before its tool calls.
@@ -3037,11 +3038,14 @@ class JarvisLive:
                     _trace_event("live_connected", model=live_model, session=self._session_generation)
                     from core.setup_config import load_config as load_routing_config
                     _routing = load_routing_config()
+                    from core.response_language import preferred_language
                     _trace_event("llm_routing", live_provider=llm_live.provider(_routing),
                                  live_model=live_model, text_provider=_routing.get("llm_provider", "gemini"),
                                  text_models=(_routing.get("provider_models") or {}).get(_routing.get("llm_provider"))
                                              or _routing.get("chat_models") or _routing.get("text_models") or "default",
-                                 text_provider_fallback=False, model_fallback=False, interruption_provider=llm_live.provider(_routing))
+                                 text_provider_fallback=False, model_fallback=False, interruption_provider=llm_live.provider(_routing),
+                                 response_language=preferred_language(config=_routing) or "auto",
+                                 input_transcription_language_codes=config.input_audio_transcription.language_codes or [])
                     if self._recovery_context_pending:
                         self.ui.write_log("SYS: Reconnected — conversation context recovered locally.")
                         self._recovery_context_pending = False

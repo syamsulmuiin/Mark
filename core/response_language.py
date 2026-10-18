@@ -49,6 +49,35 @@ def preferred_language(config=None, memory=None) -> str:
         return ''
 
 
+LANGUAGE_LOCALES = {
+    'ID': 'id-ID', 'EN': 'en-US', 'JA': 'ja-JP', 'KO': 'ko-KR',
+    'ZH': 'zh-CN', 'AR': 'ar-EG', 'ES': 'es-ES', 'FR': 'fr-FR',
+    'DE': 'de-DE', 'PT': 'pt-BR', 'RU': 'ru-RU', 'HI': 'hi-IN',
+    'MS': 'ms-MY', 'TH': 'th-TH', 'VI': 'vi-VN', 'TR': 'tr-TR',
+    'IT': 'it-IT', 'NL': 'nl-NL',
+}
+
+
+def input_language_codes(config=None, memory=None) -> list[str]:
+    """Use a recognized primary language as an ASR hint, not a language lock."""
+    import re
+    language = preferred_language(config, memory)
+    if not language:
+        return []
+    aliases = {name.casefold(): code for code, name in LANGUAGE_NAMES.items()}
+    aliases.update({'bahasa indonesia': 'ID', 'indonesia': 'ID'})
+    language = aliases.get(language.casefold(), language).replace('_', '-')
+    if language.upper() in LANGUAGE_LOCALES:
+        return [LANGUAGE_LOCALES[language.upper()]]
+    if re.fullmatch(r'[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*', language):
+        parts = language.split('-')
+        return ['-'.join([parts[0].lower()] + [
+            part.title() if len(part) == 4 else part.upper() for part in parts[1:]])]
+    # Unknown display names remain usable for response instructions; do not send
+    # them as invalid BCP-47 strings to a provider.
+    return []
+
+
 def language_instruction(config=None, memory=None) -> str:
     language = preferred_language(config, memory)
     if not language:

@@ -331,7 +331,7 @@ to remember a preference uses the existing save_memory tool; saving remains
 model-driven and Live loads the preference on session creation. Use the CLI
 and restart for a directly verifiable setting. Typed chat does not execute settings.
 This is a model instruction, not a guarantee against all provider language errors;
-it does not change acoustic transcription or invoke an additional model.
+input transcription also receives the matching language hint; no additional model is invoked.
 
 Live recovery recognizes `BidiGenerateContent session not found or expired` as
 session expiry, drops the stale resumption handle and reconstructs the same
@@ -357,3 +357,15 @@ before opening services/Live sessions and reports an explicit missing-dependency
 error. Input-transcription diagnostics include a casefolded SHA-256 fingerprint
 (first 16 hex characters) to correlate repeats without storing transcript text
 in interaction.log; matching fingerprints reveal repeats, not the acoustic cause.
+
+Primary response language now also supplies an input-ASR language hint. Common
+short codes/display names map to BCP-47 (`ID`/Indonesian → `id-ID`); regional tags
+are preserved. Auto mode leaves language detection automatic; unknown language
+display names are not sent as invalid BCP-47. Gemini uses
+input_audio_transcription.language_codes in the same configured Live session.
+OpenAI Realtime receives the corresponding two-letter transcription language
+while preserving its selected transcription model/manual audio turns. This is a
+hint, not a guaranteed language lock or a new model. Runtime routing diagnostics
+include resolved response language and input hints; transcription diagnostics
+also include the provider language code when returned. Install requirements
+(Google Gen AI SDK >=2.31) before restarting. No Android rebuild is needed.

@@ -110,9 +110,11 @@ def test_live_config_and_realtime_receive_the_same_preference(tmp_path, monkeypa
         _recovery_context_pending=False, _session_log=[], _resume_handle=None,
         _enhanced_live=False, _tuned_live=False)
     live_config = namespace['_build_config'](host)
+    assert live_config.input_audio_transcription.language_codes == ['id-ID']
     assert 'primary response language is Indonesian' in live_config.system_instruction
     realtime = session_options(live_config, {})
     assert realtime['instructions'] == live_config.system_instruction
+    assert realtime['audio']['input']['transcription']['language'] == 'id'
 
 
 @pytest.mark.parametrize('code,name', [('id','Indonesian'), ('EN','English'), ('ja','Japanese'), ('zh','Chinese')])

@@ -50,10 +50,20 @@ def session_options(config, settings):
                           "parameters": _schema(declaration.get("parameters_json_schema")
                                                 or declaration.get("parameters")
                                                 or {"type": "object", "properties": {}})})
+    from core.response_language import input_language_codes
+    transcription = {"model": settings.get("realtime_transcription_model") or "gpt-4o-mini-transcribe"}
+    audio_transcription = _dict(cfg.get("input_audio_transcription") or {})
+    hints = audio_transcription.get("language_codes")
+    if hints is None:
+        hints = input_language_codes(settings)
+    if hints:
+        code = hints[0].split("-", 1)[0].lower()
+        if len(code) == 2:
+            transcription["language"] = code
     return {"type": "realtime", "output_modalities": ["audio"],
             "instructions": cfg.get("system_instruction") or "",
             "audio": {"input": {"format": {"type": "audio/pcm", "rate": 24000},
-                                 "transcription": {"model": settings.get("realtime_transcription_model") or "gpt-4o-mini-transcribe"},
+                                 "transcription": transcription,
                                  "turn_detection": None},
                       "output": {"format": {"type": "audio/pcm", "rate": 24000},
                                  "voice": settings.get("realtime_voice") or "marin"}},

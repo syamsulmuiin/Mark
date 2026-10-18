@@ -9,9 +9,15 @@ This document describes the current architecture. Historical GUI/CLI/background 
 The server treats transport connectivity and conversational liveness as separate states. A Gemini Live socket can remain open while no longer producing response events, so voice recovery is not exception-only. Completed companion voice-activity boundaries are tracked against meaningful provider progress. Two consecutive ended voice turns with no provider content trigger a context-preserving Live-session recycle. A new user voice turn also clears stale interruption state so an interrupted response cannot suppress later response audio indefinitely. Session-resumption handles and the local transcript fallback remain the continuity mechanisms across that recycle.
 
 
-### Semantic voice interruption
+### Voice interruption
 
-Companion microphone activity is not itself an interruption. On full-duplex voice clients, speech detected while the assistant is speaking is buffered as a bounded candidate and classified by meaning across human languages. Only an explicit interruption, correction, cancellation, or deliberate conversational takeover stops assistant playback; background speech, echo, incidental acknowledgements, and ambiguous audio fail closed and do not interrupt. Accepted candidate audio is then replayed into the interactive Live session so the user's actual request remains part of the conversation. Manual interruption controls remain explicit and immediate.
+Phone PCM is sent to the selected Live session after local onset gating. Idle
+speech requires 160 ms above RMS 250; during assistant playback and a 200 ms relay
+tail it requires 320 ms above RMS 1000. The existing Live provider handles
+interruption; no auxiliary semantic classifier or additional model is used.
+Platform AEC/NS are attached on Android, but residual echo or background speech
+can still pass an energy gate. Manual interruption remains available.
+
 
 
 ### Server lifecycle health
@@ -287,7 +293,7 @@ Plain-text file and flight helpers use the selected Text reasoning facade. Groun
 
 Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
 
-Phone speech requires 160 ms of consecutive above-threshold PCM before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
+Idle phone speech requires 160 ms above RMS 250; during assistant playback (including a 200 ms relay tail), onset requires 320 ms above RMS 1000 before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
 
 Android microphone capture now owns a fixed AudioRecord, WebSocket, and generation
 for each session. A read that completes after stop/reconnect cannot send PCM to
@@ -326,3 +332,15 @@ model-driven and Live loads the preference on session creation. Use the CLI
 and restart for a directly verifiable setting. Typed chat does not execute settings.
 This is a model instruction, not a guarantee against all provider language errors;
 it does not change acoustic transcription or invoke an additional model.
+
+Live recovery recognizes `BidiGenerateContent session not found or expired` as
+session expiry, drops the stale resumption handle and reconstructs the same
+configured model with local conversation context. Failed connection attempts
+increase retry delay rather than inheriting a successful old session's uptime.
+Quota/rate-limit messages take precedence over generic WebSocket 1011 handling;
+retries wait 60, 120, 240, then 300 seconds without model/provider fallback.
+Expected provider failures use structured diagnostics instead of duplicate stack
+traces. Credential redaction handles whitespace and Bearer authorization values.
+Playback-aware onset filters quiet residuals even when platform AEC reports active;
+quiet spoken interruptions may need a clearer/louder utterance. This is an audio
+heuristic, not a guaranteed acoustic echo canceller or word blacklist.

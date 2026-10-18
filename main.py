@@ -110,6 +110,7 @@ def _trace_event(event: str, **fields) -> None:
     except Exception:
         pass
 
+from core.runtime_errors import is_expired_live_session, next_quota_delay
 from core.runtime_errors import Boundary, ErrorAction, classify_error
 from core.model_config import get_live_model
 LIVE_MODEL          = get_live_model()
@@ -392,9 +393,10 @@ def _exception_text(exc: BaseException) -> str:
 def _bounded_exception_text(exc: BaseException, limit: int = 600) -> str:
     """Return a short diagnostic without persisting credential-like values."""
     text = " ".join(_exception_text(exc).split())
+    text = re.sub(r"(?i)\bbearer\s+[^\s,;]+", "Bearer [REDACTED]", text)
     text = re.sub(
-        r"(?i)(api[_ -]?key|token|authorization|bearer|password|secret)\\s*[:=]\\s*[^\\s,;]+",
-        r"\\1=[REDACTED]",
+        r"(?i)(api[_ -]?key|token|authorization|bearer|password|secret)\s*[:=]\s*[^\s,;]+",
+        r"\1=[REDACTED]",
         text,
     )
     return text[:limit]
@@ -2485,7 +2487,9 @@ class JarvisLive:
             # before the outer lifecycle handler can recognise it.
             _recv_err = _exception_text(e).lower()
             _expected_rollover = (
-                "goaway" in _recv_err
+                is_expired_live_session(e)
+                or not classify_error(Boundary.LIVE_SESSION, e).traceback
+                or "goaway" in _recv_err
                 or "session durat" in _recv_err
                 or ("1008" in _recv_err and (
                     "failed to close" in _recv_err
@@ -2710,13 +2714,16 @@ class JarvisLive:
                 rms = 0.0
             now = time.monotonic()
             if not self._phone_activity_active:
-                pending = onset.feed(chunk, rms)
+                playback = (self._is_speaking
+                    or now < getattr(self, "_audio_relay_cursor", 0.0) + 0.2)
+                pending = onset.feed(chunk, rms, playback=playback)
                 if not pending:
                     continue
                 self._phone_last_voice = now
                 await self.out_queue.put({"activity_start": True})
                 self._phone_activity_active = True
-                _trace_event("phone_speech_onset", buffered_frames=len(pending), rms=int(rms))
+                _trace_event("phone_speech_onset", buffered_frames=len(pending), rms=int(rms),
+                    playback_active=playback, threshold=1000 if playback else 250)
                 for frame in pending:
                     await self.out_queue.put(frame)
                 continue
@@ -2969,6 +2976,7 @@ class JarvisLive:
 
         while True:
             live_model = llm_live.model()
+            _connected_this_attempt = False
             try:
                 if self._dashboard:
                     self._dashboard.set_phone_audio_enabled(False)
@@ -2986,6 +2994,7 @@ class JarvisLive:
                     client.aio.live.connect(model=live_model, config=config) as session,
                     asyncio.TaskGroup() as tg,
                 ):
+                    _connected_this_attempt = True
                     self.session          = session
                     self._session_generation += 1
                     self._last_live_connected_at = time.monotonic()
@@ -3080,6 +3089,10 @@ class JarvisLive:
             except SystemExit:
                 raise
             except BaseException as e:
+                self.set_speaking(False)
+                self._audio_relay_cursor = 0.0
+                if self._dashboard:
+                    await self._dashboard.clear_device_audio()
                 # Catches both Exception and BaseExceptionGroup (Python 3.11+
                 # TaskGroup raises BaseExceptionGroup when tasks are cancelled
                 # externally, which `except Exception` would miss, letting the
@@ -3135,6 +3148,20 @@ class JarvisLive:
                     error=_error_detail,
                 )
 
+                if decision.action is ErrorAction.QUOTA_BACKOFF:
+                    self._quota_backoff = next_quota_delay(getattr(self, "_quota_backoff", 0))
+                    llm_live.note_model_failure(live_model, err_str)
+                    _trace_event("live_retry_scheduled", reason="quota", delay_seconds=self._quota_backoff,
+                        model=live_model, model_fallback=False)
+                    self.ui.write_log(
+                        f"LIVE: Configured provider rejected quota/rate limit. Retrying the same model "
+                        f"in {self._quota_backoff:g}s; check provider quota/billing."
+                    )
+                    if self._dashboard:
+                        await self._dashboard.broadcast({"type": "status", "state": "reconnecting"})
+                    await asyncio.sleep(self._quota_backoff)
+                    continue
+
                 # Record the configured model's failure, never select another model/provider.
                 if decision.action is ErrorAction.MODEL_FAILOVER:
                     llm_live.note_model_failure(live_model, err_str)
@@ -3146,7 +3173,8 @@ class JarvisLive:
                 # the handle, and made an ordinary reconnect look like a new
                 # conversation.
                 _is_rollover_transport = (
-                    "goaway" in _err_lower
+                    decision.action is ErrorAction.SESSION_ROLLOVER
+                    or "goaway" in _err_lower
                     or "session durat" in _err_lower
                     or "session expired" in _err_lower
                     or ("1008" in _err_lower and (
@@ -3181,7 +3209,7 @@ class JarvisLive:
                     # GoAway, a provider session-expired policy close, or a
                     # WebSocket 1008. Expired sessions cannot be resumed with the
                     # old handle; clear it and reconnect cleanly.
-                    expired = "session expired" in _err_lower
+                    expired = is_expired_live_session(e)
                     print("[JARVIS] Live session rollover — reconnecting.")
                     self._recovery_context_pending = bool(self._session_log)
                     if expired:
@@ -3190,9 +3218,10 @@ class JarvisLive:
                     self.audio_in_queue = asyncio.Queue()
                     self.out_queue = asyncio.Queue(maxsize=200)
                     self._phone_activity_active = False
-                    _trace_event("live_reconnect", reason="session_expired", dropped_phone_frames=dropped)
+                    _trace_event("live_reconnect", reason="session_expired" if expired else "transport_rollover",
+                        resume_handle_cleared=expired, dropped_phone_frames=dropped)
                     connected_for = time.monotonic() - getattr(self, "_last_live_connected_at", time.monotonic())
-                    if connected_for >= 60:
+                    if _connected_this_attempt and connected_for >= 60:
                         self._conn_backoff = 1
                     else:
                         self._conn_backoff = min(max(getattr(self, "_conn_backoff", 1) * 2, 2), 30)
@@ -3205,7 +3234,7 @@ class JarvisLive:
                 # failure.  Keep retry/backoff active without flooding error.log
                 # with a full traceback on every reconnect attempt.
                 _is_transient_network = _is_transient_transport_error(e)
-                if not _is_transient_network:
+                if decision.traceback and not _is_transient_network:
                     print(f"[JARVIS] Error ({type(e).__name__}): {e}")
                     traceback.print_exc()
 

@@ -330,7 +330,7 @@ Generated capabilities remain pure LOW-risk computation. Repeated runtime failur
 
 Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
 
-Phone speech requires 160 ms of consecutive above-threshold PCM before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
+Idle phone speech requires 160 ms above RMS 250; during assistant playback (including a 200 ms relay tail), onset requires 320 ms above RMS 1000 before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
 
 ## Primary response language
 
@@ -361,3 +361,15 @@ explicit translation requests can override it for that request. Names such as
 Use `--language auto` and restart to follow the user's language automatically.
 A saved setting takes priority over language memory; detected speech does not
 replace it. This controls replies, not microphone transcription.
+
+Live recovery recognizes `BidiGenerateContent session not found or expired` as
+session expiry, drops the stale resumption handle and reconstructs the same
+configured model with local conversation context. Failed connection attempts
+increase retry delay rather than inheriting a successful old session's uptime.
+Quota/rate-limit messages take precedence over generic WebSocket 1011 handling;
+retries wait 60, 120, 240, then 300 seconds without model/provider fallback.
+Expected provider failures use structured diagnostics instead of duplicate stack
+traces. Credential redaction handles whitespace and Bearer authorization values.
+Playback-aware onset filters quiet residuals even when platform AEC reports active;
+quiet spoken interruptions may need a clearer/louder utterance. This is an audio
+heuristic, not a guaranteed acoustic echo canceller or word blacklist.

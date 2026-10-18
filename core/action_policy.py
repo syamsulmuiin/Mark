@@ -30,7 +30,7 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
         return str(args.get("operation", "status")) not in {"status", "check"}
     if tool == "document_editor":
         # This tool only reads approved documents or creates a distinct inert DOCX version.
-        return str(args.get("action", "")).lower() not in {"list", "inspect", "revise", "append_section"}
+        return str(args.get("action", "")).lower() not in {"create", "list", "inspect", "revise", "append_section"}
     if tool in READ_ONLY or tool in SIMPLE or tool in NATIVE_GATES:
         return False
     if tool == "code_helper" and str(args.get("action", "")).lower() == "write" and args.get("code"):

@@ -51,19 +51,44 @@ def _text(*args):
     return _git(*args).stdout.decode('utf-8').strip()
 
 
-def _checkout():
+class LocalChangesError(RuntimeError):
+    def __init__(self, changes):
+        self.changes = changes[:50]
+        self.total_count = len(changes)
+        super().__init__('Local changes or untracked files exist; update stopped without overwriting them. See blocking_changes for paths.')
+
+
+def _local_changes():
+    # -z preserves spaces/newlines and avoids Git quoting path names.
+    fields = _git('status', '--porcelain=v1', '-z', '--untracked-files=all').stdout.split(b'\0')
+    changes, index = [], 0
+    while index < len(fields):
+        row = fields[index]
+        index += 1
+        if not row:
+            continue
+        status = row[:2].decode('ascii', errors='replace')
+        changes.append({'status': status, 'path': row[3:].decode('utf-8', errors='replace')})
+        if 'R' in status or 'C' in status:
+            index += 1  # Original rename/copy path; never a second change record.
+    return changes
+
+
+def _checkout(*, require_clean=True):
     if Path(_text('rev-parse', '--show-toplevel')).resolve() != BASE_DIR.resolve():
         raise RuntimeError('Mark must run from its own Git checkout')
     if _text('config', '--get', 'remote.origin.url') not in _ALLOWED_REMOTES:
         raise RuntimeError('Update requires the official syamsulmuiin/Mark GitHub origin')
     if _text('branch', '--show-current') != 'main':
         raise RuntimeError('Update requires the main branch; no branch switch is performed')
-    if _text('status', '--porcelain'):
-        raise RuntimeError('Local changes or untracked files exist; update stopped without overwriting them')
+    changes = _local_changes()
+    if require_clean and changes:
+        raise LocalChangesError(changes)
+    return changes
 
 
-def _candidate():
-    _checkout()
+def _candidate(*, require_clean=True):
+    _checkout(require_clean=require_clean)
     _git('fetch', '--no-tags', 'origin', 'main')
     current, target = _text('rev-parse', 'HEAD'), _text('rev-parse', 'FETCH_HEAD')
     if _git('merge-base', '--is-ancestor', current, target, allow_failure=True).returncode:
@@ -120,11 +145,15 @@ def maintain(operation='status'):
                     'message': 'A restart is already pending; do not schedule it again. If stuck, inspect runtime/maintenance.log.'}
         if operation == 'restart':
             return _schedule_restart()
-        current, target, changed, dependencies = _candidate()
+        current, target, changed, dependencies = _candidate(require_clean=operation != 'check')
         result = {'ok': True, 'status': 'VERIFIED', 'verified': True, 'current_commit': current,
                   'target_commit': target, 'update_available': current != target,
                   'dependencies_changed': dependencies, 'changed_files': len(changed)}
         if operation == 'check':
+            changes = _local_changes()
+            result.update(blocking_changes=changes[:50], blocking_change_count=len(changes), can_apply_update=not changes,
+                          message=('Update availability was checked; local changes block applying it, not checking GitHub.' if changes else
+                                   'Update available.' if current != target else 'Already at the latest fetched main commit.'))
             return result
         _validate(target)
         _checkout()  # Recheck after fetch/validation before changing local files.

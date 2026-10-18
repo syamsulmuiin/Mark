@@ -1,113 +1,29 @@
-# Mark Android Companion
+# Android companion
 
-The Android companion is a native control, execution, and interactive-voice endpoint for the headless Mark server. Android-originated device-local requests default back to this phone unless the user explicitly targets another paired device.
+The native Android companion provides voice, device control, and attachments for the headless Mark server. Device-local requests default to this phone.
 
-## Build
+## Build and install
 
-Open `android-companion/` in Android Studio with JDK 17 and build/install the `app` module. This repository does not rely on a committed Gradle wrapper binary. Release signing is documented in `SIGNING.md`.
+Use JDK 17 and Android SDK 35. Open this directory in Android Studio or use the Gradle version configured in [the build workflow](../.github/workflows/build-android.yml). A Gradle wrapper binary is not committed.
+
+GitHub Actions publishes `Companion-debug` and, when signing secrets are configured, `Companion-release-signed`. Use the same release signing key for updates over an existing installation. See [signing](SIGNING.md).
 
 ## Pairing
 
-1. Start the server: `python main.py --start`.
-2. Wait for a companion pairing request; the operator does not create a free-standing code.
-3. Open the companion and tap **Minta permintaan pairing**. The server returns only an opaque request ID and expiry; it does not return a pairing code to the phone.
-4. On the trusted server operator machine, run `python main.py --pair` to review pending requests, then run `python main.py --pair --pairing-id <request-id>` to issue one 8-character code out of band.
-5. Enter the operator-issued code in the companion. The code is one-time, expires with the request, is rate-limited, and is bound to the device's Ed25519 identity.
-6. The companion creates/persists its device identity and reconnects through signed challenge/response.
+Request pairing from the companion, review the pending request with `python main.py --pair` on the server, then issue a code using `--pair --pairing-id <request-id>`. Enter the one-time, eight-character code on the requesting phone. See the [setup guide](../docs/setup.md).
 
-Pairing establishes identity and permitted capabilities; it is not blanket device permission.
+The saved Ed25519 identity supports reconnects. Normal transport failures retain pairing. Authentication failures preserve keys and pause retries; only an explicit server revocation clears the paired flag. Do not clear app data merely to recover a network connection.
 
-## Interactive voice
+## Device control
 
-Microphone capture and JARVIS audio playback run on the companion, not on the server. During an Android-originated voice turn, command origin (`origin_device_id`) and response-audio target (`active_voice_device`) are intentionally separate state even though both normally refer to this phone.
+The companion advertises capabilities backed by native handlers. Accessibility automation is optional and must be enabled in Android Settings. Control follows inspect, act, and verify; ordinary Android permissions still apply. The app does not silently gain root, ADB, Device Owner, or force-stop access to arbitrary third-party apps.
 
-## Native capabilities
+Credential entry remains a user action. Browser UI work stays in the phone's browser and its existing session.
 
-The companion advertises supported capabilities such as command submission, notifications, vibration, clipboard, URL opening, app launching, native media-volume control, and Android Accessibility UI actions. The server must route only capabilities currently advertised by the connected companion.
+## Voice and attachments
 
-Android UI capabilities include inspection, click, text entry, scrolling, and global navigation. `audio.volume` provides generic media-volume `up`, `down`, `set`, `mute`, and `unmute` actions through Android AudioManager; it is advertised during both pairing and reconnect proof. App resolution accepts natural app names where supported by the companion/server resolver.
+Microphone capture and playback run on the phone. Android AEC/NS and local speech gating assist interruption handling; behavior still depends on hardware and environment.
 
-## Accessibility UI control
+The companion menu contains Attachments and Device Control. Received entries support Open, Save As, and Share. Received and Sent entries support Remove from my list and confirmed Delete server attachment. Normal delivery does not force a Downloads destination. Native source selection supports multiple files.
 
-Enable JARVIS Companion explicitly in Android Accessibility Settings. The app cannot silently enable this permission. If disabled, `android.ui.*` actions fail closed.
-
-Automation should inspect the current UI before deciding what to click/type and inspect again after important actions. A failed click should trigger recovery/inspection rather than blind repeated scrolling.
-
-The companion does not silently add root, ADB/Shizuku, Device Owner, arbitrary shell, protected-settings access, or unrestricted filesystem access.
-
-## Troubleshooting
-
-- **App launch works but UI actions fail:** verify Accessibility is enabled, then retry after UI inspection.
-- **Server says device offline:** confirm the companion is connected; if duplicate historical device names exist, the server should resolve the currently online record/UUID.
-- **Voice has no response audio:** do not change Android audio handling solely to fix command routing. Server command-origin and active-voice state are separate and must both remain valid.
-
-## Current Mark control model
-
-Android is a companion endpoint for a headless Mark server. Device UI automation is application-agnostic and uses generic Accessibility capabilities with an inspect -> act -> verify loop. Application/package names are target data, not automation recipes.
-
-Credential fields are a hard boundary: the companion must not accept automated PIN/password/passcode/credential entry. Normal non-credential UI operations remain available when Accessibility and the required Android permission are enabled.
-
-Ending a conversation does not stop the Mark server. Cross-device attachment transfer is supported through the Companion attachment transport; Android advertises `file.upload`, `file.receive`, and `attachment.inbox`, with the server coordinating verified delivery.
-
-## Voice end and reconnect lifecycle
-
-An intentional end-call action sets explicit local ended state before the voice WebSocket closes. Close/failure callbacks cannot auto-reconnect while that state is active. Unexpected transport loss remains recoverable. Starting a new explicit voice connection clears the state.
-
-
-### Re-pair identity replacement
-A fresh explicit Pair Code can replace one unambiguous offline stale identity with the same companion-reported name after reinstall. Normal reconnect does not delete trust, and ambiguous same-name devices are never removed automatically.
-
-## File transfer
-The Android companion advertises `file.upload` and `file.receive`. Sending or attaching a file defaults to the Attachment Inbox on both Android and desktop. Only an explicit user request to save/download directly sets `save_direct=true`. The requested destination is forwarded unchanged. Android can save to explicitly requested `Downloads/Mark` using MediaStore; other or unspecified locations use the system Save As dialog, with the requested folder as an initial hint where supported. Desktop writes to the exact requested path/existing folder, or asks with Save As if no path was given. Cancelling a picker fails the direct save instead of claiming success. Both paths verify SHA-256 and size. Generic raw model calls to `file.receive` are blocked; explicit saves go through `send_server_file`.
-
-
-### Attachment inbox
-Incoming transfers appear in the companion attachment inbox, including attachments queued while this device was offline. For normal attachment delivery, no destination directory is selected by the sender. Open downloads a verified temporary local cache copy; Save As lets the recipient choose a local location; Share uses the native Android share sheet (desktop companions explain where the OS share-sheet integration is unavailable). The source companion can open its native file picker when the source path is omitted. Attachments reference durable single-copy objects on the server. Normal attachment delivery does not write a permanent file. Direct saving is a separate explicit user request.
-
-
-### Overflow companion menu and final-turn attachment picker
-Android keeps the main voice surface uncluttered: Attachments and Device Control are grouped under the top-right overflow menu. Each destination opens a richer status/action dialog instead of occupying the app bar. Deferred attachment selection no longer uses transient SPEAKING/LISTENING state changes. The runtime emits `assistant.turn.complete` only after the completed Live turn has drained from the companion audio queue; Android and Desktop release a pending native file picker only on that event. Attachment lifecycle diagnostics use warning/error severity markers so detached-server `runtime/error.log` retains picker queued/selected/cancelled, transfer complete, and transfer failure checkpoints without file contents, local source paths, hashes, or transfer tokens.
-
-
-### Single-request attachment transaction and companion-styled menus
-A Live user turn owns at most one attachment transaction for a source/destination pair. Once native selection is queued, repeated `transfer_file` calls in the same user turn—including model-generated content URIs—reuse the existing transaction status and cannot open another picker or upload another file. The server records completion/failure/cancellation for that request so a retry receives the real outcome rather than starting over. Android companion submenus now follow the main dark/cyan visual language with circular action icons, clearer status copy, and middle-ellipsized filenames that keep the file extension visible.
-
-
-### Multi-file attachment batches
-A single explicit attachment request may select multiple files in one native picker. Android uses `ACTION_OPEN_DOCUMENT` with multi-selection enabled; Desktop uses its native multi-file picker. The selection is sent as one logical batch transaction, while every selected file remains an independent durable attachment in the recipient inbox and single-copy object store. Batch results report total/completed/failed counts and per-item results. Partial failure does not reopen the picker or retry the whole batch. The one-transaction-per-user-turn guard remains in force.
-
-
-### Unified companion panel
-
-The overflow menu, Received/Sent attachments, Device Control and recipient actions share one styled panel. Back navigation and a compact close icon replace stacked dialogs and large footer close buttons.
-
-### Send files to server
-
-A voice request to send files to the server opens the Android multi-select picker and stores the selected files permanently on the server. The Sent tab shows Stored on server; the phone does not receive its own upload as an incoming attachment.
-
-### Received and Sent attachments
-
-The Attachments dialog has Received and Sent views in the main companion’s dark and cyan visual style. Sent history is read-only; Open, Save As and Share are available only to recipients. Files uploaded to Mark for processing appear in Sent and do not show up as incoming files on the same phone.
-
-### Voice attachment picker
-
-Voice requests can queue the Android native multi-select picker after the assistant finishes speaking. No chat upload is required.
-
-### Document attachment filenames
-
-Selected Android documents retain their displayed name and extension when uploaded into the recipient inbox.
-
-### Attachment picker diagnostics and duplicate-name routing
-Attachment picker delivery now has explicit `received` and `opened` acknowledgements, persisted by the server diagnostic logger. Android and Desktop remember whether the current assistant turn has already completed, so a picker request arriving immediately after the completion event is opened once instead of waiting forever for an event that already occurred. SPEAKING/THINKING resets that completion latch for the next response.
-
-Device-name resolution now prefers an exact device ID. When several non-revoked records share the same display name, exactly one currently-online match may be selected; multiple online matches remain ambiguous and are never guessed. Historical trust records are not silently deleted because identical model names can represent different physical devices.
-
-## Companion surfaces
-
-The compact pairing screen uses the same dark card, cyan primary action, and JARVIS header as the voice screen. Its status line appears only during pairing or when input needs attention. Received and Sent attachment tabs have transparent backgrounds with a cyan underline for the selected tab; file history and recipient-only actions are unchanged.
-
-The Pair Code screen uses a compact reactor emblem, centered brand, and one clear pairing action. Already paired Android devices connect with their saved signed identity; no account form is required.
-
-### Capability contract
-
-The Android companion keeps one `DEVICE_CAPABILITIES` source of truth for both pairing and reconnect proof. Every advertised control capability is backed by a local handler. Device control remains bounded by Android platform permissions: Accessibility must be enabled by the user, arbitrary third-party apps cannot be force-stopped by an ordinary companion, and authentication credentials are never entered automatically.
+See [files and attachments](../docs/files.md) for retention, verification, and deletion scope. Companion source changes require a new APK; server-only changes do not.

@@ -9,7 +9,7 @@ def test_smoke_action_creates_pending_confirmation(monkeypatch):
     confirm.bind(lambda title, detail: shown.append((title, detail)), lambda: None)
     result = run_flash_approval_smoke_test({})
     assert "[CONFIRMATION_PENDING]" in result
-    assert shown and shown[0][0] == "Tes Flash Approval"
+    assert shown and shown[0][0] == "Flash Approval test"
     assert confirm.pending_request() is not None
     confirm.resolve(False, expected_request_id=confirm.pending_request()["request_id"])
     monkeypatch.setattr(confirm, "_pending", None)

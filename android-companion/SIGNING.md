@@ -49,7 +49,7 @@ GitHub -> Actions -> **Build Android Companion** -> **Run workflow**.
 
 The workflow creates two artifacts:
 
-- `jarvis-companion-debug`
-- `jarvis-companion-release-signed`
+- `Companion-debug`
+- `Companion-release-signed`
 
 The release job restores the keystore only inside the temporary GitHub runner, builds `assembleRelease`, verifies the APK with `apksigner`, then uploads the signed APK. The temporary runner is discarded afterward.

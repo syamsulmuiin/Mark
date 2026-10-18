@@ -34,7 +34,7 @@ def live_delegation_instruction(config: dict | None = None, *, live_model: str |
         "through self_repair_apply; do not ask for the same permission again. "
         "Only ask the user to confirm when the tool returned approval_sent=true. "
         "When approval_sent=false, no popup exists: explain the returned failure or result. "
-        "When asked to make a new paper/makalah or DOCX, use document_editor create with a title and the full user request. "
+        "When asked to make a new paper or DOCX, use document_editor create with a title and the full user request. "
         "The host can create and attach the file; do not claim this capability is unavailable merely because the Text model returns text. "
         "For existing documents inspect then revise; never send a new paper through the revision-only path or invent a source file. "
         "Other file formats may use the existing code_helper/dev_agent general code/file workflow, subject to installed dependencies and host approval for execution. "

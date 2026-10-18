@@ -1,0 +1,61 @@
+# Operations and troubleshooting
+
+## Lifecycle
+
+Use `python main.py --start`, `--stop`, or `--restart` from the server environment. `--enable` installs per-user autostart; `--disable` removes it without implicitly stopping a running worker. `--server-worker` is internal.
+
+Startup succeeds only when the local health endpoint reports the expected worker PID. A running process without a healthy API is not ready. Restart does not launch a replacement until the existing worker stops.
+
+Ending a conversation does not stop the service. Server shutdown requires an explicit server/service request.
+
+## Script updates
+
+Voice examples:
+
+- “Check Mark for updates.”
+- “Update Mark scripts from GitHub.”
+- “Restart the Mark server.”
+- “Update Mark and restart.”
+- “Check maintenance status.”
+
+`server_maintenance` exposes `status`, `check`, `update`, `restart`, and `update_restart`. Status/check require no approval; mutations use one host approval. The tool must be loaded in the server action registry.
+
+Checks report upstream availability separately from local blockers. Applying an update requires the official GitHub origin, the `main` branch, a clean checkout, fast-forward history, and passing server-source syntax checks. It never resets or deletes local changes. Blocked application reports up to 50 path/status entries and a total count.
+
+Root runtime state and local credentials are ignored by Git. Already-tracked source modifications remain blockers. Do not use a hard reset or clean command merely to clear an update message.
+
+Dependency-file changes retain a manual-install requirement and prevent automatic restart, including repeated update-and-restart requests. Use the server environment to install required dependencies before explicitly restarting. Maintenance does not update companion APKs.
+
+A detached helper schedules restart after ten seconds. Scheduled/restarting means `WAITING`; completion requires replacement-worker health/PID verification. After reconnecting, check maintenance status. A stuck job requires inspection of `runtime/maintenance.json` and `runtime/maintenance.log`.
+
+## Logs
+
+| Location | Purpose |
+| --- | --- |
+| `runtime/error.log` | Rotating server warnings, errors, and tracebacks, including early worker import failures |
+| `runtime/interaction.log` | Conversation-entry metadata, loaded tools, model calls, approvals, connections, and action outcomes |
+| `runtime/maintenance.json` | Last maintenance/restart state |
+| `runtime/maintenance.log` | Detached restart-helper output |
+| `~/.mark-companion/logs/error.log` | Desktop companion failures; separate from server logs |
+
+Interaction logs do not contain transcript text or audio. A quiet error log is normal during successful operation and does not prove that no failures occurred.
+
+Ask voice Mark to inspect runtime logs. `runtime_diagnostics` reads fixed server paths, redacts credentials, distinguishes missing/empty/unreadable files, and scans at most 2 MiB of interaction history while filtering audio noise. Older events can fall outside that window. Typed chat does not execute this tool.
+
+Interaction writers report storage failures to stderr, rate-limited per path. If both logging destinations are unwritable, persistence cannot be guaranteed. Check permissions and disk space.
+
+## Connection recovery
+
+Transport connectivity and conversational progress are separate. Repeated completed voice inputs without provider progress can trigger a same-model session recycle. Session expiry discards stale resumption state while local task context is retained. Provider quota failures back off without selecting another model.
+
+Android retains pairing through ordinary transport loss. Authentication failures preserve keys and pause retries for inspection; a changed server identity is not silently trusted. Preserve server identity/trust files and companion app data.
+
+Repeated/background speech needs device-level investigation. Local VAD, onset gating, and Android AEC/NS reduce noise; they do not prove acoustic echo is absent.
+
+## Task outcomes and self-repair
+
+`FAILED`, `WAITING`, and `UNVERIFIED` do not complete a task. `VERIFIED` applies to a reported step, not the entire user goal. Approval is authorization, not execution evidence; attachment handoff is not device saving.
+
+Diagnosis is read-only. Apply requires explicit repair authorization and a validated plan; high-risk changes need separate approval. Repair Guard restricts paths, protected areas, risk, and change budgets. Candidates are checked in isolation, then in the working tree; failures restore transaction snapshots. Historical repair knowledge must be checked against current source.
+
+Repair does not install dependencies, change privileges, bypass its own guard, commit/push, or restart itself. A validated Python edit still needs activation and reproduction of the original task. Android changes require rebuilding and installing the APK.

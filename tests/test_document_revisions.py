@@ -138,3 +138,76 @@ def test_missing_legacy_source_is_a_rejected_action(source):
     result = file_processor({'file_path': str(source.parent / 'updated_paper.docx'), 'action': 'fix'})
     assert json.loads(result)['ok'] is False
     assert rejected(result) is True
+
+
+def test_structured_subheading_is_separate_and_keeps_next_section(source):
+    result=revisions.revise(source,params(source,section_heading='Introduction',replacement_blocks=[
+        {'type':'heading','level':2,'text':'1.1 Background'},
+        {'type':'paragraph','text':'Separate body paragraph.'}]))
+    paragraphs=Document(result['file_path']).paragraphs
+    assert [(p.text,p.style.name) for p in paragraphs[:4]] == [
+        ('Introduction','Heading 1'),('1.1 Background','Heading 2'),
+        ('Separate body paragraph.','Normal'),('Methods','Heading 1')]
+    assert result['text_and_structure_verified'] and not result['layout_rendered']
+
+
+@pytest.mark.parametrize('text',[r'Body\n\n1.1 Heading\nBody',r'Body\\n\\n1.1 Heading\\nBody'])
+def test_literal_escaped_newlines_fail_without_producing_bad_docx(source,text):
+    before=source.read_bytes()
+    with pytest.raises(ValueError,match='Literal escaped'):
+        revisions.revise(source,params(source,section_heading='Introduction',replacement_text=text))
+    assert source.read_bytes()==before and not list(revisions.ARTIFACT_ROOT.rglob('*.docx'))
+
+
+def test_bibliography_appends_without_replacing_conclusion_or_tables(source):
+    result=revisions.revise(source,params(source,action='append_section',section_heading='DAFTAR PUSTAKA',
+        replacement_blocks=[{'type':'paragraph','text':'Existing author (2021). Existing work.'}]))
+    doc=Document(result['file_path'])
+    assert [(p.text,p.style.name) for p in doc.paragraphs[-2:]]==[
+        ('DAFTAR PUSTAKA','Heading 1'),('Existing author (2021). Existing work.','Normal')]
+    assert doc.paragraphs[4].text=='UNRELATED SECRET preserved.'
+    assert doc.tables[0].cell(0,0).text=='Preserved table'
+    assert result['source_unchanged']
+    with pytest.raises(ValueError,match='already exists'):
+        revisions.revise(result['file_path'],params(result['file_path'],action='append_section',section_heading='DAFTAR PUSTAKA',replacement_text='Other reference.'))
+
+
+@pytest.mark.parametrize('title',['DAFTAR PUSTAKA','7. DAFTAR PUSTAKA'])
+def test_bibliography_cannot_replace_an_unrelated_section(source,title):
+    with pytest.raises(ValueError,match='append_section'):
+        revisions.revise(source,params(source,section_heading='Introduction',replacement_text=title+'\nAuthor (2021). Work.'))
+    assert not list(revisions.ARTIFACT_ROOT.rglob('*.docx'))
+
+
+def test_combined_add_bibliography_instruction_cannot_overwrite_selected_body(source):
+    with pytest.raises(ValueError,match='append_section'):
+        revisions.revise(source,params(source,section_heading='Introduction',instruction='Tambahkan daftar pustaka dan rapikan subbab',replacement_text='New reference.'))
+
+
+def test_repeated_preserved_heading_is_not_duplicated(source):
+    result=revisions.revise(source,params(source,section_heading='Introduction',replacement_text='Introduction\nRevised body.'))
+    assert [p.text for p in Document(result['file_path']).paragraphs].count('Introduction')==1
+
+
+def test_structured_paragraph_cannot_hide_numbered_subheading(source):
+    with pytest.raises(ValueError,match='Numbered subheadings'):
+        revisions.revise(source,params(source,section_heading='Introduction',replacement_blocks=[
+            {'type':'paragraph','text':'1.1 Background. This incorrectly combines heading and body.'}]))
+
+
+def test_real_line_breaks_create_subheading_then_body(source):
+    result=revisions.revise(source,params(source,section_heading='Introduction',replacement_text='1.1 Background\nBody underneath.'))
+    paragraphs=Document(result['file_path']).paragraphs
+    assert paragraphs[1].text=='1.1 Background' and paragraphs[1].style.name=='Heading 2'
+    assert paragraphs[2].text=='Body underneath.' and paragraphs[2].style.name=='Normal'
+
+
+def test_heading_does_not_inherit_body_alignment_and_append_uses_body_not_cover(source):
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc=Document(source)
+    doc.paragraphs[1].alignment=WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source)
+    result=revisions.revise(source,params(source,action='append_section',section_heading='DAFTAR PUSTAKA',replacement_text='Reference.'))
+    paragraphs=Document(result['file_path']).paragraphs
+    assert paragraphs[-1].alignment is None
+    assert paragraphs[-2].alignment is None

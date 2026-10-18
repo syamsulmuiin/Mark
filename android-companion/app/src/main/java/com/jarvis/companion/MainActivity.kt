@@ -362,6 +362,7 @@ class MainActivity : AppCompatActivity() {
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
                     "ready"->{ reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
+                    "audio.clear"->{ stopPlayback(); setVoiceState("LISTENING") }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
                     "transcript.delta"->{ updateTranscriptDelta(m.optString("speaker"),m.optString("text")) }
                     "log"->{

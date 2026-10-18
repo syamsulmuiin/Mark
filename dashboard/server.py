@@ -707,6 +707,18 @@ class DashboardServer:
                            approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12])
         return device_id
 
+    async def clear_device_audio(self) -> bool:
+        """Clear playback only on the authenticated owner of the active voice session."""
+        owner = self._active_voice_device
+        socket = self._device_sockets.get(owner)
+        if socket is None:
+            return False
+        try:
+            await socket.send_json({"type": "audio.clear"})
+            return True
+        except Exception:
+            return False
+
     async def send_device_audio(self, pcm: bytes) -> None:
         """Send voice only to the companion that owns the current interaction."""
         # Voice output belongs to the companion that owns the live interaction.

@@ -167,7 +167,6 @@ def _get_transcript(video_id: str) -> str | None:
 
 
 def _summarize_with_gemini(transcript: str, video_url: str) -> str:
-    from google.genai import types
     from core import gemini
 
     max_chars = 80000
@@ -178,15 +177,13 @@ def _summarize_with_gemini(transcript: str, video_url: str) -> str:
         f"Please summarize this YouTube video transcript:\n\n{truncated}",
         tier=gemini.SMART,
         timeout_ms=60_000,
-        config=types.GenerateContentConfig(
-            system_instruction=(
+        config={"system_instruction": (
                 "You are JARVIS, an AI assistant. "
                 "Summarize YouTube video transcripts clearly and concisely. "
                 "Structure: 1-sentence overview, then 3-5 key points. "
                 "Be direct. Address the user as 'sir'. "
                 "Match the language of the transcript."
-            )
-        )
+            )}
     )
     if response is None:
         return "I couldn't reach Gemini to summarise that transcript, sir."

@@ -9,5 +9,5 @@ def test_non_gemini_provider_prefers_text_reasoning():
 
 
 def test_gemini_default_keeps_existing_live_behavior():
-    assert live_delegation_instruction({}) == ""
-    assert live_delegation_instruction({"llm_provider": "gemini"}) == ""
+    assert "delegate_to_text_llm" in live_delegation_instruction({})
+    assert "delegate_to_text_llm" in live_delegation_instruction({"llm_provider": "gemini"})

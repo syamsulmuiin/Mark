@@ -23,6 +23,9 @@ _ddg_lock = threading.Lock()
 
 
 def _gemini_available() -> bool:
+    from core.setup_config import load_config
+    if str(load_config().get("llm_provider") or "gemini").lower() != "gemini":
+        return False
     with _quota_lock:
         return time.monotonic() >= _quota_blocked_until
 
@@ -87,7 +90,7 @@ def _get_api_key() -> str:
 
 def _gemini_search(query: str) -> str:
     if not _gemini_available():
-        raise _QuotaCooldown("Gemini grounding is in quota cooldown")
+        raise _QuotaCooldown("Gemini grounding is not the selected Text provider or is in cooldown")
 
     from core import gemini
 
@@ -249,6 +252,9 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
     Returns (headline_list, raw_text_for_display).
     """
     import re
+    if not _gemini_available():
+        rows = _ddg_news("world news today", max_results=n)
+        return [str(row.get("title") or "") for row in rows], _format_news("world news today", rows)
     from core import gemini
 
     response = gemini.call(

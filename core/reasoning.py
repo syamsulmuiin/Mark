@@ -1,7 +1,7 @@
 """Provider-aware facade for text reasoning helpers, preserving Gemini SDK responses.
 
-Multimodal/search calls continue to use core.gemini explicitly. This facade
-never falls back to Live or another provider after a selected text API fails.
+All helper reasoning uses the selected Text provider. Unsupported multimodal
+input fails explicitly; it never falls back to Live or another provider.
 """
 from __future__ import annotations
 import json

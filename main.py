@@ -51,7 +51,6 @@ from core.language_compat import (has_explicit_diagnostic_intent, is_generic_err
 from core import task_continuity as task_state
 
 import numpy as np
-from google import genai
 from google.genai import types
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
@@ -111,7 +110,6 @@ def _trace_event(event: str, **fields) -> None:
     except Exception:
         pass
 
-from core import gemini as _gemini
 from core.runtime_errors import Boundary, ErrorAction, classify_error
 from core.model_config import get_live_model
 LIVE_MODEL          = get_live_model()
@@ -524,15 +522,7 @@ class JarvisLive:
         self._pending_voice_turns: list[tuple[int, float, int]] = []
         self._unanswered_voice_turns = 0
         self._live_stall_timeout = 12.0
-        # Semantic barge-in: speech heard while the assistant is talking is only
-        # a candidate. Android uses VOICE_COMMUNICATION/AEC and keeps streaming
-        # mic PCM during playback; the server buffers that candidate and asks a
-        # multilingual model whether its meaning is an interruption/correction.
-        self._barge_audio = bytearray()
-        self._barge_voice_active = False
-        self._barge_last_voice = 0.0
-        self._barge_classifying = False
-        self._barge_max_bytes = SEND_SAMPLE_RATE * 2 * 8  # max 8 seconds PCM16
+        # Companion PCM, including speech during playback, goes to the selected Live session.
         self._dashboard     = None
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
@@ -799,18 +789,6 @@ class JarvisLive:
         from core.text_commands import respond
         settings = load_config()
         provider = str(settings.get("llm_provider") or "gemini").strip().lower()
-        if provider == "gemini" and settings.get("live_provider", "gemini") == "gemini":
-            for _ in range(80):
-                if self.session:
-                    break
-                await asyncio.sleep(0.1)
-            if not self.session:
-                self.ui.write_log("SYS: Voice session unavailable; please retry.")
-                return
-            await self.session.send_client_content(
-                turns={"role": "user", "parts": [{"text": text}]}, turn_complete=True,
-            )
-            return
         # Serialize text turns so follow-up context contains the previous answer.
         if not hasattr(self, "_text_command_lock"):
             self._text_command_lock = asyncio.Lock()
@@ -982,6 +960,9 @@ class JarvisLive:
             if drained:
                 print(f"[JARVIS] ✋ Interrupted — {drained} audio chunks discarded")
         self.set_speaking(False)
+        clear_audio = getattr(getattr(self, "_dashboard", None), "clear_device_audio", None)
+        if clear_audio and self._loop:
+            asyncio.run_coroutine_threadsafe(clear_audio(), self._loop)
         # The words we were about to mouth are never going to be spoken now.
         self._visemes.reset()
         self._play_cursor = 0.0     # next batch starts a fresh timeline
@@ -1151,6 +1132,10 @@ class JarvisLive:
             response_modalities=["AUDIO"],
             output_audio_transcription={},
             input_audio_transcription={},
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+                activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+            ),
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": _all_decls}],
             # Hand back the handle captured from the last session_resumption
@@ -2152,6 +2137,10 @@ class JarvisLive:
         while True:
             msg = await self.out_queue.get()
             if msg.get("activity_start"):
+                # Provider generation may have finished while companion PCM is still buffered.
+                # No provider interruption event follows for an already-completed response.
+                if self._is_speaking and self._turn_done_event and self._turn_done_event.is_set():
+                    self.interrupt()
                 await self.session.send_realtime_input(activity_start=types.ActivityStart())
                 self._note_voice_activity_start()
                 _trace_event("activity_start")
@@ -2325,6 +2314,9 @@ class JarvisLive:
 
                     if response.server_content:
                         sc = response.server_content
+                        if getattr(sc, "interrupted", False):
+                            self.interrupt()
+                            _trace_event("live_interruption", source="selected_live_provider")
 
                         # THINKING is event-driven, not timer-driven: publish it only
                         # when Gemini has started producing server-side turn content
@@ -2671,74 +2663,21 @@ class JarvisLive:
 
     # ── Phone audio relay ────────────────────────────────────────────────────────
 
-    async def _classify_barge_in(self, pcm: bytes) -> None:
-        """Classify a full-duplex speech candidate by meaning, not language.
-
-        Fail closed: if classification is unavailable or ambiguous, playback is
-        not interrupted. The audio itself is never written to logs.
-        """
-        if not pcm or self._barge_classifying:
-            return
-        self._barge_classifying = True
-        try:
-            prompt = (
-                "Classify the intent of this speech heard while an assistant is currently speaking. "
-                "Understand ANY human language. Return exactly one token: INTERRUPT if the speaker "
-                "means stop, wait, pause, cancel, objects/corrects the assistant, or deliberately "
-                "takes the conversational turn; IGNORE for background conversation, TV/media, echo, "
-                "incidental speech, acknowledgements that do not request the floor, or ambiguous audio. "
-                "When uncertain return IGNORE."
-            )
-            _trace_event("auxiliary_model_request", provider="gemini", purpose="barge_in_audio", tier="FAST")
-            part = types.Part.from_bytes(data=pcm, mime_type="audio/pcm;rate=16000")
-            verdict = await asyncio.to_thread(
-                _gemini.text, [part, prompt], _gemini.FAST, None, 10_000, "", "IGNORE"
-            )
-            verdict = (verdict or "IGNORE").strip().upper()
-            accepted = verdict == "INTERRUPT"
-            _trace_event("barge_semantic_decision", accepted=accepted)
-            if not accepted or not self.session or not self.out_queue:
-                return
-            self.interrupt()
-            # Replay the accepted utterance into the interactive Live session so
-            # the correction/request is understood rather than merely stopping audio.
-            await self.out_queue.put({"activity_start": True})
-            for i in range(0, len(pcm), CHUNK_SIZE):
-                await self.out_queue.put({
-                    "data": pcm[i:i + CHUNK_SIZE],
-                    "mime_type": "audio/pcm;rate=16000",
-                })
-            await self.out_queue.put({"activity_end": True})
-        except Exception as exc:
-            _trace_event("barge_semantic_unavailable", error=type(exc).__name__)
-        finally:
-            self._barge_classifying = False
-
     async def _relay_phone_audio(self) -> None:
-        """Forward phone mic PCM; speaking-time audio is a semantic barge candidate."""
+        """Send speech, including barge-in PCM, to the existing Live session only."""
         q = self._dashboard._phone_audio_queue
         while True:
             try:
-                chunk = await asyncio.wait_for(q.get(), timeout=1.0)
+                chunk = await asyncio.wait_for(q.get(), timeout=0.2)
             except asyncio.TimeoutError:
                 self._phone_active = False
-                with self._speaking_lock:
-                    speaking = self._is_speaking
-                if speaking and self._barge_voice_active and time.monotonic() - self._barge_last_voice >= 0.65:
-                    pcm = bytes(self._barge_audio)
-                    self._barge_audio.clear()
-                    self._barge_voice_active = False
-                    if pcm and not self._barge_classifying:
-                        asyncio.create_task(self._classify_barge_in(pcm))
-                elif not speaking and self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
-                    try:
-                        self.out_queue.put_nowait({"activity_end": True})
-                    except asyncio.QueueFull:
-                        pass
+                if self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
+                    await self.out_queue.put({"activity_end": True})
                     self._phone_activity_active = False
                 continue
-
             self._phone_active = True
+            if self.ui.muted:
+                continue
             raw = chunk.get("data", b"")
             try:
                 samples = np.frombuffer(raw, dtype=np.int16)
@@ -2746,52 +2685,17 @@ class JarvisLive:
             except Exception:
                 rms = 0.0
             now = time.monotonic()
-            voice = rms >= 250.0
-            with self._speaking_lock:
-                speaking = self._is_speaking
-
-            if speaking:
-                # Do not send activity boundaries without their PCM. That old
-                # behaviour could disturb Live turn state while giving Gemini no
-                # words from which to decide whether the user meant to interrupt.
-                if voice:
-                    self._barge_last_voice = now
-                    self._barge_voice_active = True
-                if self._barge_voice_active and len(self._barge_audio) < self._barge_max_bytes:
-                    remaining = self._barge_max_bytes - len(self._barge_audio)
-                    self._barge_audio.extend(raw[:remaining])
-                if self._barge_voice_active and not voice and now - self._barge_last_voice >= 0.65:
-                    pcm = bytes(self._barge_audio)
-                    self._barge_audio.clear()
-                    self._barge_voice_active = False
-                    if pcm and not self._barge_classifying:
-                        asyncio.create_task(self._classify_barge_in(pcm))
-                continue
-
-            # Normal listening path. Drop any stale speaking-time candidate when
-            # playback ended naturally before classification completed.
-            if self._barge_voice_active:
-                self._barge_audio.clear()
-                self._barge_voice_active = False
-            if voice:
+            if rms >= 250.0:
                 self._phone_last_voice = now
                 if not self._phone_activity_active:
-                    try:
-                        self.out_queue.put_nowait({"activity_start": True})
-                    except asyncio.QueueFull:
-                        pass
+                    # Activity marks a speech boundary; Live owns interruption handling.
+                    await self.out_queue.put({"activity_start": True})
                     self._phone_activity_active = True
             elif self._phone_activity_active and now - self._phone_last_voice >= 0.65:
-                try:
-                    self.out_queue.put_nowait({"activity_end": True})
-                except asyncio.QueueFull:
-                    pass
+                await self.out_queue.put({"activity_end": True})
                 self._phone_activity_active = False
-            if not self.ui.muted:
-                try:
-                    self.out_queue.put_nowait(chunk)
-                except asyncio.QueueFull:
-                    pass
+            if self._phone_activity_active:
+                await self.out_queue.put(chunk)
 
     async def _run_scheduled_workflows(self) -> None:
         """Execute only schedules explicitly created by the user.
@@ -3082,7 +2986,7 @@ class JarvisLive:
                                  live_model=live_model, text_provider=_routing.get("llm_provider", "gemini"),
                                  text_models=(_routing.get("provider_models") or {}).get(_routing.get("llm_provider"))
                                              or _routing.get("chat_models") or _routing.get("text_models") or "default",
-                                 text_provider_fallback=False, barge_in_provider="gemini")
+                                 text_provider_fallback=False, model_fallback=False, interruption_provider=llm_live.provider(_routing))
                     if self._recovery_context_pending:
                         self.ui.write_log("SYS: Reconnected — conversation context recovered locally.")
                         self._recovery_context_pending = False
@@ -3193,24 +3097,16 @@ class JarvisLive:
                     "runtime_error",
                     boundary=decision.boundary.value,
                     category=decision.category,
-                    action=decision.action.value,
+                    action=("configured_model_retry" if decision.action is ErrorAction.MODEL_FAILOVER else decision.action.value),
+                    model_fallback=False,
                     retryable=decision.retryable,
                     error_type=type(e).__name__,
                     error=_error_detail,
                 )
 
-                # A provider/model failure should select the next compatible
-                # Live rung; transport failures must keep the current model and
-                # use normal reconnect backoff instead.
-                if (decision.action is ErrorAction.MODEL_FAILOVER
-                        and llm_live.note_model_failure(live_model, err_str)):
-                    next_live_model = llm_live.model()
-                    if next_live_model != live_model:
-                        self.ui.write_log(
-                            f"SYS: Live model unavailable — switching to {next_live_model}."
-                        )
-                        self._conn_backoff = 0
-                        continue
+                # Record the configured model's failure, never select another model/provider.
+                if decision.action is ErrorAction.MODEL_FAILOVER:
+                    llm_live.note_model_failure(live_model, err_str)
 
                 # Transport/session rollover errors need the dedicated handler
                 # below. In particular, a keepalive ping timeout is a transport

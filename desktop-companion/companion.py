@@ -226,6 +226,13 @@ class App:
                 self.speaking=False
             label = 'Listening' if state=='ACTIVE' else state.title()
             self.root.after(0, lambda value=label: self.status.set(value))
+        elif typ=='audio.clear':
+            self.speaking=False
+            if self.out:
+                try:
+                    self.out.abort()
+                    self.out.start()
+                except Exception as exc:self.fault('Audio clear failed',exc)
         elif typ=='log': self.note(f"{m.get('speaker','JARVIS')}: {m.get('text','')}")
         elif typ=='attachment.pick.request':
             self.deferred_attachment_pick=m

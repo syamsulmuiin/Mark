@@ -11,8 +11,6 @@ def live_delegation_instruction(config: dict | None = None) -> str:
     """
     settings = load_config() if config is None else config
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
-    if provider == "gemini" and settings.get("live_provider", "gemini") == "gemini":
-        return ""
     voice = "OpenAI Realtime" if settings.get("live_provider") == "openai_realtime" else "Gemini Live"
     return (
         "[TEXT LLM DELEGATION POLICY]\n"
@@ -36,7 +34,6 @@ def live_delegation_instruction(config: dict | None = None) -> str:
         "be handled directly. For ordinary device operations, existing tools remain available; "
         "do not claim that delegate_to_text_llm executes actions. If delegation "
         "fails, explain the failure rather than silently answering with Gemini. "
-        "There is no implicit Text-to-Gemini fallback. Gemini FAST may independently "
-        "classify interruption audio; a Flash warning alone does not prove that a Text "
-        "request used Gemini. Diagnose model usage from per-request traces, not guesses.\n"
+        "There is no implicit Text-to-Gemini fallback. Interruption audio is handled by the existing Live session, never an auxiliary "
+        "classifier. Diagnose model usage from per-request traces, not guesses.\n"
     )

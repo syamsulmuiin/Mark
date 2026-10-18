@@ -27,6 +27,34 @@ def _claims(token):
         return {}
 
 
+def _number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _token_expiry(tokens, access, now):
+    """Use access-token expiry metadata without inventing a token lifetime."""
+    lifetime = _number(tokens.get('expires_in'))
+    jwt_expiry = _number(_claims(access).get('exp'))
+    if jwt_expiry is not None and jwt_expiry <= now:
+        raise RuntimeError('OpenAI returned an already expired access token; start a new login')
+    candidates = []
+    if lifetime is not None and lifetime > 0:
+        candidates.append(now + lifetime)
+    if jwt_expiry is not None:
+        candidates.append(jwt_expiry)
+    # Year 9999 is the timestamp representation limit, not a token-duration policy.
+    candidates = [value for value in candidates if math.isfinite(value) and now < value <= 253402300799]
+    if not candidates:
+        raise RuntimeError('OpenAI credential expiry is unavailable: no usable expires_in or access-token exp')
+    return min(candidates)
+
+
 def _record(tokens, previous=None):
     previous = previous or {}
     access = tokens.get('access_token')
@@ -39,13 +67,7 @@ def _record(tokens, previous=None):
     account = account or previous.get('account_id')
     if not isinstance(account, str) or not account or '\n' in account or '\r' in account:
         raise RuntimeError('OpenAI account identifier is missing')
-    try:
-        lifetime = float(tokens.get('expires_in', 3600))
-        if not math.isfinite(lifetime) or not 60 <= lifetime <= 604800:
-            raise ValueError()
-        expiry = time.time() + lifetime
-    except (ValueError, TypeError):
-        raise RuntimeError('OpenAI returned an invalid credential expiry') from None
+    expiry = _token_expiry(tokens, access, time.time())
     return {'access_token': access, 'refresh_token': refresh, 'account_id': account,
             'expires_at': expiry, 'invalid': False}
 

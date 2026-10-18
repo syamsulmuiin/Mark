@@ -554,7 +554,7 @@ class JarvisLive:
         # the companion packages and are reached through advertised capabilities.
         _server_actions = {
             "browser_control", "code_helper", "dev_agent", "file_processor", "document_editor",
-            "flight_finder", "scheduled_workflow", "self_repair_apply",
+            "server_maintenance", "flight_finder", "scheduled_workflow", "self_repair_apply",
             "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "weather_report", "web_search", "test_flash_approval",
         }
         self._action_registry = discover_actions(
@@ -563,6 +563,9 @@ class JarvisLive:
             logger=lambda msg: print(f"[Actions] {msg}"),
             allowed_names=_server_actions,
         )
+
+        _trace_event("server_tool_registry_loaded", tools=sorted(self._action_registry.names()),
+                     server_maintenance_available="server_maintenance" in self._action_registry.names())
 
         # Plugins must not collide with either an inline tool or a discovered action.
         _core_names = _inline_names | self._action_registry.names()
@@ -1484,8 +1487,12 @@ class JarvisLive:
             else:
                 try:
                     _trace_event("text_llm_delegation", stage="started")
+                    from core.host_capabilities import capability_instruction
+                    _loaded_tools = self._action_registry.names()
+                    prompt = capability_instruction(_loaded_tools) + prompt
                     response_text = await asyncio.to_thread(generate_text, prompt)
-                    answer = {"result": response_text}
+                    answer = {"result": response_text, "executed": False,
+                              "instruction": "This is Text reasoning only. Continue operational requests with the loaded host tools and their approval policy. Do not interpret Text-model execution limits as Mark capability limits."}
                     _trace_event("text_llm_delegation", stage="succeeded")
                 except Exception as exc:
                     _trace_event("text_llm_delegation", stage="failed", error=type(exc).__name__)

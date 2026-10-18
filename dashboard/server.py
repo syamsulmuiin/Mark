@@ -62,16 +62,11 @@ def _safe_filename(raw: str) -> str:
 STORAGE_ROOT = BASE_DIR / "storage"
 STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 INTERACTION_LOG = BASE_DIR / "runtime" / "interaction.log"
-INTERACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
 
 def _interaction_event(event: str, **fields) -> None:
-    """Persist bounded voice/device boundary events without payloads or secrets."""
-    record = {"ts": round(time.time(), 3), "event": event, **fields}
-    try:
-        with INTERACTION_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, separators=(",", ":")) + "\n")
-    except Exception:
-        pass
+    """Persist device boundary metadata using the shared observable writer."""
+    from core.interaction_log import write_event
+    write_event(INTERACTION_LOG, event, **fields)
 
 def _get_gemini_key() -> str | None:
     try:

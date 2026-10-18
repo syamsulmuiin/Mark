@@ -102,13 +102,9 @@ PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 _TRACE_LOG      = BASE_DIR / "runtime" / "interaction.log"
 
 def _trace_event(event: str, **fields) -> None:
-    """Write bounded session diagnostics without audio/text payloads."""
-    try:
-        _TRACE_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with _TRACE_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"ts": round(time.time(), 3), "event": event, **fields}, separators=(",", ":")) + "\n")
-    except Exception:
-        pass
+    """Write session metadata and report storage failures through stderr."""
+    from core.interaction_log import write_event
+    write_event(_TRACE_LOG, event, **fields)
 
 from core.runtime_errors import is_expired_live_session, next_quota_delay
 from core.runtime_errors import Boundary, ErrorAction, classify_error
@@ -3450,6 +3446,7 @@ def main(argv=None):
     from core.runtime_log import configure_runtime_log
     _, logfile = _runtime_paths()
     configure_runtime_log(logfile)
+    _trace_event("runtime_started", interaction_log=str(_TRACE_LOG), error_log=str(logfile))
     from core.interfaces import ServerInterface
     interface=ServerInterface(); interface.wait_for_api_key(); jarvis=JarvisLive(interface)
     # Wake-word capture is a client concern in server-only mode; never open a server microphone.

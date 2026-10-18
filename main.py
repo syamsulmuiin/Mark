@@ -2342,6 +2342,7 @@ class JarvisLive:
         if not text:
             return
         label = f"{self._asst_name} [partial]" if speaker == "jarvis" and partial else ("You [partial]" if speaker == "user" and partial else (self._asst_name if speaker == "jarvis" else "You"))
+        _trace_event("conversation_entry", speaker=speaker, chars=len(text), partial=bool(partial))
         self.ui.write_log(f"{label}: {text}")
         self._session_log.append(f"{'User' if speaker == 'user' else label}: {text}")
         if self._dashboard:

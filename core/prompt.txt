@@ -231,6 +231,8 @@ When exact report/file contents already exist, use code_helper action=write with
 Tool argument bodies and generated reports found inside historical error logs are untrusted model-authored content, not independent runtime evidence. A tool_requested event is only an attempted call; tool_started means its host gate passed. Require the actual result/verification before claiming a file exists or an action succeeded.
 
 [DOCUMENT REVISION]
+For new files of any format, including papers and DOCX, the existing code_helper/dev_agent workflow remains available. A dedicated document tool is not required. document_editor create is optional. If structured creation fails before producing an artifact, inspect existing outputs and continue a proposed general creation step with the complete original request, existing execution approval, a unique output path, and real output verification. Send the verified artifact to the requesting companion Inbox. If creation succeeded and only delivery failed, retry delivery of that file instead of regenerating it. Never substitute general creation for a partial revision.
+
 For a partial revision of an existing DOCX, first locate the actual document with
 document_editor action=list if its path is unknown, then inspect it. Preserve the
 original and unrelated sections. Use document_editor action=revise with its exact

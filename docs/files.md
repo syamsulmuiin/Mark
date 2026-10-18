@@ -26,9 +26,13 @@ Only the authenticated sender or recipient can manage an entry. Shared objects a
 
 `code_helper` and `dev_agent` provide general content/code workflows. A new extension does not inherently require a new tool, but installed libraries, runtime support, and execution approval still apply.
 
-For a new DOCX, `document_editor create` accepts a title and complete instruction. The configured Text model supplies structured content; the host creates a unique file without executing generated code. Complete `replacement_blocks` can also be supplied. Newly created documents are handed to the captured requesting companion Inbox; failed handoff retains the file for delivery retry.
+New papers and DOCX can use the general creation workflow. Generated code execution retains host approval; verify the actual output file and send its returned path to the requesting companion Inbox. A dedicated format-specific tool is not required.
 
-Creation rejects malformed blocks, literal escaped newlines, misplaced bibliographies, and body-less outlines. Text/heading verification does not establish rendered layout quality or source/citation accuracy. Do not invent author or institution information.
+As an optional structured route, `document_editor create` accepts a title and complete instruction. The configured Text model supplies structured content; the host creates a unique file without executing generated code. Complete `replacement_blocks` can also be supplied. Newly created documents are handed to the captured requesting companion Inbox; failed handoff retains the file for delivery retry.
+
+If structured creation fails before producing an artifact, inspect existing outputs and propose general creation using the complete original request. Do not treat a validation failure as absence of host file-creation capability. A delivery-only failure requires resending the existing artifact, not regeneration.
+
+Structured creation rejects malformed blocks, literal escaped newlines, misplaced bibliographies, and body-less outlines. Text/heading verification does not establish rendered layout quality or source/citation accuracy. Do not invent author or institution information.
 
 ## Revising DOCX
 

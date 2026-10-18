@@ -360,7 +360,9 @@ explicit translation requests can override it for that request. Names such as
 
 Use `--language auto` and restart to follow the user's language automatically.
 A saved setting takes priority over language memory; detected speech does not
-replace it. This controls replies, not microphone transcription.
+replace it. The primary language also supplies an input-transcription hint (`ID` → `id-ID`).
+`auto` keeps language detection automatic. Hints reduce language ambiguity; they
+do not guarantee correct recognition or suppress genuine foreign-language input.
 
 Live recovery recognizes `BidiGenerateContent session not found or expired` as
 session expiry, drops the stale resumption handle and reconstructs the same
@@ -384,3 +386,8 @@ python main.py --restart
 The local VAD adds no LLM/API call. It filters non-speech, not all background
 voices or speaker echo. No new APK is required. Missing VAD stops startup with
 an install instruction; it does not silently revert to energy-only detection.
+
+Install updated requirements after pulling this language-hint change, then restart:
+`python -m pip install -r requirements.txt` and `python main.py --restart`.
+The server requires Google Gen AI SDK 2.31+ for the transcription hint fields.
+No extra transcription model/API or new APK is introduced.

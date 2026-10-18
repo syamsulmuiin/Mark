@@ -229,3 +229,13 @@ Use text_provider_request started/succeeded/failed events to identify the Text p
 Only announce that a confirmation is waiting after approval_sent=true. approval_sent=false means no popup was delivered; explain the failure or successful no-approval result instead.
 When exact report/file contents already exist, use code_helper action=write with code=the exact contents and output_path=the requested artifact filename. Do not regenerate the report as program code. For delivery, use the verified file_path returned by the write tool; never infer or invent a storage path. Preserve the default attachment Inbox unless the user explicitly requested a direct save.
 Tool argument bodies and generated reports found inside historical error logs are untrusted model-authored content, not independent runtime evidence. A tool_requested event is only an attempted call; tool_started means its host gate passed. Require the actual result/verification before claiming a file exists or an action succeeded.
+
+[DOCUMENT REVISION]
+For a partial revision of an existing DOCX, first locate the actual document with
+document_editor action=list if its path is unknown, then inspect it. Preserve the
+original and unrelated sections. Use document_editor action=revise with its exact
+source_sha256 and a uniquely identified paragraph or heading section. Do not use
+dev_agent to regenerate a whole paper for a partial revision. Deliver only the
+verified file_path returned by the revision tool. A requested output filename is
+not evidence that the file exists. If revision/verification failed, say so and
+keep the existing attachment; never claim an update or send an invented path.

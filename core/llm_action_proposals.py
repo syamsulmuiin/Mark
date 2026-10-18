@@ -60,7 +60,9 @@ def propose_action(task: str, declarations: list[dict], *, config: dict | None =
         "Propose exactly ONE next action for the user request. Return ONLY JSON "
         "with keys tool (one of the available names), args (object), reason (string). "
         "Do not invent approvals, permissions or results. Do not execute the action. "
-        "Choose an operational step for the request, not bookkeeping or task tracking.\n"
+        "Choose an operational step for the request, not bookkeeping or task tracking. "
+        "For partial DOCX revisions use document_editor list/inspect/revise, not dev_agent. "
+        "A filename in the request does not prove a source or revised file exists.\n"
         "Available tool schemas (follow required argument names and types): "
         + json.dumps(schemas, ensure_ascii=False) + "\n"
         "User request: " + task

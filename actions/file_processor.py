@@ -266,9 +266,9 @@ def _process_text_doc(path: Path, file_type: str, action: str,
                 doc  = Document(path)
                 return "\n".join(p.text for p in doc.paragraphs)
             except ImportError:
-                return "python-docx not installed."
+                raise RuntimeError("python-docx not installed")
             except Exception as e:
-                return f"Read failed: {e}"
+                raise ValueError("DOCX source could not be read") from e
         else:
             return path.read_text(encoding="utf-8", errors="ignore")
 
@@ -301,9 +301,7 @@ def _process_text_doc(path: Path, file_type: str, action: str,
     }
 
     if action not in prompt_map:
-
-        action  = "custom"
-        instruction = action
+        raise ValueError(f"Unsupported document action: {action}. Use document_editor for a targeted DOCX revision.")
 
     try:
         model    = _gemini_client()
@@ -413,7 +411,7 @@ def _process_data(path: Path, file_type: str, action: str,
         )
         return response.text.strip()
     except Exception as e:
-        return f"Processing failed: {e}"
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": f"Processing failed: {e}"})
 
 
 def _process_json(path: Path, action: str, params: dict, speak=None) -> str:
@@ -787,13 +785,13 @@ def _process_pptx(path: Path, action: str, params: dict, speak=None) -> str:
 def file_processor(parameters: dict, player=None, speak=None) -> str:
     file_path_str = parameters.get("file_path", "").strip()
     if not file_path_str:
-        return "No file path provided."
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": "No file path provided. List/inspect actual documents first."})
 
     path = Path(file_path_str)
     if not path.exists():
-        return f"File not found: {file_path_str}"
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": f"File not found: {file_path_str}"})
     if not path.is_file():
-        return f"Path is not a file: {file_path_str}"
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": f"Path is not a file: {file_path_str}"})
 
     file_type   = _detect_type(path)
     action      = (parameters.get("action") or "").lower().strip()
@@ -814,6 +812,10 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
             return response.text.strip()
         except Exception as e:
             return f"Unknown file type ({path.suffix}). Could not process: {e}"
+
+    if file_type == "docx" and action in {"inspect", "revise", "edit", "update", "fix", "reformat", "custom"}:
+        from actions.document_editor import document_editor
+        return document_editor({**parameters, "action": "inspect" if action == "inspect" else "revise", "file_path": str(path)})
 
     dispatch = {
         "image":   _process_image,
@@ -847,7 +849,7 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "file_processor",
-    "description": "Processes any file that the user has uploaded or dropped onto the interface. Use this when the user refers to an uploaded file and wants an action on it. Supports: images (describe/ocr/resize/compress/convert), PDFs (summarize/extract_text/to_word), Word docs & text files (summarize/fix/reformat/translate), CSV/Excel (analyze/stats/filter/sort/convert), JSON/XML (validate/format/analyze), code files (explain/review/fix/optimize/run/document/test), audio (transcribe/trim/convert/info), video (trim/extract_audio/extract_frame/compress/transcribe/info), archives (list/extract), presentations (summarize/extract_text). ALWAYS call this tool when a file has been uploaded and the user gives a command about it. If the user's command is ambiguous, pick the most logical action for that file type.",
+    "description": "Processes any file that the user has uploaded or dropped onto the interface. Use this when the user refers to an uploaded file and wants an action on it. Supports: images (describe/ocr/resize/compress/convert), PDFs (summarize/extract_text/to_word), Word docs & text files (summarize/extract; for DOCX revisions use document_editor list/inspect/revise), CSV/Excel (analyze/stats/filter/sort/convert), JSON/XML (validate/format/analyze), code files (explain/review/fix/optimize/run/document/test), audio (transcribe/trim/convert/info), video (trim/extract_audio/extract_frame/compress/transcribe/info), archives (list/extract), presentations (summarize/extract_text). For partial DOCX edits use document_editor directly; for other uploaded-file operations use this tool. If the user's command is ambiguous, pick the most logical action for that file type.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -857,7 +859,7 @@ TOOL = {
             },
             "action": {
                 "type": "STRING",
-                "description": "What to do with the file. Examples by type:\nimage: describe | ocr | resize | compress | convert | info\npdf: summarize | extract_text | to_word | info\ndocx/txt: summarize | fix | reformat | translate_hint | word_count | to_bullet\ncsv/excel: analyze | stats | filter | sort | convert | info\njson: validate | format | analyze | to_csv\ncode: explain | review | fix | optimize | run | document | test\naudio: transcribe | trim | convert | info\nvideo: trim | extract_audio | extract_frame | compress | transcribe | info | convert\narchive: list | extract\npptx: summarize | extract_text | analyze"
+                "description": "What to do with the file. Examples by type:\nimage: describe | ocr | resize | compress | convert | info\npdf: summarize | extract_text | to_word | info\ndocx: summarize | extract_text (for edits use document_editor)\ntxt: summarize | fix | reformat | translate_hint | word_count | to_bullet\ncsv/excel: analyze | stats | filter | sort | convert | info\njson: validate | format | analyze | to_csv\ncode: explain | review | fix | optimize | run | document | test\naudio: transcribe | trim | convert | info\nvideo: trim | extract_audio | extract_frame | compress | transcribe | info | convert\narchive: list | extract\npptx: summarize | extract_text | analyze"
             },
             "instruction": {
                 "type": "STRING",

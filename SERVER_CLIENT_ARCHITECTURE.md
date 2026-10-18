@@ -379,3 +379,9 @@ are not spoken. The server expires unanswered approvals after 15 seconds, even
 if no client reply arrives. Feedback waits for the originating companion and an
 available Live session; muted/offline feedback is bounded to 120 seconds. It
 uses the configured Live model and does not request another approval.
+
+### Partial Word document revisions
+
+For an existing DOCX, use `document_editor`: `list` to locate actual generated files, `inspect` to obtain the current text and SHA-256, then `revise` with that hash and one exact paragraph or heading section. A revision creates a unique, verified `.docx` under `storage/artifacts/documents/`; the source stays unchanged. Other sections and package resources are retained. Targets containing tables, fields, or embedded content fail explicitly rather than discarding them; select a plain paragraph instead. Revised text uses the first selected paragraph/run style; mixed formatting inside the replaced text is not preserved.
+
+Send the exact verified `file_path` through `send_server_file`. Default delivery is a new attachment on Android/Desktop, with both versions retained. Direct saving remains available only when explicitly requested. A missing source, stale version, failed generation, or unchanged result is a failure, never a successful revision or delivery. The Text provider configured in setup performs requested rewriting; literal `replacement_text` needs no model call. Do not regenerate a whole paper with `dev_agent` for a partial edit or guess an updated filename.

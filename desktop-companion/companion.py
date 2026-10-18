@@ -242,6 +242,9 @@ class App:
             self.assistant_turn_complete=True
             if self.deferred_attachment_pick:self.root.after(0,self._launch_deferred_attachment_picker)
         elif typ=='attachment.transfer.status': self.note(str(m.get('message') or 'Attachment transfer updated'))
+        elif typ=='attachment.managed':
+            self.note(str(m.get('message') or 'Attachment updated'))
+            if self.ws:self.ws.send(json.dumps({'type':'attachment.list'}))
         elif typ=='attachment.inbox':
             self.attachments={x['id']:x for x in m.get('attachments',[])}
             self.root.after(0,self.refresh_attachment_list)
@@ -529,6 +532,18 @@ class App:
                 widget.addItem(f"{item['name']}  ·  To {item.get('destination_name','device')}  ·  {status}")
             else:
                 widget.addItem(f"{item['name']}  ·  {item['size']:,} bytes  ·  {item.get('status','pending')}")
+
+    def manage_attachment(self, action):
+        widget=getattr(self,'attachment_list',None)
+        if widget is None or widget.currentRow()<0:return
+        items=self.sent_attachments if self.attachment_mode=='sent' else self.attachments
+        item=items.get(self.attachment_order[widget.currentRow()])
+        if not item or not self.ws:self.note('Connect to manage attachments');return
+        if action=='delete':
+            decision=QMessageBox.question(self.root,'Delete server attachment?',
+                'Remove this attachment from sender and recipient lists and delete its server copy when unshared? Original source files and device downloads are unchanged.')
+            if decision!=QMessageBox.StandardButton.Yes:return
+        self.ws.send(json.dumps({'type':'attachment.manage','id':item['id'],'action':action}))
 
     def request_attachment(self,action):
         if self.attachment_mode!='received':return

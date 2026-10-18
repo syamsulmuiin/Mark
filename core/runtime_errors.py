@@ -15,6 +15,7 @@ class Boundary(str, Enum):
 
 class ErrorAction(str, Enum):
     SESSION_ROLLOVER = "session_rollover"
+    QUOTA_BACKOFF = "quota_backoff"
     MODEL_FAILOVER = "model_failover"
     TRANSPORT_RECONNECT = "transport_reconnect"
     COMPANION_RECONNECT = "companion_reconnect"
@@ -90,14 +91,29 @@ def _is_model_failure(text: str) -> bool:
     )
 
 
+def is_expired_live_session(error: object) -> bool:
+    text = _text(error)
+    return any(marker in text for marker in (
+        "session expired", "session has expired", "session not found or expired",
+        "bidigeneratecontent session not found",
+    ))
+
+
+def next_quota_delay(previous: float = 0) -> float:
+    """Retry the configured model slowly; never select a different provider."""
+    return min(max(previous * 2, 60), 300)
+
+
 def classify_error(boundary: Boundary, error: object) -> ErrorDecision:
     """Map an error to a bounded action without deciding policy at call sites."""
     boundary = Boundary(boundary)
     text = _text(error)
 
     if boundary is Boundary.LIVE_SESSION:
-        if any(marker in text for marker in ("goaway", "session duration", "session expired")):
+        if is_expired_live_session(error) or any(marker in text for marker in ("goaway", "session duration")):
             return ErrorDecision(boundary, "live_rollover", ErrorAction.SESSION_ROLLOVER, True, False)
+        if any(marker in text for marker in ("429", "quota", "resource_exhausted", "rate limit", "rate_limit")):
+            return ErrorDecision(boundary, "live_quota", ErrorAction.QUOTA_BACKOFF, True, False)
         if _is_model_failure(text) and not _is_transport(text):
             return ErrorDecision(boundary, "model_failure", ErrorAction.MODEL_FAILOVER, True, False)
         if _is_transport(text):

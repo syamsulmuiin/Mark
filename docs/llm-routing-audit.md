@@ -98,8 +98,8 @@ only the selected Text model; no provider/model fallback is used.
 - Interruption detection uses the existing Live session; no Flash classifier or
   auxiliary Live session is created. Legacy desktop-local inference is disabled;
   server reasoning must supply explicit device arguments.
-- Phone input requires 160 ms of consecutive above-threshold PCM before opening
-  an activity. It preserves the onset and filters isolated spikes, but sustained
+- Idle phone input requires 160 ms above RMS 250; playback-time input requires
+  320 ms above RMS 1000 before opening an activity. It preserves the onset and filters isolated spikes, but sustained
   echo/background speech still requires physical-device investigation.
 - Real account login, API model access, microphone/speaker timing, interruption
   behavior and Android approval need deployment/device testing. No user credentials
@@ -146,3 +146,15 @@ is still required; no word blacklist or additional model is used.
 Queued device PCM carries internal socket ownership; the relay discards frames from superseded connections and closes the old activity before a valid source socket changes.
 
 Primary response language is now configurable through setup or `python main.py --language ID` (restart Live afterward). The shared policy is added to Text gateway requests, Gemini reasoning helper instructions, and Live config (also forwarded to OpenAI Realtime). Server config outranks explicit language preference memory; observed language history never replaces a preference. `--language auto` restores adaptive replies. See README for deployment and exceptions.
+
+Live recovery recognizes `BidiGenerateContent session not found or expired` as
+session expiry, drops the stale resumption handle and reconstructs the same
+configured model with local conversation context. Failed connection attempts
+increase retry delay rather than inheriting a successful old session's uptime.
+Quota/rate-limit messages take precedence over generic WebSocket 1011 handling;
+retries wait 60, 120, 240, then 300 seconds without model/provider fallback.
+Expected provider failures use structured diagnostics instead of duplicate stack
+traces. Credential redaction handles whitespace and Bearer authorization values.
+Playback-aware onset filters quiet residuals even when platform AEC reports active;
+quiet spoken interruptions may need a clearer/louder utterance. This is an audio
+heuristic, not a guaranteed acoustic echo canceller or word blacklist.

@@ -31,12 +31,12 @@ def test_speaking_time_pcm_reaches_the_existing_live_transport():
             await runtime._dashboard._phone_audio_queue.put({'data': stale_pcm,
                 '_source_device_id': 'phone', '_source_socket': old})
         pcm = np.full(1024, 1000, dtype='<i2').tobytes()
-        for _ in range(3):
+        for _ in range(5):
             await runtime._dashboard._phone_audio_queue.put({'data': pcm, 'mime_type': 'audio/pcm;rate=16000',
                 '_source_device_id': 'phone', '_source_socket': current})
         task = asyncio.create_task(runtime._relay_phone_audio())
         assert await asyncio.wait_for(runtime.out_queue.get(), 1) == {'activity_start': True}
-        for _ in range(3):
+        for _ in range(5):
             assert (await asyncio.wait_for(runtime.out_queue.get(), 1))['data'] == pcm
         assert await asyncio.wait_for(runtime.out_queue.get(), 2) == {'activity_end': True}
         task.cancel()

@@ -2350,6 +2350,8 @@ class JarvisLive:
                         if sc.input_transcription and sc.input_transcription.text:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
+                                _trace_event("live_input_transcription", source="configured_live_provider",
+                                    chars=len(txt), device_id=getattr(getattr(self, "_dashboard", None), "active_voice_device", None))
                                 if not in_buf:
                                     # New voice input arrives before its tool calls.
                                     self._attachment_turn = None
@@ -2667,6 +2669,7 @@ class JarvisLive:
         """Send speech, including barge-in PCM, to the existing Live session only."""
         from core.speech_onset import SpeechOnset
         onset = SpeechOnset()
+        source_socket = None
         q = self._dashboard._phone_audio_queue
         while True:
             try:
@@ -2678,6 +2681,18 @@ class JarvisLive:
                     await self.out_queue.put({"activity_end": True})
                     self._phone_activity_active = False
                 continue
+            incoming_socket = chunk.get("_source_socket")
+            if incoming_socket is not None:
+                source_device = chunk.get("_source_device_id")
+                if self._dashboard._device_sockets.get(source_device) is not incoming_socket:
+                    onset.reset()
+                    continue
+                if source_socket is not None and source_socket is not incoming_socket:
+                    onset.reset()
+                    if self._phone_activity_active:
+                        await self.out_queue.put({"activity_end": True})
+                        self._phone_activity_active = False
+                source_socket = incoming_socket
             self._phone_active = True
             if self.ui.muted:
                 onset.reset()

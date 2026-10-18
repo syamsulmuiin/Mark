@@ -712,13 +712,15 @@ class JarvisLive:
                     done = self._turn_done_event
                     if done:
                         done.clear()
-                    await asyncio.wait_for(self.session.send_client_content(
-                        turns={"role": "user", "parts": [{"text": speech_instruction(outcome)}]},
-                        turn_complete=True,
-                    ), timeout=10)
+                    async with asyncio.timeout(10):
+                        await self.session.send_client_content(
+                            turns={"role": "user", "parts": [{"text": speech_instruction(outcome)}]},
+                            turn_complete=True,
+                        )
                     _trace_event("approval_voice_requested", outcome=outcome, device_id=owner)
                     if done:
-                        await asyncio.wait_for(done.wait(), timeout=30)
+                        async with asyncio.timeout(30):
+                            await done.wait()
                     # Do not replace an acknowledgement still awaiting/generated audio
                     # with the following execution result.
                     while (self._is_speaking

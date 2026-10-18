@@ -1456,6 +1456,35 @@ class DashboardServer:
                     elif msg.get("type") == "attachment.list":
                         await self._send_attachment_inbox(websocket, device_id)
                         await self._send_attachment_sent(websocket, device_id)
+                    elif msg.get("type") == "attachment.manage":
+                        attachment_id = str(msg.get("id") or "")
+                        action = str(msg.get("action") or "")
+                        try:
+                            item = self._attachment_inbox.manage(device_id, attachment_id, action)
+                            removed, cleanup_failed = False, False
+                            if action == 'delete':
+                                try:
+                                    removed = self._file_store.delete_attachment_copy(item['sha256'], item['name'])
+                                except OSError as exc:
+                                    cleanup_failed = True
+                                    print(f"[ERROR Attachment] server copy cleanup failed: {type(exc).__name__}")
+                            await websocket.send_json({"type":"attachment.managed", "id":attachment_id,
+                                "action":action, "ok":True, "server_copy_removed":removed,
+                                "message":("Removed from your list; server file retained." if action == 'hide' else
+                                           "Attachment deleted. " + ("Server attachment copy removed." if removed else "Server cleanup incomplete; inspect server storage." if cleanup_failed else "Shared server copy retained for other references.") + " Original source files and device downloads are unchanged.")})
+                            participants = {device_id} if action == 'hide' else {item['source_device'], item['destination_device']}
+                            for participant in participants:
+                                peer_ws = self._device_sockets.get(participant)
+                                if peer_ws:
+                                    try:
+                                        await self._send_attachment_inbox(peer_ws, participant)
+                                        await self._send_attachment_sent(peer_ws, participant)
+                                    except Exception:
+                                        pass  # Durable list state is refreshed when this peer reconnects.
+                            _interaction_event("attachment_managed", device_id=device_id, action=action,
+                                               server_copy_removed=removed)
+                        except (PermissionError, ValueError, OSError):
+                            await websocket.send_json({"type":"attachment.error", "error":"Attachment operation failed or is not authorized. Refresh the list and retry."})
                     elif msg.get("type") == "attachment.download":
                         item = self._attachment_inbox.get(device_id, str(msg.get("id") or ""))
                         if not item or not self._file_store.by_hash(item["sha256"]):
@@ -1470,7 +1499,7 @@ class DashboardServer:
                         item = self._attachment_inbox.get(device_id, attachment_id)
                         if item and self._attachment_inbox.mark(device_id, attachment_id, "saved"):
                             source_ws = self._device_sockets.get(item["source_device"])
-                            if source_ws:
+                            if source_ws and item['source_device'] not in item.get('hidden_for', []):
                                 try:
                                     item["status"] = "saved"
                                     await source_ws.send_json({"type":"attachment.sent.update", "attachment":self._sent_item(item)})

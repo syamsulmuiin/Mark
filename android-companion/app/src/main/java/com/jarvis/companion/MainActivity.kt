@@ -365,6 +365,13 @@ class MainActivity : AppCompatActivity() {
                     "attachment.transfer.status"->{ ui(m.optString("message","Attachment transfer updated")) }
                     "attachment.download.ready"->{ val pending=pendingAttachment; if(pending!=null && pending.first==m.optString("id")){ pendingAttachment=null; handleAttachmentDownload(m,pending.second) } }
                     "attachment.error"->{ ui("Attachment: ${m.optString("error")}") }
+                    "attachment.managed"->{
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity,m.optString("message"),Toast.LENGTH_LONG).show()
+                            renderCompanionPage("attachments")
+                        }
+                        w.send(JSONObject().put("type","attachment.list").toString())
+                    }
                     "ready"->{ reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "audio.clear"->{ stopPlayback(); setVoiceState("LISTENING") }
@@ -1003,10 +1010,9 @@ class MainActivity : AppCompatActivity() {
         }
         panel.addView(list,LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,dp(320)))
         list.setOnItemClickListener { _,_,position,_ ->
-            if(attachmentTab=="received"){
-                val item=synchronized(attachmentItems){ attachmentItems.values.toList().getOrNull(position) }?:return@setOnItemClickListener
-                showAttachmentActions(item)
-            }
+            val item=if(attachmentTab=="received") synchronized(attachmentItems){ attachmentItems.values.toList().getOrNull(position) }
+                     else synchronized(sentAttachmentItems){ sentAttachmentItems.values.toList().getOrNull(position) }
+            if(item!=null) showAttachmentActions(item)
         }
         refreshAttachmentDialog()
     }
@@ -1023,6 +1029,7 @@ class MainActivity : AppCompatActivity() {
             text="$size  ·  $status"; textSize=12f
             setTextColor(android.graphics.Color.rgb(145,153,173)); setPadding(dp(8),0,dp(8),dp(10))
         })
+        if(attachmentTab=="received"){
         body.addView(menuActionRow(R.drawable.ic_open_file,"Open","Preview using an available app") { dialog -> dialog.dismiss(); requestAttachment(item.getString("id"),"open") })
         body.addView(menuActionRow(R.drawable.ic_save_file,"Save As","Choose a location on this device") { dialog ->
             dialog.dismiss(); val intent=Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
@@ -1030,6 +1037,22 @@ class MainActivity : AppCompatActivity() {
             pendingAttachment=Pair(item.getString("id"),"save"); startActivityForResult(intent,91)
         })
         body.addView(menuActionRow(R.drawable.ic_share_file,"Share","Send with another app on this device") { dialog -> dialog.dismiss(); requestAttachment(item.getString("id"),"share") })
+        }
+        body.addView(menuActionRow(R.drawable.ic_attachment,"Remove from my list","Keep server files and other devices' lists") { _ ->
+            manageAttachment(item,"hide")
+        })
+        body.addView(menuActionRow(R.drawable.ic_attachment,"Delete server attachment","Remove attachment for sender and recipient") { _ ->
+            AlertDialog.Builder(this).setTitle("Delete server attachment?")
+                .setMessage("Remove this attachment from sender and recipient lists and delete its server copy when no other references need it. Original source files and downloaded device copies are unchanged.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Delete"){ _,_ -> manageAttachment(item,"delete") }.show()
+        })
+    }
+
+    private fun manageAttachment(item:JSONObject,action:String){
+        val socket=ws
+        if(socket==null || !socket.send(JSONObject().put("type","attachment.manage").put("id",item.getString("id")).put("action",action).toString())){
+            Toast.makeText(this,"Connect to manage attachments",Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun refreshAttachmentDialog(){

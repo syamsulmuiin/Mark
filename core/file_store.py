@@ -51,6 +51,23 @@ class ObjectStore:
         # Keep an object if any durable alias points to it.
         if any(a.get('sha256')==digest for a in self.index.get('aliases',{}).values()) or getattr(self,'attachment_referenced',lambda _d:False)(digest):return False
         (self.objects/digest).unlink(missing_ok=True); self.index['objects'].pop(digest,None); self._save(); return True
+    def delete_attachment_copy(self, digest, name):
+        """Remove an unshared attachment object; never delete arbitrary source paths."""
+        if getattr(self, 'attachment_referenced', lambda _d: False)(digest):
+            return False
+        alias = self.index.get('aliases', {}).get(name)
+        if alias and alias.get('sha256') == digest:
+            self.index['aliases'].pop(name)
+        if any(alias.get('sha256') == digest for alias in self.index.get('aliases', {}).values()):
+            self._save()
+            return False
+        record = self.by_hash(digest)
+        if record:
+            record['path'].unlink(missing_ok=True)
+        self.index.get('objects', {}).pop(digest, None)
+        self._save()
+        return True
+
     def _migrate_legacy(self):
         for folder in ('uploads','share','downloads'):
             d=self.root/folder

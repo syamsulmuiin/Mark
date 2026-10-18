@@ -34,12 +34,13 @@ class AttachmentInbox:
 
     def for_device(self, device_id):
         return sorted((dict(item) for item in self.items.values()
-                       if item["destination_device"] == device_id and not item.get("assistant_upload")),
+                       if item["destination_device"] == device_id and not item.get("assistant_upload")
+                       and device_id not in item.get("hidden_for", [])),
                       key=lambda x: x["created_at"], reverse=True)
 
     def sent_by(self, device_id):
         return sorted((dict(item) for item in self.items.values()
-                       if item["source_device"] == device_id),
+                       if item["source_device"] == device_id and device_id not in item.get("hidden_for", [])),
                       key=lambda x: x["created_at"], reverse=True)
 
     def get(self, device_id, attachment_id):
@@ -59,3 +60,23 @@ class AttachmentInbox:
 
     def referenced(self, digest):
         return any(item["sha256"] == digest for item in self.items.values())
+
+    def manage(self, device_id, attachment_id, action):
+        item = self.items.get(attachment_id)
+        if not item or device_id not in (item['source_device'], item['destination_device']):
+            raise PermissionError('Attachment unavailable for this device')
+        if action not in {'hide', 'delete'}:
+            raise ValueError('Invalid attachment action')
+        original = dict(item)
+        if action == 'hide':
+            updated = dict(item)
+            updated['hidden_for'] = list(set(item.get('hidden_for', [])) | {device_id})
+            self.items[attachment_id] = updated
+        else:
+            self.items.pop(attachment_id)
+        try:
+            self._save()
+        except Exception:
+            self.items[attachment_id] = original
+            raise
+        return original

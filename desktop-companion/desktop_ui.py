@@ -298,6 +298,9 @@ class AttachmentDialog(QDialog):
         self.actions=[]
         for label, action in (('OPEN','open'), ('SAVE AS','save'), ('SHARE','share')):
             btn=QPushButton(label); btn.clicked.connect(lambda _, a=action: owner.request_attachment(a)); row.addWidget(btn); self.actions.append(btn)
+        manage_row=QHBoxLayout(); layout.addLayout(manage_row)
+        for label, action in (('REMOVE FROM LIST','hide'), ('DELETE SERVER COPY','delete')):
+            btn=QPushButton(label); btn.clicked.connect(lambda _, a=action: owner.manage_attachment(a)); manage_row.addWidget(btn)
         row.addStretch()
         refresh=QPushButton('REFRESH'); refresh.clicked.connect(lambda: owner.ws and owner.ws.send(__import__('json').dumps({'type':'attachment.list'})))
         row.addWidget(refresh)

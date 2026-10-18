@@ -55,6 +55,7 @@ class _Pending:
     detail:  str
     run:     Callable[[], str]
     at:      float
+    timer:   Optional[threading.Timer] = None
 
 
 _pending: Optional[_Pending] = None
@@ -67,13 +68,15 @@ PROPOSAL_REPLAY_SECONDS = 60.0
 _show_cb: Optional[Callable[[str, str], None]] = None
 _hide_cb: Optional[Callable[[], None]] = None
 _log_cb:  Optional[Callable[[str], None]] = None
-_result_cb: Optional[Callable[[str, str, bool, str, str], None]] = None
+_result_cb: Optional[Callable[[str, str, str, bool, str], None]] = None
+_decision_cb = None
 
 
-def bind(show, hide, log=None, on_result=None) -> None:
+def bind(show, hide, log=None, on_result=None, on_decision=None) -> None:
     """Wire this module to the HUD. Called once from main.py at startup."""
-    global _show_cb, _hide_cb, _log_cb, _result_cb
+    global _show_cb, _hide_cb, _log_cb, _result_cb, _decision_cb
     _show_cb, _hide_cb, _log_cb, _result_cb = show, hide, log, on_result
+    _decision_cb = on_decision
 
 
 def _log(msg: str) -> None:
@@ -98,6 +101,13 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
         return (f"I cannot confirm '{title}' right now because the interface is "
                 f"not available, so I have not done it.")
 
+    # If a busy scheduler delayed the timer, expire the old request before
+    # allowing a replacement; its outcome must still be reported exactly once.
+    with _lock:
+        expired = _pending if _pending is not None and time.monotonic() - _pending.at >= TIMEOUT_SECONDS else None
+    if expired is not None:
+        resolve(False, expected_request_id=expired.request_id)
+
     with _lock:
         now = time.monotonic()
         for old_key, (at, _) in list(_recent_proposals.items()):
@@ -114,14 +124,22 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
                     "Wait for the user to approve, reject, or let it expire.")
         _pending = _Pending(key=key, request_id=secrets.token_urlsafe(24), title=title, detail=detail,
                             run=run, at=time.monotonic())
+        p = _pending
 
     try:
         _show_cb(title, detail)
     except Exception as e:
         with _lock:
-            _pending = None
+            if _pending is p:
+                _pending = None
         return f"Could not ask for confirmation: {e}. Nothing was done."
 
+    with _lock:
+        if _pending is p:
+            p.timer = threading.Timer(max(0.0, TIMEOUT_SECONDS - (time.monotonic() - p.at)),
+                lambda: resolve(False, expected_request_id=p.request_id))
+            p.timer.daemon = True
+            p.timer.start()
     _log(f"SYS: Awaiting confirmation — {title}")
     return (
         f"[CONFIRMATION_PENDING] I have put a confirmation on screen for: {title}. "
@@ -138,6 +156,14 @@ def _notify_result(p: _Pending, success: bool, result: str) -> None:
     if _result_cb:
         try:
             _result_cb(p.request_id, p.key, p.title, success, result)
+        except Exception:
+            pass
+
+
+def _notify_decision(p: _Pending, outcome: str) -> None:
+    if _decision_cb:
+        try:
+            _decision_cb(p.request_id, outcome)
         except Exception:
             pass
 
@@ -162,6 +188,9 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None,
         if p is not None and p.key.startswith("text_proposal:"):
             _recent_proposals[p.key] = (time.monotonic(), "running" if accepted else "rejected")
 
+    if p is not None and p.timer is not None:
+        p.timer.cancel()
+
     if _hide_cb:
         try:
             _hide_cb()
@@ -171,15 +200,19 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None,
     if p is None:
         return
 
-    if time.monotonic() - p.at > TIMEOUT_SECONDS:
+    if time.monotonic() - p.at >= TIMEOUT_SECONDS:
+        _notify_decision(p, "expired")
         _log(f"SYS: Confirmation expired — {p.title}")
         _notify_result(p, False, "expired")
         return
 
     if not accepted:
+        _notify_decision(p, "rejected")
         _log(f"SYS: Cancelled — {p.title}")
         _notify_result(p, False, "rejected")
         return
+
+    _notify_decision(p, "accepted")
 
     def _worker():
         try:

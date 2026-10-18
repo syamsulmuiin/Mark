@@ -656,6 +656,10 @@ class DashboardServer:
                            outcome="accepted" if msg["accepted"] else "rejected")
         return True
 
+    def discard_pending_approval(self, request_id: str) -> None:
+        """The host gate has reached a terminal decision; reject late replies."""
+        self._approval_pending.pop(request_id, None)
+
     async def send_approval_completion(self, request_id: str, success: bool) -> bool:
         """Send sanitized execution outcome only to the original authenticated socket."""
         target = self._approval_completion_targets.pop(request_id, None)

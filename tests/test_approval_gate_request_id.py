@@ -1,11 +1,13 @@
 """Per-request tokens must prevent a stale approval for a repeated action key."""
 from core import confirm
+from types import SimpleNamespace
 
 
 def test_request_id_is_unique_and_stale_response_cannot_authorize(monkeypatch):
     events = []
     monkeypatch.setattr(confirm, "_pending", None)
     confirm.bind(lambda title, detail: None, lambda: None)
+    monkeypatch.setattr(confirm.threading, "Timer", lambda *args, **kwargs: SimpleNamespace(start=lambda: None, cancel=lambda: None))
     monkeypatch.setattr(confirm.threading, "Thread", lambda *args, **kwargs: events.append("executed"))
     assert "CONFIRMATION_PENDING" in confirm.request("shutdown", "Shutdown", "Now", lambda: "done")
     first = confirm.pending_request()

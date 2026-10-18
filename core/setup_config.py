@@ -157,56 +157,62 @@ def _safe_input(prompt: str) -> str:
     return input(prompt)
 
 
+def _resolve_provider_choice(choice: str, default: str, catalog: tuple) -> str:
+    """Resolve the exact catalog displayed to the user; numbers are never provider IDs."""
+    value = str(choice or default).strip().lower()
+    for index, (provider, label, ready) in enumerate(catalog, 1):
+        if value in {str(index), provider}:
+            if not ready:
+                raise ValueError(f"{label} adapter is not implemented; configuration unchanged")
+            return provider
+    raise ValueError(f"Unknown provider selection. Enter a menu number from 1 to {len(catalog)} or a provider ID; configuration unchanged")
+
+
 def interactive_llm_setup(*, force_keys: bool = False) -> bool:
-    """Configure supported LLM provider and separate Live/text model ladders."""
-    from core.model_config import (
-        DEFAULT_LIVE_MODEL, DEFAULT_LIVE_FALLBACK_MODEL,
-        DEFAULT_TEXT_MODEL, DEFAULT_TEXT_FALLBACK_MODEL,
-    )
+    """Finish Text setup before displaying Live choices; save both atomically."""
+    from core.model_config import DEFAULT_LIVE_MODEL, DEFAULT_TEXT_MODEL
     current = load_config()
-    print("\nCHAT / REASONING PROVIDER")
     print("Only the primary configured Text and Live models are used; no automatic fallback.")
+    print("\nSTEP 1/2 — TEXT / REASONING PROVIDER")
     for index, (key, label, ready) in enumerate(CHAT_PROVIDER_CATALOG, 1):
-        print(f"  {index}. {label}" + ("" if ready else " [not implemented; installing a package will not enable it]"))
-    print("\nLIVE / VOICE PROVIDER")
-    for index, (key, label, ready) in enumerate(LIVE_PROVIDER_CATALOG, 1):
-        print(f"  {index}. {label}" + ("" if ready else " [not implemented; installing a package will not enable it]"))
-    print("Hybrid: typed chat and text reasoning use the selected provider; voice uses the selected Live provider.")
+        print(f"  {index}. {label}" + ("" if ready else " [not implemented]"))
     try:
         provider_default = str(next((i for i, (key, _, _) in enumerate(CHAT_PROVIDER_CATALOG, 1)
                                      if key == current.get("llm_provider", "gemini")), 1))
+        provider_choice = _safe_input(f"Chat / reasoning provider [{provider_default}]: ").strip().lower()
+        provider = _resolve_provider_choice(provider_choice, provider_default, CHAT_PROVIDER_CATALOG)
+        api_key = None
+        if provider == "openai_codex":
+            from core.llm_codex import check_login
+            check_login()
+        if provider not in {"ollama_local", "openai_codex"} and (force_keys or not current.get(f"{provider}_api_key")):
+            api_key = getpass.getpass(f"{provider} text API key: ").strip()
+            if not api_key:
+                print("Text API key required; configuration unchanged.")
+                return False
+        choices = {}
+        if provider == "gemini":
+            default = str(current.get("text_models") or DEFAULT_TEXT_MODEL).split(",")[0].strip()
+            choices["text_models"] = _safe_input(f"Text model [{default}]: ").strip() or default
+        else:
+            saved_model = (current.get("provider_models") or {}).get(provider, "")
+            if not saved_model and current.get("llm_provider") == provider:
+                saved_model = current.get("chat_models") or ""
+            saved_model = str(saved_model).split(",")[0].strip()
+            model = _safe_input(f"{provider} text model ID [{saved_model or 'required'}]: ").strip() or saved_model
+            if not model:
+                print("Text model ID required; configuration unchanged.")
+                return False
+            choices["chat_models"] = model
+
+        print("\nSTEP 2/2 — LIVE / VOICE PROVIDER")
+        for index, (key, label, ready) in enumerate(LIVE_PROVIDER_CATALOG, 1):
+            print(f"  {index}. {label}" + ("" if ready else " [not implemented]"))
         live_default_choice = str(next((i for i, (key, _, _) in enumerate(LIVE_PROVIDER_CATALOG, 1)
                                        if key == current.get("live_provider", "gemini")), 1))
-        provider_choice = _safe_input(f"Chat / reasoning provider [{provider_default}]: ").strip().lower()
         live_choice = _safe_input(f"Live / voice provider [{live_default_choice}]: ").strip().lower()
-        provider_choices = {str(i): key for i, (key, _, _) in enumerate(CHAT_PROVIDER_CATALOG, 1)}
-        live_choices = {str(i): key for i, (key, _, _) in enumerate(LIVE_PROVIDER_CATALOG, 1)}
-        provider = provider_choices.get(provider_choice or provider_default, provider_choice)
-        live_provider = live_choices.get(live_choice or live_default_choice, live_choice)
-        if provider not in SUPPORTED_PROVIDERS:
-            print(f"{provider!r} is listed for planning but its chat/tool adapter is not implemented.")
-            return False
-        if live_provider not in {"gemini", "openai_realtime"}:
-            print(f"{live_provider!r} Live audio transport is not implemented.")
-            return False
-        print(f"Mode: Hybrid ({live_provider} voice + {provider} text reasoning)")
-        api_key = None
-        if provider != "gemini":
-            print("Text generation only: Gemini-specific tool and multimodal helpers remain on Gemini.")
-            if provider == "openai_codex":
-                from core.llm_codex import check_login
-                check_login()
-            if provider not in {"ollama_local", "openai_codex"} and (force_keys or not current.get(f"{provider}_api_key")):
-                api_key = getpass.getpass(f"{provider} API key: ").strip()
-                if not api_key:
-                    print("API key required; configuration unchanged.")
-                    return False
-        if provider == "gemini" and (force_keys or not current.get("gemini_api_key")):
-            api_key = getpass.getpass("Gemini text API key: ").strip()
-            if not api_key:
-                print("Gemini text API key required; configuration unchanged.")
-                return False
-        choices = {"live_provider": live_provider}
+        live_provider = _resolve_provider_choice(live_choice, live_default_choice, LIVE_PROVIDER_CATALOG)
+        choices["live_provider"] = live_provider
         live_key_field = "openai_api_key" if live_provider == "openai_realtime" else "gemini_api_key"
         if force_keys or not current.get(live_key_field):
             same_key_provider = "openai" if live_provider == "openai_realtime" else "gemini"
@@ -215,39 +221,21 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
                 print("Live API key required; configuration unchanged.")
                 return False
             choices["live_api_key"] = live_key
-        if provider != "gemini":
-            saved_model = (current.get("provider_models") or {}).get(provider, "")
-            if not saved_model and current.get("llm_provider") == provider:
-                saved_model = current.get("chat_models") or ""
-            model = _safe_input(f"{provider} text model ID [{saved_model or 'required'}]: ").strip() or saved_model
-            if not model:
-                print("Text model ID required; configuration unchanged.")
-                return False
-            choices["chat_models"] = model
-            if live_provider == "gemini":
-                live_default = current.get("live_models") or f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"
-                choices["live_models"] = _safe_input(f"Live audio models [{live_default}]: ").strip() or live_default
+        if live_provider == "gemini":
+            default = str(current.get("live_models") or DEFAULT_LIVE_MODEL).split(",")[0].strip()
+            choices["live_models"] = _safe_input(f"Live audio model [{default}]: ").strip() or default
         else:
-            defaults = (
-                ("live_models", "Live audio", f"{DEFAULT_LIVE_MODEL},{DEFAULT_LIVE_FALLBACK_MODEL}"),
-                ("text_models", "Text / tools", f"{DEFAULT_TEXT_MODEL},{DEFAULT_TEXT_FALLBACK_MODEL}"),
-            )
-            for field, label, default in defaults:
-                if field == "live_models" and live_provider != "gemini":
-                    continue
-                value = _safe_input(f"{label} models [{current.get(field) or default}]: ").strip()
-                choices[field] = value or current.get(field) or default
-        if live_provider == "openai_realtime":
-            realtime_default = current.get("realtime_model") or "gpt-realtime-2.1"
-            choices["realtime_model"] = _safe_input(f"OpenAI Realtime model [{realtime_default}]: ").strip() or realtime_default
+            default = current.get("realtime_model") or "gpt-realtime-2.1"
+            choices["realtime_model"] = _safe_input(f"OpenAI Realtime model [{default}]: ").strip() or default
         save_llm_selection(provider, "hybrid", provider_api_key=api_key, **choices)
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print(f"LLM setup failed: {exc}")
+        print(f"Setup module: {Path(__file__).resolve()}")
         return False
     except (EOFError, KeyboardInterrupt, UnicodeDecodeError):
         print("LLM selection cancelled; existing configuration preserved.")
         return False
-    print(f"Hybrid configuration saved ({live_provider} voice + {provider} text).")
+    print(f"Hybrid configuration saved ({provider} text + {live_provider} voice).")
     return True
 
 

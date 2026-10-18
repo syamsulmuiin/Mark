@@ -126,7 +126,7 @@ def test_setup_saves_openai_voice_without_overwriting_gemini_models(tmp_path, mo
     path = tmp_path / 'keys.json'
     path.write_text(json.dumps({'gemini_api_key': 'gemini-key', 'live_models': 'gemini-live'}))
     monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
-    replies = iter(['2', '2', 'my-text-model', 'my-realtime-model'])
+    replies = iter(['2', 'my-text-model', '2', 'my-realtime-model'])
     monkeypatch.setattr('builtins.input', lambda _: next(replies))
     prompts = []
     monkeypatch.setattr(setup_config.getpass, 'getpass', lambda p: prompts.append(p) or 'openai-key')
@@ -212,7 +212,7 @@ def test_realtime_rejects_invalid_tool_calls(name, arguments):
 def test_realtime_only_setup_does_not_require_gemini_key(tmp_path, monkeypatch):
     path = tmp_path / 'keys.json'
     monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
-    replies = iter(['2', '2', 'text-model', 'voice-model'])
+    replies = iter(['2', 'text-model', '2', 'voice-model'])
     monkeypatch.setattr('builtins.input', lambda _: next(replies))
     monkeypatch.setattr(setup_config.getpass, 'getpass', lambda _: 'openai-key')
     assert setup_config.interactive_llm_setup()

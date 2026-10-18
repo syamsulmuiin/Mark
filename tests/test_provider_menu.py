@@ -132,3 +132,43 @@ def test_native_login_setup_keeps_text_and_live_independent(tmp_path, monkeypatc
     assert saved['gemini_api_key'] == 'voice-key' and saved['provider_models'][provider] == model
     assert calls == ['google-login' if provider == 'google_oauth' else 'router-login']
     if provider == 'openrouter': assert saved['openrouter_api_key'] == 'router-key'
+
+
+def test_browser_login_is_an_explicit_setup_choice(tmp_path, monkeypatch):
+    from core import provider_credentials
+    monkeypatch.setattr(provider_credentials, 'ROOT', tmp_path / 'auth')
+    path = tmp_path / 'keys.json'
+    path.write_text('{"gemini_api_key":"voice-key"}')
+    monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
+    answers = iter(['3', '2', 'account-model', '1', ''])
+    monkeypatch.setattr(setup_config, '_safe_input', lambda _: next(answers))
+    monkeypatch.setattr(llm_codex, 'login', lambda *a: pytest.fail('must not try device auth'))
+    def login(read_secret):
+        provider_credentials.save('openai_codex', {'access_token': 'token', 'refresh_token': 'refresh', 'account_id': 'account', 'expires_at': 1e12})
+    monkeypatch.setattr(llm_codex, 'login_browser', login)
+    assert setup_config.interactive_llm_setup()
+    assert setup_config.load_config()['llm_provider'] == 'openai_codex'
+
+
+def test_reported_530_stops_setup_before_model_and_live_without_changing_config(tmp_path, monkeypatch, capsys):
+    import io
+    from urllib.error import HTTPError
+    from core import provider_credentials, provider_oauth
+    monkeypatch.setattr(provider_credentials, 'ROOT', tmp_path / 'auth')
+    path = tmp_path / 'keys.json'
+    path.write_text('{"gemini_api_key":"voice-key","llm_provider":"deepseek"}')
+    monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
+    before = path.read_bytes()
+    answers = iter(['3', '1'])
+    monkeypatch.setattr(setup_config, '_safe_input', lambda _: next(answers))
+    calls = []
+    def request(req, **kw):
+        calls.append(req.full_url)
+        raise HTTPError(req.full_url, 530, 'private-body', {'Server': 'cloudflare'}, io.BytesIO(b'error code: 1016 private-token'))
+    monkeypatch.setattr(provider_oauth, 'urlopen', request)
+    assert not setup_config.interactive_llm_setup()
+    assert path.read_bytes() == before and provider_credentials.load('openai_codex') == {}
+    assert calls == ['https://auth.openai.com/api/accounts/deviceauth/usercode']
+    message = capsys.readouterr().out
+    assert 'HTTP 530' in message and '1016' in message and 'device-code request' in message
+    assert 'STEP 2/2' not in message and 'private-token' not in message

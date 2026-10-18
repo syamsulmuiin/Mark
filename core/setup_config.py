@@ -184,11 +184,17 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
         provider = _resolve_provider_choice(provider_choice, provider_default, CHAT_PROVIDER_CATALOG)
         api_key = None
         if provider == "openai_codex":
-            from core.llm_codex import check_login, login
+            from core.llm_codex import check_login, login, login_browser
             from core import provider_credentials
             record = provider_credentials.load("openai_codex")
             if force_keys or not record.get("access_token") or record.get("invalid"):
-                login()
+                method = _safe_input("OpenAI account login: 1. Device code  2. Browser PKCE [1]: ").strip() or "1"
+                if method == "1":
+                    login()
+                elif method == "2":
+                    login_browser(getpass.getpass)
+                else:
+                    raise ValueError("Invalid OpenAI login method; configuration unchanged")
             check_login()
         if provider == "google_oauth":
             from core.llm_google_oauth import login, credentials

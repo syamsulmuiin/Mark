@@ -2,11 +2,13 @@
 import base64
 import json
 import math
+import secrets
+from urllib.parse import urlencode
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 from core import provider_credentials as credentials
-from core.provider_oauth import post, AuthHTTPError
+from core.provider_oauth import post, AuthHTTPError, pkce, callback_code
 from core.llm_http import urlopen
 
 # Public OAuth client from openai/codex, codex-rs/login/src/auth/manager.rs.
@@ -77,6 +79,28 @@ def login(display=print, *, timeout=900):
         credentials.save('openai_codex', record)
         return
     raise RuntimeError('OpenAI device login expired; run setup again')
+
+
+def login_browser(read_secret, display=print):
+    """Explicit alternative to device auth; browser may run on a different device."""
+    verifier, challenge = pkce()
+    state = secrets.token_urlsafe(32)
+    redirect = 'http://localhost:1455/auth/callback'
+    url = ISSUER + '/oauth/authorize?' + urlencode({
+        'client_id': CLIENT_ID, 'response_type': 'code', 'redirect_uri': redirect,
+        'scope': 'openid profile email offline_access', 'state': state,
+        'code_challenge': challenge, 'code_challenge_method': 'S256',
+        'id_token_add_organizations': 'true', 'codex_cli_simplified_flow': 'true', 'originator': 'mark'})
+    display('Open this OpenAI login link in your browser. After approval, copy the full localhost redirect URL. The localhost page may not load when Mark runs on another machine:')
+    display(url)
+    deadline = time.monotonic() + 600
+    response = read_secret('Full OpenAI redirected URL: ').strip()
+    if time.monotonic() > deadline:
+        raise RuntimeError('OpenAI browser login expired; start a fresh login')
+    code = callback_code(response, redirect, state)
+    tokens = post(ISSUER + '/oauth/token', {'grant_type': 'authorization_code', 'client_id': CLIENT_ID,
+        'redirect_uri': redirect, 'code': code, 'code_verifier': verifier}, form=True)
+    credentials.save('openai_codex', _record(tokens))
 
 
 def check_login():

@@ -200,3 +200,53 @@ def test_auth_http_error_never_echoes_provider_response_secrets(monkeypatch):
     with pytest.raises(oauth.AuthHTTPError) as error:
         oauth.post('https://auth.openai.com/oauth/token', {'refresh_token': 'private-token'})
     assert '401' in str(error.value) and 'private-token' not in str(error.value)
+
+
+def test_530_diagnostic_is_bounded_sanitized_and_not_a_bad_key_claim(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    calls = []
+    def request(req, **kwargs):
+        calls.append(req)
+        raise HTTPError(req.full_url, 530, 'untrusted-message-private', {
+            'Server': 'cloudflare', 'CF-Ray': '0123456789abcdef-CGK'},
+            io.BytesIO(b'<h1>Error 1016</h1> private-refresh-token private-auth-code'))
+    monkeypatch.setattr(oauth, 'urlopen', request)
+    with pytest.raises(oauth.AuthHTTPError) as error:
+        oauth.post('https://auth.openai.com/api/accounts/deviceauth/usercode', {'client_id': 'public'})
+    message = str(error.value)
+    assert len(calls) == 1
+    assert 'device-code request' in message and 'auth.openai.com' in message
+    assert '1016' in message and '0123456789abcdef-CGK' in message
+    assert 'does not establish invalid credentials' in message
+    assert 'private' not in message
+    assert calls[0].get_header('Accept') == 'application/json'
+    assert calls[0].get_header('User-agent').startswith('Mark/')
+
+
+def test_browser_pkce_does_not_call_device_endpoint(tmp_path, monkeypatch):
+    from urllib.parse import urlsplit, parse_qs
+    monkeypatch.setattr(store, 'ROOT', tmp_path / 'auth')
+    messages, calls = [], []
+    def read_secret(prompt):
+        query = parse_qs(urlsplit(messages[-1]).query)
+        assert query['code_challenge_method'] == ['S256']
+        assert query['redirect_uri'] == ['http://localhost:1455/auth/callback']
+        return query['redirect_uri'][0] + '?code=one-time&state=' + query['state'][0]
+    def post(url, data, **kwargs):
+        assert url == 'https://auth.openai.com/oauth/token'
+        calls.append(data)
+        return token_response()
+    monkeypatch.setattr(codex, 'post', post)
+    codex.login_browser(read_secret, messages.append)
+    assert len(calls) == 1 and calls[0]['code'] == 'one-time'
+    assert calls[0]['code_verifier'] not in str(messages)
+    assert store.load('openai_codex')['access_token'] == 'new-access'
+
+
+def test_browser_invalid_callback_never_exchanges_or_saves_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, 'ROOT', tmp_path / 'auth')
+    monkeypatch.setattr(codex, 'post', lambda *a, **kw: pytest.fail('must reject callback before exchange'))
+    with pytest.raises(ValueError):
+        codex.login_browser(lambda _: 'http://localhost:1455/auth/callback?code=bad&state=wrong', lambda *a: None)
+    assert store.load('openai_codex') == {}

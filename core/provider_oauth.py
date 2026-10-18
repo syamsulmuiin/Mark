@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import re
 import secrets
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, parse_qs
@@ -9,10 +10,44 @@ from urllib.request import Request
 from core.llm_http import urlopen
 
 
+STAGES = {
+    '/api/accounts/deviceauth/usercode': 'device-code request',
+    '/api/accounts/deviceauth/token': 'device approval polling',
+    '/oauth/token': 'token exchange/refresh',
+    '/api/v1/auth/keys': 'OpenRouter code exchange',
+}
+
+
 class AuthHTTPError(RuntimeError):
-    def __init__(self, status):
+    def __init__(self, status, *, host='', stage='', edge_code='', ray_id='', cloudflare=False):
         self.status = status
-        super().__init__(f'Provider authentication HTTP {status}')
+        detail = f'Provider authentication HTTP {status}'
+        if host: detail += f' at {host} during {stage}'
+        if edge_code: detail += f'; edge code {edge_code}'
+        if ray_id: detail += f'; Cloudflare Ray ID {ray_id}'
+        if status == 530:
+            detail += '. Authentication gateway failure; this does not establish invalid credentials or model access.'
+            if cloudflare:
+                detail += ' Cloudflare reports an origin/gateway problem; use the edge subcode for diagnosis.'
+            detail += ' Check the provider endpoint and this server network/proxy path. Browser PKCE login can be selected explicitly, but token exchange still needs server connectivity.'
+        super().__init__(detail)
+
+
+def _http_error(exc, url):
+    # Never print response bodies: gateways can reflect submitted credentials.
+    try:
+        body = exc.read(16384).decode('utf-8', errors='replace')
+    except (OSError, AttributeError, TypeError):
+        body = ''
+    headers = exc.headers or {}
+    cloudflare = 'cloudflare' in str(headers.get('Server', '')).lower() or 'cloudflare' in body.lower()
+    text = re.sub(r'<[^>]*>', ' ', body)
+    code = re.search(r'\berror(?:\s+code)?\s*:?\s*(1[0-9]{3})\b', text, re.I)
+    ray = str(headers.get('CF-Ray', ''))
+    ray = ray if re.fullmatch(r'[0-9a-fA-F]{16,32}-[A-Za-z]{3}', ray) else ''
+    endpoint = urlsplit(url)
+    return AuthHTTPError(exc.code, host=endpoint.hostname, stage=STAGES[endpoint.path],
+        edge_code=code.group(1) if code and exc.code == 530 and cloudflare else '', ray_id=ray, cloudflare=cloudflare)
 
 
 def post(url, data, *, form=False, timeout=30):
@@ -24,12 +59,13 @@ def post(url, data, *, form=False, timeout=30):
     }:
         raise ValueError('Untrusted authentication endpoint')
     body = urlencode(data).encode() if form else json.dumps(data).encode()
-    request = Request(url, data=body, headers={'Content-Type': 'application/x-www-form-urlencoded' if form else 'application/json'}, method='POST')
+    request = Request(url, data=body, headers={'Content-Type': 'application/x-www-form-urlencoded' if form else 'application/json',
+        'Accept': 'application/json', 'User-Agent': 'Mark/1.0 (+https://github.com/syamsulmuiin/Mark)'}, method='POST')
     try:
         with urlopen(request, timeout=timeout) as response:
             raw = response.read(1024 * 1024 + 1)
     except HTTPError as exc:
-        raise AuthHTTPError(exc.code) from None
+        raise _http_error(exc, url) from None
     except (URLError, OSError):
         raise RuntimeError('Provider authentication connection failed') from None
     try:

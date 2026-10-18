@@ -130,3 +130,21 @@ def test_old_expiry_timer_cannot_resolve_a_replacement_request(monkeypatch):
     assert decisions == ['rejected']
     confirm.resolve(False, expected_request_id=second)
     confirm.bind(lambda *a: None, lambda: None)
+
+
+def test_replacing_expired_gate_still_reports_its_expiry(monkeypatch):
+    timers = prepare(monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(confirm.time, 'monotonic', lambda: clock[0])
+    decisions = []
+    confirm.bind(lambda *a: None, lambda: None,
+        on_decision=lambda request, outcome: decisions.append(outcome))
+    confirm.request('delayed-one', 'First', '', lambda: 'done')
+    clock[0] += confirm.TIMEOUT_SECONDS + 1
+    confirm.request('delayed-two', 'Second', '', lambda: 'done')
+    assert decisions == ['expired'] and timers[0].cancelled
+    assert confirm.pending_title() == 'Second'
+    timers[0].callback()
+    assert decisions == ['expired']
+    confirm.resolve(False)
+    confirm.bind(lambda *a: None, lambda: None)

@@ -101,6 +101,13 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
         return (f"I cannot confirm '{title}' right now because the interface is "
                 f"not available, so I have not done it.")
 
+    # If a busy scheduler delayed the timer, expire the old request before
+    # allowing a replacement; its outcome must still be reported exactly once.
+    with _lock:
+        expired = _pending if _pending is not None and time.monotonic() - _pending.at >= TIMEOUT_SECONDS else None
+    if expired is not None:
+        resolve(False, expected_request_id=expired.request_id)
+
     with _lock:
         now = time.monotonic()
         for old_key, (at, _) in list(_recent_proposals.items()):

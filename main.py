@@ -712,10 +712,10 @@ class JarvisLive:
                     done = self._turn_done_event
                     if done:
                         done.clear()
-                    await self.session.send_client_content(
+                    await asyncio.wait_for(self.session.send_client_content(
                         turns={"role": "user", "parts": [{"text": speech_instruction(outcome)}]},
                         turn_complete=True,
-                    )
+                    ), timeout=10)
                     _trace_event("approval_voice_requested", outcome=outcome, device_id=owner)
                     if done:
                         await asyncio.wait_for(done.wait(), timeout=30)
@@ -724,6 +724,9 @@ class JarvisLive:
                     while (self._is_speaking
                            or (getattr(self, "audio_in_queue", None) is not None and not self.audio_in_queue.empty())
                            or time.monotonic() < getattr(self, "_audio_relay_cursor", 0.0)):
+                        if time.monotonic() - created > 120:
+                            _trace_event("approval_voice_failed", outcome=outcome, error_type="playback_timeout")
+                            break
                         await asyncio.sleep(0.1)
                 except Exception as exc:
                     _trace_event("approval_voice_failed", outcome=outcome, error_type=type(exc).__name__)

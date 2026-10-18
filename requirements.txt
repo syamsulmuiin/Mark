@@ -5,6 +5,7 @@
 
 # Core server and Gemini Live
 numpy>=1.24,<3
+webrtcvad-wheels>=2.0.14,<3  # Local speech/non-speech detection; no additional LLM
 google-genai>=2.8.0,<3
 websockets>=14,<17  # OpenAI Realtime transport
 requests>=2.31,<3

@@ -2358,7 +2358,8 @@ class JarvisLive:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
                                 _trace_event("live_input_transcription", source="configured_live_provider",
-                                    chars=len(txt), device_id=getattr(getattr(self, "_dashboard", None), "active_voice_device", None))
+                                    chars=len(txt), fingerprint=hashlib.sha256(txt.casefold().encode("utf-8")).hexdigest()[:16],
+                                    device_id=getattr(getattr(self, "_dashboard", None), "active_voice_device", None))
                                 if not in_buf:
                                     # New voice input arrives before its tool calls.
                                     self._attachment_turn = None
@@ -2677,6 +2678,8 @@ class JarvisLive:
     async def _relay_phone_audio(self) -> None:
         """Send speech, including barge-in PCM, to the existing Live session only."""
         from core.speech_onset import SpeechOnset
+        from core.voice_activity import VoiceActivity
+        voice = VoiceActivity()
         onset = SpeechOnset()
         source_socket = None
         q = self._dashboard._phone_audio_queue
@@ -2686,6 +2689,7 @@ class JarvisLive:
             except asyncio.TimeoutError:
                 self._phone_active = False
                 onset.reset()
+                voice.reset()
                 if self._phone_activity_active and time.monotonic() - self._phone_last_voice >= 0.65:
                     await self.out_queue.put({"activity_end": True})
                     self._phone_activity_active = False
@@ -2695,9 +2699,11 @@ class JarvisLive:
                 source_device = chunk.get("_source_device_id")
                 if self._dashboard._device_sockets.get(source_device) is not incoming_socket:
                     onset.reset()
+                    voice.reset()
                     continue
                 if source_socket is not None and source_socket is not incoming_socket:
                     onset.reset()
+                    voice.reset()
                     if self._phone_activity_active:
                         await self.out_queue.put({"activity_end": True})
                         self._phone_activity_active = False
@@ -2705,35 +2711,41 @@ class JarvisLive:
             self._phone_active = True
             if self.ui.muted:
                 onset.reset()
+                voice.reset()
                 continue
-            raw = chunk.get("data", b"")
             try:
-                samples = np.frombuffer(raw, dtype=np.int16)
-                rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) if samples.size else 0.0
-            except Exception:
-                rms = 0.0
-            now = time.monotonic()
-            if not self._phone_activity_active:
-                playback = (self._is_speaking
-                    or now < getattr(self, "_audio_relay_cursor", 0.0) + 0.2)
-                pending = onset.feed(chunk, rms, playback=playback)
-                if not pending:
-                    continue
-                self._phone_last_voice = now
-                await self.out_queue.put({"activity_start": True})
-                self._phone_activity_active = True
-                _trace_event("phone_speech_onset", buffered_frames=len(pending), rms=int(rms),
-                    playback_active=playback, threshold=1000 if playback else 250)
-                for frame in pending:
-                    await self.out_queue.put(frame)
+                frames = voice.feed(chunk)
+            except ValueError:
+                onset.reset()
+                _trace_event("phone_audio_rejected", reason="invalid_pcm")
                 continue
-            if rms >= 250.0:
-                self._phone_last_voice = now
-            elif now - self._phone_last_voice >= 0.65:
-                await self.out_queue.put({"activity_end": True})
-                self._phone_activity_active = False
-            if self._phone_activity_active:
-                await self.out_queue.put(chunk)
+            for frame, voiced in frames:
+                raw = frame["data"]
+                samples = np.frombuffer(raw, dtype=np.int16)
+                rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+                now = time.monotonic()
+                if not self._phone_activity_active:
+                    playback = (self._is_speaking
+                        or now < getattr(self, "_audio_relay_cursor", 0.0) + 0.2)
+                    pending = onset.feed(frame, rms if voiced else 0.0, playback=playback)
+                    if not pending:
+                        continue
+                    self._phone_last_voice = now
+                    await self.out_queue.put({"activity_start": True})
+                    self._phone_activity_active = True
+                    _trace_event("phone_speech_onset", buffered_frames=len(pending), rms=int(rms),
+                        playback_active=playback, threshold=1000 if playback else 250,
+                        speech_detector="webrtcvad")
+                    for initial in pending:
+                        await self.out_queue.put(initial)
+                    continue
+                if voiced and rms >= 250.0:
+                    self._phone_last_voice = now
+                elif now - self._phone_last_voice >= 0.65:
+                    await self.out_queue.put({"activity_end": True})
+                    self._phone_activity_active = False
+                if self._phone_activity_active:
+                    await self.out_queue.put(frame)
 
     async def _run_scheduled_workflows(self) -> None:
         """Execute only schedules explicitly created by the user.
@@ -2824,6 +2836,9 @@ class JarvisLive:
     # ── main loop ───────────────────────────────────────────────────────────
 
     async def run(self):
+        # Fail before opening services/paid Live sessions if required VAD is missing.
+        from core.voice_activity import VoiceActivity
+        VoiceActivity()
         self._loop = asyncio.get_event_loop()
         self._reconnect_event = asyncio.Event()
 

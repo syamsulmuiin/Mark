@@ -547,7 +547,7 @@ class JarvisLive:
         # Only server-capable actions are imported here. Device/UI actions live in
         # the companion packages and are reached through advertised capabilities.
         _server_actions = {
-            "browser_control", "code_helper", "dev_agent", "file_processor",
+            "browser_control", "code_helper", "dev_agent", "file_processor", "document_editor",
             "flight_finder", "scheduled_workflow", "self_repair_apply",
             "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "weather_report", "web_search", "test_flash_approval",
         }
@@ -1832,10 +1832,15 @@ class JarvisLive:
                     elif save_direct and target.get("device_id") not in online:
                         result="Destination companion is offline; direct saving requires it to be online. Use attachment delivery or retry after reconnecting."
                     else:
-                        result=json.dumps(await self._dashboard.send_server_file(
-                            str(target["device_id"]), str(args.get("source") or ""),
-                            str(args.get("destination_name") or ""), save_direct=save_direct,
-                            destination=str(args.get("destination") or "")), ensure_ascii=False)
+                        try:
+                            result=json.dumps(await self._dashboard.send_server_file(
+                                str(target["device_id"]), str(args.get("source") or ""),
+                                str(args.get("destination_name") or ""), save_direct=save_direct,
+                                destination=str(args.get("destination") or "")), ensure_ascii=False)
+                        except (FileNotFoundError, PermissionError) as exc:
+                            result = {"ok": False, "status": "FAILED", "executed": False,
+                                "error": str(exc), "instruction": "Nothing was sent. Use document_editor list/inspect to locate the actual source or verify creation of the revised file. Never invent a replacement path."}
+                            _trace_event("artifact_delivery_failed", error_type=type(exc).__name__)
 
             elif name == "call_current_device":
                 if not self._dashboard:
@@ -1982,7 +1987,7 @@ class JarvisLive:
                 # Android/Desktop UI operations merely because the request arrived
                 # through a companion; device work must use call_current_device or
                 # legacy.action explicitly.
-                _server_only_actions = {"code_helper", "dev_agent", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
+                _server_only_actions = {"code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
 
                 # Mixed actions can contain both backend-only operations and operations that
                 # manipulate a device/host UI.  Classify the requested operation instead of
@@ -2060,6 +2065,15 @@ class JarvisLive:
                             "response": None, "session_memory": None}
                     r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
                     result = r or "Done."
+                    if name in {"document_editor", "file_processor"}:
+                        try:
+                            artifact = json.loads(r) if isinstance(r, str) else r
+                            if isinstance(artifact, dict) and artifact.get("status") == "revised" and artifact.get("verified") is True:
+                                _trace_event("document_revision_verified", file_path=artifact["file_path"],
+                                    sha256=artifact["sha256"], source_path=artifact["source_path"],
+                                    source_sha256=artifact["source_sha256"])
+                        except (ValueError, TypeError, KeyError):
+                            pass
                     if name == "self_repair_diagnostic":
                         _plan_match = re.search(r"^Repair plan:\s*([A-Za-z0-9-]+)\s*$", str(result), re.MULTILINE)
                         self._last_repair_plan_id = _plan_match.group(1) if _plan_match else ""

@@ -99,7 +99,13 @@ class SeverityFilteredStream(io.TextIOBase):
     def _should_persist(line: str) -> bool:
         stripped = line.strip()
         lowered = stripped.casefold()
-        if not stripped or stripped.startswith(("You:", "JARVIS:", "SYS:")):
+        if not stripped:
+            return False
+        if lowered.startswith(("err:", "error:", "warn:", "warning:", "critical:", "fatal:")):
+            return True
+        if lowered.startswith(("sys:", "live:", "net:")):
+            return any(marker in lowered for marker in _WARNING_MARKERS)
+        if stripped.startswith(("You:", "JARVIS:")):
             return False
         if (lowered.startswith("[plugins] plugin discovery complete:") and "0 rejected" in lowered
                 or lowered.startswith("[attachment] batch complete") and "failed=0" in lowered):

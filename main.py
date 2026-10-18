@@ -24,6 +24,16 @@ if _platform.system() == "Windows":
 # nothing and makes the app launch the same way in every locale.
 import sys as _sys
 
+# Detached workers inherit DEVNULL stderr: install the error sink before optional
+# imports so missing dependencies/startup exceptions remain diagnosable.
+_WORKER_LOG_SINK = None
+if __name__ == "__main__" and "--server-worker" in _sys.argv:
+    from pathlib import Path as _BootstrapPath
+    from core.runtime_log import configure_runtime_log as _bootstrap_runtime_log
+    _bootstrap_base = (_BootstrapPath(_sys.executable).parent if getattr(_sys, "frozen", False)
+                       else _BootstrapPath(__file__).resolve().parent)
+    _WORKER_LOG_SINK = _bootstrap_runtime_log(_bootstrap_base / "runtime" / "error.log")
+
 for _stream in ("stdout", "stderr"):
     try:
         _s = getattr(_sys, _stream, None)
@@ -2465,6 +2475,7 @@ class JarvisLive:
                                     self._record_transcript_entry("jarvis", interrupted_out, partial=True)
                                 interrupted_in = " ".join(in_buf).strip()
                                 if interrupted_in:
+                                    _trace_event("conversation_entry", speaker="user", chars=len(interrupted_in), partial=True)
                                     self.ui.write_log(f"You: {interrupted_in}")
                                     self._session_log.append(f"User: {interrupted_in}")
                                     journal_activity("user", interrupted_in, interrupted=True)
@@ -2484,6 +2495,7 @@ class JarvisLive:
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
+                                _trace_event("conversation_entry", speaker="user", chars=len(full_in), partial=False)
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
                                 journal_activity("user", full_in)
@@ -2504,6 +2516,7 @@ class JarvisLive:
                                 if full_out in self._last_out_logged:
                                     full_out = ""
                             if full_out:
+                                _trace_event("conversation_entry", speaker="jarvis", chars=len(full_out), partial=False)
                                 self._last_out_logged = full_out
                                 self.ui.write_log(f"{self._asst_name}: {full_out}")
                                 self._session_log.append(f"{self._asst_name}: {full_out}")
@@ -3445,7 +3458,8 @@ def main(argv=None):
     if mode.startswith("pair:"): _pair_device(mode.split(":", 1)[1] or None); return
     from core.runtime_log import configure_runtime_log
     _, logfile = _runtime_paths()
-    configure_runtime_log(logfile)
+    if _WORKER_LOG_SINK is None:
+        configure_runtime_log(logfile)
     _trace_event("runtime_started", interaction_log=str(_TRACE_LOG), error_log=str(logfile))
     from core.interfaces import ServerInterface
     interface=ServerInterface(); interface.wait_for_api_key(); jarvis=JarvisLive(interface)

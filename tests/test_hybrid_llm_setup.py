@@ -59,7 +59,7 @@ def test_unsupported_live_provider_does_not_change_saved_settings(tmp_path, monk
     path = tmp_path / "api_keys.json"
     path.write_text('{"gemini_api_key":"secret","llm_provider":"gemini"}')
     monkeypatch.setattr(setup_config, "CONFIG_FILE", path)
-    answers = iter(["1", "unknown"])
+    answers = iter(["1", "", "unknown"])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     before = path.read_text()
     assert not setup_config.interactive_llm_setup()
@@ -69,7 +69,7 @@ def test_text_provider_setup_saves_model_and_key(tmp_path, monkeypatch):
     path = tmp_path / "api_keys.json"
     path.write_text('{"gemini_api_key":"live-secret","os_system":"Linux"}')
     monkeypatch.setattr(setup_config, "CONFIG_FILE", path)
-    answers = iter(["5", "1", "deepseek-chat", ""])
+    answers = iter(["5", "deepseek-chat", "1", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     monkeypatch.setattr(setup_config.getpass, "getpass", lambda _: "text-secret")
     assert setup_config.interactive_llm_setup()
@@ -86,7 +86,7 @@ def test_text_provider_without_model_does_not_change_config(tmp_path, monkeypatc
     path = tmp_path / "api_keys.json"
     path.write_text('{"gemini_api_key":"live-secret","os_system":"Linux"}')
     monkeypatch.setattr(setup_config, "CONFIG_FILE", path)
-    answers = iter(["5", "1", ""])
+    answers = iter(["5", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     monkeypatch.setattr(setup_config.getpass, "getpass", lambda _: "text-secret")
     before = path.read_text()

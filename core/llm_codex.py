@@ -150,6 +150,46 @@ def check_login():
         return record
 
 
+def list_models(*, timeout=20.0):
+    """Fetch native account models, without API-key or CLI dependencies."""
+    record = check_login()
+    request = Request(ENDPOINT.rsplit('/', 1)[0] + '/models?client_version=1.0.0', headers={
+        'Authorization': 'Bearer ' + record['access_token'],
+        'ChatGPT-Account-ID': record['account_id'], 'Accept': 'application/json',
+        'User-Agent': 'Mark/1.0.0', 'originator': 'mark'}, method='GET')
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read(2 * 1024 * 1024 + 1)
+        if len(raw) > 2 * 1024 * 1024:
+            raise RuntimeError('OpenAI account model catalog exceeded its limit')
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or not isinstance(payload.get('models'), list):
+            raise ValueError('invalid catalog')
+        models, seen = [], set()
+        for item in payload['models']:
+            if not isinstance(item, dict) or item.get('visibility') != 'list':
+                continue
+            slug = item.get('slug')
+            if (not isinstance(slug, str) or not slug or len(slug) > 256
+                    or any(not (c.isascii() and (c.isalnum() or c in '-_./:')) for c in slug)
+                    or slug in seen):
+                continue
+            modalities = item.get('input_modalities', ['text'])
+            if not isinstance(modalities, list) or 'text' not in modalities:
+                continue
+            name = item.get('display_name')
+            name = ''.join(c for c in name if c.isprintable())[:160] if isinstance(name, str) else slug
+            models.append({'id': slug, 'name': name or slug})
+            seen.add(slug)
+        return models
+    except HTTPError as exc:
+        if exc.code == 401:
+            credentials.invalidate('openai_codex')
+        raise RuntimeError(f'OpenAI account model catalog HTTP {exc.code}') from None
+    except (URLError, OSError, ValueError, TypeError, AttributeError):
+        raise RuntimeError('OpenAI account model catalog connection or format failed') from None
+
+
 def generate_text(model, prompt, *, timeout=120.0):
     if not model.strip() or not prompt.strip():
         raise ValueError('Model and prompt are required')

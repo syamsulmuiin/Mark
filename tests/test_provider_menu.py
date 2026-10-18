@@ -17,7 +17,7 @@ def test_codex_menu_selection_login_save_and_runtime_route(tmp_path, monkeypatch
     path.write_text(json.dumps({'llm_provider': 'deepseek', 'gemini_api_key': 'live-key',
                                'chat_models': 'deepseek-chat'}))
     monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
-    answers = iter(['3', 'account-model', '1', ''])
+    answers = iter(['3', '1', '1', ''])
     monkeypatch.setattr(setup_config, '_safe_input', lambda _: next(answers))
     monkeypatch.setattr(setup_config.getpass, 'getpass', lambda _: pytest.fail('Codex account mode must not request API key'))
     from core import provider_credentials
@@ -172,3 +172,8 @@ def test_reported_530_stops_setup_before_model_and_live_without_changing_config(
     message = capsys.readouterr().out
     assert 'HTTP 530' in message and '1016' in message and 'device-code request' in message
     assert 'STEP 2/2' not in message and 'private-token' not in message
+
+
+@pytest.fixture(autouse=True)
+def isolated_model_catalog(monkeypatch):
+    monkeypatch.setattr(llm_codex, "list_models", lambda: [{"id": "account-model", "name": "Account model"}])

@@ -12,7 +12,8 @@ routing audit, not a claim that every feature has been device-tested.
 | Gemini text | Google SDK text adapter | Gemini API key |
 | OpenAI API text | Chat Completions, stdlib HTTP | OpenAI API key |
 | Anthropic Claude API text | Messages API, stdlib HTTP | Anthropic API key |
-| OpenAI Codex text | Official Codex CLI subprocess | Existing CLI ChatGPT login |
+| OpenAI Codex text | Native account Responses HTTP stream | Mark-owned device-code OAuth |
+| Google OAuth text | Gemini Developer API REST | Own Desktop OAuth client and Cloud project |
 | DeepSeek / OpenRouter / Ollama text | OpenAI-compatible HTTP | Provider API key; local Ollama needs no key |
 | Gemini Live voice | Existing Google SDK session | Gemini API key |
 | OpenAI Realtime voice | Async WebSocket bridge | OpenAI API key |
@@ -51,24 +52,25 @@ implemented. Text/local memory continuity remains handled by Mark.
 
 ## Codex account adapter
 
-Install the official CLI on the **Mark server**, as the same OS user that runs Mark:
+Text option 3 now performs OpenAI device-code authorization in Mark and uses the
+account Responses HTTP stream directly. It requires neither Node.js nor Codex CLI,
+and never imports another application's credentials. OAuth credentials are stored
+under ignored `config/provider_auth/` with owner-only file permissions. Refresh is
+serialized; terminal refresh failure requires explicit sign-in again rather than
+replaying revoked credentials. Incomplete/error streams never return partial text
+as a successful response. No Mark tools are delegated to the account endpoint.
 
-```sh
-npm install -g @openai/codex
-codex login --device-auth
-codex login status
-```
+Google OAuth is a separate Text selection using a user-owned Desktop OAuth client
+and Google Cloud project. It uses PKCE and validates the returned callback state
+and exact redirect URI. It is not Google AI/Gemini CLI subscription access. Google
+Live retains API-key authentication. OpenRouter supports a headless PKCE browser
+code exchange in setup; its resulting key is saved only when both setup stages
+finish. Claude stays on its direct API-key adapter; see Anthropic's published
+restrictions on third-party Claude.ai subscription authentication.
 
-The human completes the CLI's official sign-in flow. Mark never reads, copies or
-stores OAuth token files. Login status must identify ChatGPT authentication;
-saved API-key auth is rejected for this account-based selection. CLI versions
-must support `exec --ignore-user-config --ephemeral --output-last-message`.
-
-Requests use stdin, an empty temporary working directory, a read-only sandbox,
-disabled shell and web search, and no inherited server API-key/token environment
-variables. User-configured MCP integrations are not loaded. The adapter is for
-text reasoning, not an alternative executor for Mark actions. Failures/timeouts
-are reported without forwarding CLI stderr or switching providers.
+All authentication and response protocol tests use simulated provider responses;
+real account permissions and external protocol compatibility require deployment
+validation. Failures never change the selected Text or Live provider/model.
 
 ## Configure and deploy
 
@@ -77,7 +79,7 @@ its Python environment. The new explicit `websockets` dependency provides Realti
 transport. Run `python setup.py` and choose to configure LLMs:
 
 1. Select a text provider and enter its model ID. API text providers need their
-   own key; Codex checks the existing CLI ChatGPT login instead.
+   own key or a supported native OAuth method; Codex signs in through Mark instead.
 2. Select Gemini Live or OpenAI Realtime for voice. Realtime asks for an OpenAI
    API key and a separate Realtime model ID.
 3. Restart Mark with `python main.py --restart`. Provider selection changes do not require an Android rebuild.

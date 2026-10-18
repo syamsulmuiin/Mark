@@ -72,3 +72,6 @@ runtime/error.log.*
 
 # Project-local server single-copy object store and transfer metadata
 storage/
+
+# Native provider OAuth tokens
+config/provider_auth/

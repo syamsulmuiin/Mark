@@ -1,11 +1,10 @@
 import asyncio
 import base64
 import json
-from pathlib import Path
 from types import SimpleNamespace as NS
 import numpy as np
 import pytest
-from core import llm_codex, llm_live, chat_router, setup_config
+from core import llm_live, chat_router, setup_config
 from core.llm_openai_realtime import RealtimeSession, PCMResampler, session_options, RealtimeClient
 
 
@@ -140,34 +139,6 @@ def test_setup_saves_openai_voice_without_overwriting_gemini_models(tmp_path, mo
     assert len(prompts) == 1
 
 
-def test_codex_subprocess_uses_stdin_login_and_read_only_sandbox(monkeypatch):
-    monkeypatch.setattr(llm_codex, 'executable', lambda: '/bin/codex')
-    monkeypatch.setenv('OPENAI_API_KEY', 'must-not-inherit')
-    calls = []
-    def run(command, **kwargs):
-        calls.append((command, kwargs))
-        if command[1:] == ['login', 'status']: return NS(returncode=0, stdout='Logged in using ChatGPT', stderr='')
-        assert kwargs['input'] == 'prompt with $() and quotes'
-        assert 'OPENAI_API_KEY' not in kwargs['env']
-        Path(command[command.index('--output-last-message') + 1]).write_text('answer')
-        return NS(returncode=0)
-    monkeypatch.setattr(llm_codex.subprocess, 'run', run)
-    assert llm_codex.generate_text('my-model', 'prompt with $() and quotes') == 'answer'
-    command = calls[1][0]
-    assert '--sandbox' in command and command[command.index('--sandbox')+1] == 'read-only'
-    assert '--ignore-user-config' in command
-    assert 'prompt with $() and quotes' not in command
-
-
-def test_codex_login_failure_does_not_try_generation(monkeypatch):
-    monkeypatch.setattr(llm_codex, 'executable', lambda: '/bin/codex')
-    calls = []
-    monkeypatch.setattr(llm_codex.subprocess, 'run', lambda *a, **k: calls.append(a) or NS(returncode=1))
-    with pytest.raises(RuntimeError, match='codex login --device-auth'):
-        llm_codex.generate_text('model', 'prompt')
-    assert len(calls) == 1
-
-
 def test_codex_router_does_not_require_api_key_or_call_other_adapters(monkeypatch):
     calls = []
     monkeypatch.setattr(chat_router, 'generate_codex_text', lambda *a, **k: calls.append((a, k)) or 'OK')
@@ -175,14 +146,6 @@ def test_codex_router_does_not_require_api_key_or_call_other_adapters(monkeypatc
     assert chat_router.generate_chat_text('hello', config={'llm_provider': 'openai_codex',
                                                           'chat_models': 'my-model'}) == 'OK'
     assert calls == [(('my-model', 'hello'), {'timeout': 120.0})]
-
-
-def test_codex_rejects_saved_api_key_auth_for_account_provider(monkeypatch):
-    monkeypatch.setattr(llm_codex, 'executable', lambda: '/bin/codex')
-    monkeypatch.setattr(llm_codex.subprocess, 'run', lambda *a, **k:
-                        NS(returncode=0, stdout='Logged in using an API key', stderr=''))
-    with pytest.raises(RuntimeError, match='ChatGPT'):
-        llm_codex.check_login()
 
 
 def test_realtime_waits_for_all_tool_results_before_continuing():

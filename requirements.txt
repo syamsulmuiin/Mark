@@ -35,7 +35,7 @@ qrcode[pil]>=7,<9
 
 # Google plugins
 google-api-python-client
-google-auth-oauthlib
+google-auth-oauthlib>=1.2,<2
 
 # Smart-home integration
 tinytuya

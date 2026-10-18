@@ -1,6 +1,4 @@
 import json
-from pathlib import Path
-from types import SimpleNamespace as NS
 
 import pytest
 from core import setup_config, chat_router, llm_codex
@@ -22,15 +20,20 @@ def test_codex_menu_selection_login_save_and_runtime_route(tmp_path, monkeypatch
     answers = iter(['3', 'account-model', '1', ''])
     monkeypatch.setattr(setup_config, '_safe_input', lambda _: next(answers))
     monkeypatch.setattr(setup_config.getpass, 'getpass', lambda _: pytest.fail('Codex account mode must not request API key'))
-    monkeypatch.setattr(llm_codex, 'executable', lambda: '/bin/codex')
+    from core import provider_credentials
+    monkeypatch.setattr(provider_credentials, 'ROOT', tmp_path / 'auth')
+    provider_credentials.save('openai_codex', {'access_token': 'account-token', 'refresh_token': 'refresh',
+        'account_id': 'acct', 'expires_at': 1e12})
     calls = []
-    def run(command, **kwargs):
-        calls.append(command)
-        if command[1:] == ['login', 'status']:
-            return NS(returncode=0, stdout='Logged in using ChatGPT', stderr='')
-        Path(command[command.index('--output-last-message') + 1]).write_text('Codex answer')
-        return NS(returncode=0)
-    monkeypatch.setattr(llm_codex.subprocess, 'run', run)
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def __iter__(self):
+            yield b'data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Codex answer"}]}]}}\n'
+    def request(request, **kwargs):
+        calls.append(json.loads(request.data))
+        return Response()
+    monkeypatch.setattr(llm_codex, 'urlopen', request)
     monkeypatch.setattr(chat_router, 'generate_text', lambda *a, **k: pytest.fail('no fallback'))
     monkeypatch.setattr(chat_router, 'generate_claude_text', lambda *a, **k: pytest.fail('no fallback'))
     assert setup_config.interactive_llm_setup()
@@ -41,7 +44,7 @@ def test_codex_menu_selection_login_save_and_runtime_route(tmp_path, monkeypatch
     assert saved['provider_models']['deepseek'] == 'deepseek-chat'
     assert 'openai_codex_api_key' not in saved
     assert chat_router.generate_chat_text('test', config=saved) == 'Codex answer'
-    assert calls[-1][calls[-1].index('--model') + 1] == 'account-model'
+    assert calls[-1]['model'] == 'account-model'
 
 
 def test_codex_failed_login_preserves_configuration(tmp_path, monkeypatch, capsys):
@@ -50,12 +53,14 @@ def test_codex_failed_login_preserves_configuration(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
     answers = iter(['3', '1'])
     monkeypatch.setattr(setup_config, '_safe_input', lambda _: next(answers))
-    monkeypatch.setattr(llm_codex, 'check_login', lambda: (_ for _ in ()).throw(RuntimeError('Codex is not signed in. Run codex login --device-auth')))
+    from core import provider_credentials
+    monkeypatch.setattr(provider_credentials, 'ROOT', tmp_path / 'auth')
+    monkeypatch.setattr(llm_codex, 'login', lambda: (_ for _ in ()).throw(RuntimeError('OpenAI account login cancelled; run Mark setup again')))
     before = path.read_bytes()
     assert not setup_config.interactive_llm_setup()
     assert path.read_bytes() == before
     output = capsys.readouterr().out
-    assert 'codex login --device-auth' in output and 'not implemented' not in output
+    assert 'OpenAI account login cancelled' in output and 'not implemented' not in output
 
 
 def test_invalid_menu_choice_is_not_reported_as_missing_adapter():
@@ -105,3 +110,25 @@ def test_cancelling_live_stage_does_not_save_partial_text_settings(tmp_path, mon
     before = path.read_bytes()
     assert not setup_config.interactive_llm_setup()
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize('provider,extra,model', [('google_oauth', [], 'google-model'), ('openrouter', ['2'], 'router-model')])
+def test_native_login_setup_keeps_text_and_live_independent(tmp_path, monkeypatch, provider, extra, model):
+    from core import provider_credentials, llm_google_oauth, provider_oauth
+    monkeypatch.setattr(provider_credentials, 'ROOT', tmp_path / 'auth')
+    path = tmp_path / 'keys.json'
+    path.write_text('{"gemini_api_key":"voice-key"}')
+    monkeypatch.setattr(setup_config, 'CONFIG_FILE', path)
+    calls = []
+    monkeypatch.setattr(llm_google_oauth, 'login', lambda *a: calls.append('google-login'))
+    monkeypatch.setattr(llm_google_oauth, 'credentials', lambda: ('creds', 'project'))
+    monkeypatch.setattr(provider_oauth, 'openrouter_login', lambda *a: calls.append('router-login') or 'router-key')
+    monkeypatch.setattr(setup_config.getpass, 'getpass', lambda _: pytest.fail('native login must not ask for API key'))
+    answers = iter([provider, *extra, model, '1', ''])
+    monkeypatch.setattr(setup_config, '_safe_input', lambda _: next(answers))
+    assert setup_config.interactive_llm_setup()
+    saved = setup_config.load_config()
+    assert saved['llm_provider'] == provider and saved['live_provider'] == 'gemini'
+    assert saved['gemini_api_key'] == 'voice-key' and saved['provider_models'][provider] == model
+    assert calls == ['google-login' if provider == 'google_oauth' else 'router-login']
+    if provider == 'openrouter': assert saved['openrouter_api_key'] == 'router-key'

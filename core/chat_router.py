@@ -18,13 +18,16 @@ def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: floa
     if provider == "gemini":
         from core.gemini import text, SMART
         return traced_text_call(provider, "configured_gemini_text_ladder", lambda: text(prompt, tier=SMART))
-    if provider not in ENDPOINTS and provider not in {"anthropic", "openai_codex"}:
+    if provider not in ENDPOINTS and provider not in {"anthropic", "openai_codex", "google_oauth"}:
         raise ValueError(f"Chat provider {provider!r} is not implemented")
     models = str((settings.get("provider_models") or {}).get(provider)
                  or settings.get("chat_models") or settings.get("text_models") or "")
     model = next((x.strip() for x in models.split(",") if x.strip()), "")
     if not model:
         raise ValueError(f"Configure a text model for {provider}")
+    if provider == "google_oauth":
+        from core.llm_google_oauth import generate_text as generate_google_oauth
+        return traced_text_call(provider, model, lambda: generate_google_oauth(model, prompt, timeout=timeout if timeout is not None else 30.0))
     if provider == "openai_codex":
         return traced_text_call(provider, model, lambda: generate_codex_text(model, prompt, timeout=timeout if timeout is not None else 120.0))
     key = str(settings.get(f"{provider}_api_key") or "")

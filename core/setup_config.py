@@ -69,12 +69,13 @@ def save_config(gemini_api_key: str, os_system: str | None=None) -> dict:
 CHAT_PROVIDER_CATALOG = (
     ("gemini", "Google Gemini", True),
     ("openai", "OpenAI API (text only)", True),
-    ("openai_codex", "OpenAI Codex CLI (existing account login, text only)", True),
+    ("openai_codex", "OpenAI / Codex account login (native, no CLI; text only)", True),
     ("anthropic", "Anthropic Claude API (text only)", True),
     ("deepseek", "DeepSeek (text only)", True),
     ("ollama_local", "Ollama (local) (text only)", True),
     ("ollama_cloud", "Ollama (cloud) (text only)", True),
     ("openrouter", "OpenRouter (text only)", True),
+    ("google_oauth", "Google Gemini OAuth (own Cloud project; text only)", True),
 )
 LIVE_PROVIDER_CATALOG = (
     ("gemini", "Gemini Live", True),
@@ -183,9 +184,29 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
         provider = _resolve_provider_choice(provider_choice, provider_default, CHAT_PROVIDER_CATALOG)
         api_key = None
         if provider == "openai_codex":
-            from core.llm_codex import check_login
+            from core.llm_codex import check_login, login
+            from core import provider_credentials
+            record = provider_credentials.load("openai_codex")
+            if force_keys or not record.get("access_token") or record.get("invalid"):
+                login()
             check_login()
-        if provider not in {"ollama_local", "openai_codex"} and (force_keys or not current.get(f"{provider}_api_key")):
+        if provider == "google_oauth":
+            from core.llm_google_oauth import login, credentials
+            from core import provider_credentials
+            record = provider_credentials.load("google_oauth")
+            if force_keys or not record.get("credentials") or record.get("invalid"):
+                login(_safe_input, getpass.getpass)
+            credentials()
+        if provider == "openrouter" and (force_keys or not current.get("openrouter_api_key")):
+            method = _safe_input("OpenRouter authentication: 1. API key  2. Browser login [1]: ").strip() or "1"
+            if method == "2":
+                from core.provider_oauth import openrouter_login
+                api_key = openrouter_login(getpass.getpass)
+            elif method != "1":
+                raise ValueError("Invalid OpenRouter authentication method")
+        if provider == "anthropic":
+            print("Claude API connects directly without Claude Code. Claude.ai subscription login is not offered by this app; use your Anthropic API key.")
+        if api_key is None and provider not in {"ollama_local", "openai_codex", "google_oauth"} and (force_keys or not current.get(f"{provider}_api_key")):
             api_key = getpass.getpass(f"{provider} text API key: ").strip()
             if not api_key:
                 print("Text API key required; configuration unchanged.")

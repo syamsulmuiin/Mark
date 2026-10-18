@@ -853,7 +853,7 @@ class JarvisLive:
             except Exception as exc:
                 # Do not expose provider payloads/credentials in public logs.
                 self.ui.write_log(f"ERR: Configured Text LLM ({provider}) failed: {type(exc).__name__}")
-                answer = f"Text LLM ({provider}) gagal merespons. Periksa model, API key, dan koneksi server."
+                answer = f"Text LLM ({provider}) gagal merespons. Periksa model, autentikasi provider, dan koneksi server."
                 _trace_event("text_llm_failed", provider=provider, error=type(exc).__name__)
             self._record_transcript_entry("jarvis", answer)
 

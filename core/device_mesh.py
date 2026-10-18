@@ -22,6 +22,8 @@ class DeviceMesh:
         self._pending = {}
         self._identity = self._load_identity()
         self._trusted = self._load_json(self.trust_path, {})
+        if not isinstance(self._trusted, dict):
+            raise RuntimeError("Invalid trusted_devices.json; restore device trust data instead of resetting pairing")
 
     @staticmethod
     def _b64(b: bytes) -> str: return base64.urlsafe_b64encode(b).decode().rstrip("=")
@@ -30,7 +32,9 @@ class DeviceMesh:
     @staticmethod
     def _load_json(path, default):
         try: return json.loads(path.read_text(encoding="utf-8"))
-        except Exception: return default
+        except FileNotFoundError: return default
+        except (OSError, ValueError):
+            raise RuntimeError(f"Cannot read device state {path.name}; restore or repair it before starting the server") from None
     def _atomic(self, path, data):
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
@@ -38,7 +42,19 @@ class DeviceMesh:
 
     def _load_identity(self):
         d = self._load_json(self.identity_path, None)
-        if d and d.get("private_key") and d.get("device_id"): return d
+        if d is None and self.identity_path.exists():
+            raise RuntimeError("Invalid identity.json; restore the existing server identity")
+        if d is not None:
+            try:
+                if not isinstance(d, dict) or not d.get("device_id"):
+                    raise ValueError("identity schema")
+                private = Ed25519PrivateKey.from_private_bytes(self._unb64(d["private_key"]))
+                public = private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+                if not hmac.compare_digest(self._b64(public), d["public_key"]):
+                    raise ValueError("identity mismatch")
+            except (ValueError, TypeError, KeyError):
+                raise RuntimeError("Invalid identity.json; restore the existing server identity instead of replacing paired keys") from None
+            return d
         key = Ed25519PrivateKey.generate()
         raw_priv = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
         raw_pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)

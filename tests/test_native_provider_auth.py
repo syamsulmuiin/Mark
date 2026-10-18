@@ -174,7 +174,10 @@ def test_google_router_does_not_fall_back_to_api_key_provider(monkeypatch):
     monkeypatch.setattr(llm_google_oauth, 'generate_text', lambda *a, **kw: calls.append((a, kw)) or 'answer')
     monkeypatch.setattr(chat_router, 'generate_text', lambda *a, **kw: pytest.fail('no fallback'))
     assert chat_router.generate_chat_text('prompt', config={'llm_provider': 'google_oauth', 'chat_models': 'exact-model'}) == 'answer'
-    assert calls == [(('exact-model', 'prompt'), {'timeout': 30.0})]
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[0] == "exact-model" and kwargs == {"timeout": 30.0}
+    assert args[1].startswith("[HOST MODEL IDENTITY]") and args[1].endswith("\n\nprompt")
 
 
 def test_device_login_pending_is_bounded_and_saves_no_tokens(tmp_path, monkeypatch):

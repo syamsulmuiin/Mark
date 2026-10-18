@@ -1176,7 +1176,8 @@ class JarvisLive:
             parts.append(_task_recovery)
         parts.append(sys_prompt)
         from core.llm_policy import live_delegation_instruction
-        _delegation_policy = live_delegation_instruction()
+        from core import llm_live as identity_live
+        _delegation_policy = live_delegation_instruction(live_model=identity_live.model())
         if _delegation_policy:
             parts.append(_delegation_policy)
 

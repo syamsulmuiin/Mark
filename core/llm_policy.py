@@ -4,7 +4,7 @@ from __future__ import annotations
 from core.setup_config import load_config
 
 
-def live_delegation_instruction(config: dict | None = None) -> str:
+def live_delegation_instruction(config: dict | None = None, *, live_model: str | None = None) -> str:
     """Tell the Live voice model when to use the independent Text LLM.
 
     Instructions guide behavior but do not guarantee tool invocation.
@@ -12,7 +12,8 @@ def live_delegation_instruction(config: dict | None = None) -> str:
     settings = load_config() if config is None else config
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
     voice = "OpenAI Realtime" if settings.get("live_provider") == "openai_realtime" else "Gemini Live"
-    return (
+    from core.llm_identity import identity_instruction
+    return identity_instruction(settings, live_model=live_model) + (
         "[TEXT LLM DELEGATION POLICY]\n"
         f"The configured reasoning provider is {provider}. The voice transport is {voice}. "
         "You are the real-time voice interface. For substantive questions, "

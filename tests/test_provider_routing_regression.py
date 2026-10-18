@@ -67,7 +67,10 @@ def test_claude_router_never_uses_compatible_or_gemini(monkeypatch):
         'llm_provider': 'anthropic', 'anthropic_api_key': 'key',
         'chat_models': 'stale', 'provider_models': {'anthropic': 'claude-test'},
     }) == 'OK'
-    assert calls == [(('claude-test', 'hello'), {'api_key': 'key'})]
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[0] == "claude-test" and kwargs == {"api_key": "key"}
+    assert args[1].startswith("[HOST MODEL IDENTITY]") and args[1].endswith("\n\nhello")
 
 
 def test_reasoning_helpers_follow_provider_and_preserve_deadline(monkeypatch):

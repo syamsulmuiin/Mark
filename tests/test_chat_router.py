@@ -11,7 +11,10 @@ def test_deepseek_route_uses_only_deepseek(monkeypatch):
         "llm_provider": "deepseek", "text_models": "deepseek-chat",
         "deepseek_api_key": "secret",
     }) == "OK"
-    assert calls == [(("deepseek", "deepseek-chat", "hello"), {"api_key": "secret"})]
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[:2] == ("deepseek", "deepseek-chat") and kwargs == {"api_key": "secret"}
+    assert args[2].startswith("[HOST MODEL IDENTITY]") and args[2].endswith("\n\nhello")
 
 
 def test_unknown_provider_fails_closed():

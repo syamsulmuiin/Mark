@@ -859,8 +859,10 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
             for output in outputs:
                 if not output.is_file() or output.stat().st_size == 0:
                     raise ValueError("Processing did not produce a nonempty output: " + str(output))
+                with output.open("rb") as handle:
+                    digest = hashlib.file_digest(handle, "sha256").hexdigest()
                 artifacts.append({"file_path": str(output.resolve()), "size": output.stat().st_size,
-                    "sha256": hashlib.sha256(output.read_bytes()).hexdigest()})
+                    "sha256": digest})
             return json.dumps({"ok": True, "verified": True, "status": "SUCCESS",
                 "verification_scope": "nonempty artifact exists; content correctness and delivery require separate verification",
                 "artifacts": artifacts, "result": result,

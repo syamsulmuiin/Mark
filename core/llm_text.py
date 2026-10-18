@@ -9,6 +9,10 @@ from core.chat_router import generate_chat_text
 
 def generate(prompt: str, *, config: dict | None = None, timeout: float | None = None) -> str:
     """Generate plain text with the configured chat provider."""
+    from core.response_language import language_instruction
+    policy = language_instruction(config=config)
+    if policy:
+        prompt = policy + "\n\n" + prompt
     if timeout is not None:
         return generate_chat_text(prompt, config=config, timeout=timeout)
     return generate_chat_text(prompt, config=config)

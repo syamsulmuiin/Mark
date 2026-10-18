@@ -11,6 +11,36 @@ def load_config() -> dict:
     try: return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except Exception: return {}
 
+def save_response_language(language: str) -> dict:
+    from core.response_language import normalize_language
+    value = normalize_language(language)
+    current = load_config()
+    current["response_language"] = value
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CONFIG_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(current, indent=4, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
+    try: os.chmod(CONFIG_FILE, 0o600)
+    except Exception: pass
+    return current
+
+
+def interactive_language_setup() -> bool:
+    current = load_config().get("response_language", "auto")
+    print("Response language: use a primary language to prevent accidental switching.")
+    try:
+        value = _safe_input(f"Primary response language (Indonesian / English / other name; auto follows user) [{current}]: ").strip()
+        if value:
+            save_response_language(value)
+        return True
+    except (EOFError, KeyboardInterrupt, UnicodeDecodeError):
+        print("Language selection cancelled; existing preference preserved.")
+        return False
+    except ValueError as exc:
+        print(f"Language selection failed: {exc}")
+        return False
+
+
 def configured() -> bool:
     d = load_config()
     live = d.get("live_provider") or "gemini"
@@ -226,6 +256,8 @@ def interactive_setup(force: bool=False) -> bool:
     print("\nMARK FIRST-RUN SETUP")
     print("Select text and voice providers. Keys are stored in git-ignored config/api_keys.json.")
     if not interactive_llm_setup(force_keys=force):
+        return False
+    if not interactive_language_setup():
         return False
     print("\nRemote access lets paired devices reach JARVIS outside your home/LAN.")
     try: remote=_safe_input("Enable Cloudflare remote access? [Y/n]: ").strip().lower()

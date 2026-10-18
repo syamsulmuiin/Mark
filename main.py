@@ -1128,6 +1128,11 @@ class JarvisLive:
         if _delegation_policy:
             parts.append(_delegation_policy)
 
+        from core.response_language import language_instruction
+        _language_policy = language_instruction(memory=memory)
+        if _language_policy:
+            parts.append(_language_policy)
+
         cfg = dict(
             response_modalities=["AUDIO"],
             output_audio_transcription={},
@@ -3313,6 +3318,11 @@ from core.server_lifecycle import (
 
 def main(argv=None):
     mode=_runtime_mode(argv)
+    if mode.startswith("language:"):
+        from core.setup_config import save_response_language
+        value = save_response_language(mode.split(":", 1)[1])["response_language"]
+        print(f"Response language saved: {value}. Run python main.py --restart to apply to Live.")
+        return
     if mode=="start": _spawn_server(); return
     if mode=="restart": _restart_server(); return
     if mode=="stop": _stop_server(); return

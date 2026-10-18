@@ -291,10 +291,12 @@ def _autostart_disable():
 
 def _runtime_mode(argv=None):
     import argparse
+    from core.response_language import normalize_language
     parser=argparse.ArgumentParser(description="Mark server")
     g=parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--start",action="store_true",help="start server")
     g.add_argument("--enable",action="store_true",help="enable autostart and start server")
+    g.add_argument("--language", type=normalize_language, metavar="LANGUAGE", help="save primary response language, or auto; restart afterward")
     g.add_argument("--restart",action="store_true",help="stop the tracked worker, then start server")
     g.add_argument("--stop",action="store_true",help="stop server")
     g.add_argument("--disable",action="store_true",help="disable autostart")
@@ -302,6 +304,7 @@ def _runtime_mode(argv=None):
     parser.add_argument("--pairing-id", help="pending pairing request ID to approve")
     g.add_argument("--server-worker",action="store_true",help=argparse.SUPPRESS)
     a=parser.parse_args(argv)
+    if a.language is not None:return "language:" + a.language
     if a.restart:return "restart"
     if a.start:return "start"
     if a.enable:return "enable"

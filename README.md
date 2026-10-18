@@ -330,7 +330,7 @@ Generated capabilities remain pure LOW-risk computation. Repeated runtime failur
 
 Restart after updating server code or model configuration with `python main.py --restart`. This restarts the detached server worker and retains saved configuration and pairing.
 
-Idle phone speech requires 160 ms above RMS 250; during assistant playback (including a 200 ms relay tail), onset requires 320 ms above RMS 1000 before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
+Phone PCM first passes a local speech/non-speech detector (WebRTC VAD), framed at 20 ms. Idle speech then requires 160 ms above RMS 250; during assistant playback (including a 200 ms relay tail), onset requires 320 ms above RMS 1000 before a Live activity starts. The buffered onset is forwarded intact. This filters isolated spikes, but is not speech recognition or guaranteed acoustic echo cancellation; sustained background speech or speaker echo can still activate Live. `YOU` transcripts originate from Live input transcription, not Text replies.
 
 ## Primary response language
 
@@ -373,3 +373,14 @@ traces. Credential redaction handles whitespace and Bearer authorization values.
 Playback-aware onset filters quiet residuals even when platform AEC reports active;
 quiet spoken interruptions may need a clearer/louder utterance. This is an audio
 heuristic, not a guaranteed acoustic echo canceller or word blacklist.
+
+After updating the speech detector, install server dependencies before restart:
+
+```bash
+python -m pip install -r requirements.txt
+python main.py --restart
+```
+
+The local VAD adds no LLM/API call. It filters non-speech, not all background
+voices or speaker echo. No new APK is required. Missing VAD stops startup with
+an install instruction; it does not silently revert to energy-only detection.

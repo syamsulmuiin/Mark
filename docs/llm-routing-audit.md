@@ -158,3 +158,16 @@ traces. Credential redaction handles whitespace and Bearer authorization values.
 Playback-aware onset filters quiet residuals even when platform AEC reports active;
 quiet spoken interruptions may need a clearer/louder utterance. This is an audio
 heuristic, not a guaranteed acoustic echo canceller or word blacklist.
+
+Phone PCM now passes a local WebRTC VAD (mode 2) before energy/onset gating.
+Packets are reassembled into complete 20 ms PCM16 frames; accepted frames keep
+source ownership metadata and their original byte order. Non-speech cannot
+start an activity or extend the speech timeout solely through high RMS. Framing
+and VAD history reset on source changes, mute and input gaps. This is local signal
+classification, not another LLM or a provider fallback. Real background speech
+or residual spoken echo can still pass; physical-device verification is required.
+Install updated requirements before restart. Startup checks the required detector
+before opening services/Live sessions and reports an explicit missing-dependency
+error. Input-transcription diagnostics include a casefolded SHA-256 fingerprint
+(first 16 hex characters) to correlate repeats without storing transcript text
+in interaction.log; matching fingerprints reveal repeats, not the acoustic cause.

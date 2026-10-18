@@ -1338,7 +1338,8 @@ class DashboardServer:
                                 rms = -1
                             _interaction_event("audio_in", device_id=device_id, frames=count, bytes=len(audio), rms=rms)
                         try:
-                            self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000"})
+                            self._phone_audio_queue.put_nowait({"data": audio, "mime_type": "audio/pcm;rate=16000",
+                                "_source_device_id": device_id, "_source_socket": websocket})
                         except asyncio.QueueFull:
                             now = time.monotonic()
                             if now - self._last_audio_queue_full_log >= 1.0:

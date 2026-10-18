@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from core.setup_config import load_config
 from core.llm_trace import traced_text_call
+from core.llm_identity import identity_instruction
 from core.llm_compatible import ENDPOINTS, generate_text
 from core.llm_anthropic import generate_text as generate_claude_text
 from core.llm_codex import generate_text as generate_codex_text
@@ -16,8 +17,10 @@ def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: floa
     settings = load_config() if config is None else config
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
     if provider == "gemini":
-        from core.gemini import text, SMART
-        return traced_text_call(provider, "configured_gemini_text_ladder", lambda: text(prompt, tier=SMART))
+        from core.gemini import text, SMART, _LADDERS
+        model = _LADDERS[SMART][0]
+        prompt = identity_instruction(settings, text_model=model, role="Text") + "\n" + prompt
+        return traced_text_call(provider, model, lambda: text(prompt, tier=SMART))
     if provider not in ENDPOINTS and provider not in {"anthropic", "openai_codex", "google_oauth"}:
         raise ValueError(f"Chat provider {provider!r} is not implemented")
     models = str((settings.get("provider_models") or {}).get(provider)
@@ -25,6 +28,7 @@ def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: floa
     model = next((x.strip() for x in models.split(",") if x.strip()), "")
     if not model:
         raise ValueError(f"Configure a text model for {provider}")
+    prompt = identity_instruction(settings, text_model=model, role="Text") + "\n" + prompt
     if provider == "google_oauth":
         from core.llm_google_oauth import generate_text as generate_google_oauth
         return traced_text_call(provider, model, lambda: generate_google_oauth(model, prompt, timeout=timeout if timeout is not None else 30.0))

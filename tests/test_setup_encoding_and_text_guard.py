@@ -16,7 +16,8 @@ def test_claude_routing(monkeypatch):
     result = chat_router.generate_chat_text("hello", config={
         "llm_provider": "anthropic", "chat_models": "claude-test", "anthropic_api_key": "secret"
     })
-    assert result == "claude-test:hello"
+    assert result.startswith("claude-test:[HOST MODEL IDENTITY]")
+    assert result.endswith("\n\nhello")
 
 
 def test_live_action_requires_host_approval_and_resets_context(monkeypatch):

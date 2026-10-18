@@ -145,7 +145,10 @@ def test_codex_router_does_not_require_api_key_or_call_other_adapters(monkeypatc
     monkeypatch.setattr(chat_router, 'generate_text', lambda *a, **k: pytest.fail('wrong adapter'))
     assert chat_router.generate_chat_text('hello', config={'llm_provider': 'openai_codex',
                                                           'chat_models': 'my-model'}) == 'OK'
-    assert calls == [(('my-model', 'hello'), {'timeout': 120.0})]
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[0] == "my-model" and kwargs == {"timeout": 120.0}
+    assert args[1].startswith("[HOST MODEL IDENTITY]") and args[1].endswith("\n\nhello")
 
 
 def test_realtime_waits_for_all_tool_results_before_continuing():

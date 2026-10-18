@@ -216,10 +216,18 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None,
 
     def _worker():
         try:
-            result = p.run() or "Done."
+            from core.action_outcomes import assess
+            result = p.run()
+            if isinstance(result, dict):
+                import json
+                result = json.dumps(result, ensure_ascii=False)
+            outcome = assess(result)
             _log(f"SYS: Confirmed — {p.title}. {result}")
             nested = str(result).startswith("[CONFIRMATION_PENDING]")
-            _notify_result(p, not nested, "nested_confirmation_pending" if nested else result)
+            _notify_result(p, outcome == "VERIFIED" and not nested,
+                "nested_confirmation_pending" if nested else
+                "unverified" if outcome == "UNVERIFIED" else
+                "waiting" if outcome == "WAITING" else result)
         except Exception as e:
             _log(f"ERR: {p.title} failed — {e}")
             _notify_result(p, False, "failed")

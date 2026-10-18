@@ -660,8 +660,9 @@ class DashboardServer:
         """The host gate has reached a terminal decision; reject late replies."""
         self._approval_pending.pop(request_id, None)
 
-    async def send_approval_completion(self, request_id: str, success: bool) -> bool:
+    async def send_approval_completion(self, request_id: str, success: bool, *, outcome: str = "") -> bool:
         """Send sanitized execution outcome only to the original authenticated socket."""
+        status = outcome if outcome in {"unverified", "waiting"} else ("succeeded" if success else "failed")
         target = self._approval_completion_targets.pop(request_id, None)
         if target is None:
             return False
@@ -671,14 +672,14 @@ class DashboardServer:
         try:
             await socket.send_json({
                 "type": "approval.completed", "request_id": request_id,
-                "status": "succeeded" if success else "failed",
+                "status": status,
             })
         except Exception:
             _interaction_event("approval_completion_delivery_failed", device_id=device_id)
             return False
         _interaction_event("approval_action_completed", device_id=device_id,
                            approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12],
-                           outcome="succeeded" if success else "failed")
+                           outcome=status)
         return True
 
     async def send_active_approval(self, request_id: str, title: str, detail: str,

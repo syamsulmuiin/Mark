@@ -382,9 +382,12 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this@MainActivity,label,Toast.LENGTH_LONG).show()
                     }
                     "approval.completed"->runOnUiThread {
-                        val success=m.optString("status")=="succeeded"
-                        val label=if(success) "Tindakan yang disetujui berhasil dijalankan"
-                                  else "Tindakan yang disetujui gagal dijalankan"
+                        val label=when(m.optString("status")) {
+                            "succeeded"->"Tindakan yang disetujui berhasil dijalankan"
+                            "unverified"->"Izin diterima; hasil tindakan belum terverifikasi"
+                            "waiting"->"Izin diterima; tindakan masih menunggu penyelesaian"
+                            else->"Tindakan yang disetujui gagal dijalankan"
+                        }
                         Toast.makeText(this@MainActivity,label,Toast.LENGTH_LONG).show()
                         appendTranscript("system",label)
                     }

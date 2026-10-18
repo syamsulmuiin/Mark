@@ -7,6 +7,8 @@ def speech_instruction(outcome: str) -> str:
         "rejected": "Acknowledge the user's decision professionally. Permission was rejected and this action was not executed.",
         "expired": "Explain professionally that the approval period expired without permission, so this action was not executed.",
         "succeeded": "Confirm professionally that the authorized action completed successfully.",
+        "unverified": "Confirm permission was received and execution returned, but its result has not been verified. Do not claim success, retry automatically, or request permission again.",
+        "waiting": "Confirm permission was received; the action is still pending or queued. Do not claim completion or request permission again.",
         "failed": "Confirm permission was received, but the authorized action failed or could not be verified. Do not claim success.",
         "nested_confirmation_pending": "Explain that the authorized action has not completed because another approval is required. Do not claim success or repeat the request yourself.",
     }

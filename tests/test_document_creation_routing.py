@@ -39,7 +39,7 @@ def test_failed_structured_create_returns_unexecuted_recovery_only(tmp_path, mon
     assert not list(tmp_path.rglob('*.docx'))
     # A partial revision failure must not suggest whole-document regeneration.
     result=json.loads(document_editor({'action':'revise','file_path':str(tmp_path/'missing.docx')}))
-    assert result['status']=='FAILED' and 'recovery' not in result
+    assert result['status']=='FAILED' and result['recovery']['operation']=='inspect_before_retry'
 
 
 def test_general_code_helper_creates_real_docx_without_structured_tool(tmp_path):

@@ -99,8 +99,12 @@ def test_voice_queue_waits_for_owner_and_sends_decision_then_result():
         dashboard = NS(active_voice_device='other', _device_sockets={'phone': object()})
         host = NS(_approval_speech_queue=asyncio.Queue(), session=NS(send_client_content=send),
             _is_speaking=False, ui=NS(muted=False), _dashboard=dashboard, _turn_done_event=done)
-        await host._approval_speech_queue.put(('phone', 'accepted', time.monotonic()))
-        await host._approval_speech_queue.put(('phone', 'succeeded', time.monotonic()))
+        from core.approval_feedback import ApprovalSpeechLedger
+        host._approval_speech_ledger = ApprovalSpeechLedger()
+        host._approval_speech_ledger.offer('first','accepted')
+        host._approval_speech_ledger.offer('second','succeeded')
+        await host._approval_speech_queue.put(('phone', 'accepted', time.monotonic(), 'first'))
+        await host._approval_speech_queue.put(('phone', 'succeeded', time.monotonic(), 'second'))
         task = asyncio.create_task(namespace['_speak_approval_updates'](host))
         await asyncio.sleep(0.02)
         assert not calls and dashboard.active_voice_device == 'other'

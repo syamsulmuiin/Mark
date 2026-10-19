@@ -44,3 +44,5 @@ Structured creation rejects malformed blocks, literal escaped newlines, misplace
 6. Use the returned version/path and inspect it again before another edit.
 
 Revisions leave the original and unrelated content intact. Output names are unique. Literal backslash-newline sequences are rejected instead of being written into Word or blindly decoded. Never invent an updated path or claim delivery before the actual result.
+
+Failed scoped revisions report a validation reason and require fresh inspection/corrected arguments before retry. They must not trigger whole-document regeneration. Structured creation accepts a single outer JSON code fence as well as bare JSON; commentary, malformed JSON, escaped content and invalid blocks remain rejected. Intermediate steps and task bookkeeping should not repeat the final spoken result.

@@ -5,6 +5,46 @@ from core import document_revisions
 
 # Fixed validation messages only: never persist generated document text or paths.
 _VALIDATION_REASONS = {
+    'Source is not a DOCX document': 'invalid_source_format',
+    'DOCX body is missing': 'missing_document_body',
+    'Document inspection exceeds the text limit; select a smaller source': 'inspection_limit',
+    'Revision is empty or too large': 'replacement_size',
+    'Revised document must retain .docx format': 'invalid_revision_format',
+    'Provide a short document title on one line': 'invalid_title',
+    'New documents use replacement_blocks or an instruction, not replacement_text': 'invalid_creation_input',
+    'Output filename must end in .docx': 'invalid_output_format',
+    'Document is too large for targeted revision': 'source_size',
+    'Do not replace a section with a bibliography. Use append_section for a new bibliography at document end.': 'bibliography_requires_append',
+    'append_section needs a new section_heading and no target_text': 'invalid_append_target',
+    'Section already exists; inspect and revise that section instead of appending a duplicate': 'duplicate_section',
+    'A bibliography already exists; revise it without appending after it': 'duplicate_bibliography',
+    'Selected section is too large; choose a smaller revision target': 'section_size',
+    'Source changed during revision; retry from a fresh inspection': 'source_changed_during_revision',
+    'Saved replacement text did not verify': 'replacement_verification_failed',
+    'Unselected content changed before the revision': 'unselected_content_changed',
+    'Unselected content changed after the revision': 'unselected_content_changed',
+    'Provide a creation instruction or complete replacement_blocks': 'missing_creation_input',
+    'Created document text did not verify': 'creation_verification_failed',
+    'Revised DOCX verification failed': 'revision_verification_failed',
+    'Saved heading structure did not verify': 'heading_verification_failed',
+    'Created heading structure did not verify': 'heading_verification_failed',
+    'Separate numbered subheading and its body using replacement_blocks': 'unstructured_subheading',
+
+    'Source version is missing or changed. Inspect the document and use its exact sha256 before revising.': 'source_version_changed',
+    'Provide exactly one section_heading or exact paragraph target_text': 'ambiguous_target',
+    'Revision target must match exactly one paragraph; inspect the current source': 'target_not_unique',
+    'end_heading must uniquely identify the next boundary': 'invalid_section_boundary',
+    'This heading has no structural level. Supply end_heading or use exact paragraph target_text.': 'missing_section_boundary',
+    'Target is empty or includes tables/structured content; use an exact text paragraph target instead': 'unsupported_target_structure',
+    'Target includes protected document structures; select a plain text paragraph': 'protected_target_structure',
+    'No verified text change was produced; no revised file was saved': 'no_text_change',
+    'Provide replacement_blocks OR replacement_text, not both': 'conflicting_replacement',
+    'Adding a bibliography requires append_section; preserve this section and perform separate scoped edits': 'bibliography_requires_append',
+    'Replacement subheadings must be below the preserved section heading': 'invalid_subheading_level',
+    'Provide replacement_text or a revision instruction': 'missing_replacement',
+    'Revision is empty or invalid': 'empty_replacement',
+    'Heading level must be an integer from 1 to 9': 'invalid_heading_level',
+
     'Text provider returned invalid or oversized document content': 'invalid_content_size',
     'Text provider did not return structured document blocks; no file was created': 'invalid_blocks_json',
     'Text provider omitted document blocks; no file was created': 'missing_blocks',
@@ -41,13 +81,20 @@ def document_editor(parameters, player=None):
         return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
         from core.interaction_log import write_event
+        reason = _VALIDATION_REASONS.get(str(exc), 'validation_failed') if isinstance(exc, ValueError) else 'operation_failed'
         write_event(document_revisions.BASE_DIR / 'runtime' / 'interaction.log', 'document_operation_failed',
                     operation=action if action in {'create','list','inspect','revise','append_section'} else 'invalid',
                     error_type=type(exc).__name__,
-                    reason=_VALIDATION_REASONS.get(str(exc), 'validation_failed')
-                        if isinstance(exc, ValueError) else 'operation_failed')
+                    reason=reason)
         result = {'ok': False, 'status': 'FAILED', 'verified': False, 'executed': False,
-            'error': str(exc), 'instruction': 'No new or revised artifact was verified. Keep any original and correct the returned error. Existing documents require inspection. Never invent an output path.'}
+            'error': str(exc), 'reason': reason, 'instruction': 'No new or revised artifact was verified. Keep any original and correct the returned error. Existing documents require inspection. Never invent an output path.'}
+        if action in {'revise', 'append_section'}:
+            result['recovery'] = {'operation': 'inspect_before_retry', 'executed': False}
+            result['instruction'] = (
+                'Revision failed; the original remains unchanged. Do not repeat unchanged revision arguments '
+                'or create a replacement document. Inspect the exact source again and correct the returned '
+                'version, target, boundary or replacement validation error before a new revision. '
+                'If the error cannot be corrected, explain the specific failure once and stop; do not repeat progress promises.')
         if action == 'create':
             result['recovery'] = {'operation': 'propose_general_creation',
                 'tools': ['code_helper', 'dev_agent'], 'executed': False}

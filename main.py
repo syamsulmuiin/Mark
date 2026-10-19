@@ -496,6 +496,9 @@ class JarvisLive:
         # overloads the client queue and sounds intermittent on mobile networks.
         self._audio_relay_cursor   = 0.0
         self._approval_speech_queue = asyncio.Queue(maxsize=64)
+        from core.approval_feedback import ApprovalSpeechLedger
+        self._approval_speech_ledger = ApprovalSpeechLedger()
+        self._tool_calls_in_flight = 0
         self._approval_voice_targets = {}
         self.ui.on_push_to_talk   = self.set_push_to_talk
         self.ui.ptt_hold          = self._on_ptt
@@ -700,7 +703,8 @@ class JarvisLive:
             return
         def enqueue():
             try:
-                self._approval_speech_queue.put_nowait((owner, outcome, time.monotonic()))
+                if self._approval_speech_ledger.offer(request_id, outcome):
+                    self._approval_speech_queue.put_nowait((owner, outcome, time.monotonic(), request_id))
             except asyncio.QueueFull:
                 _trace_event("approval_voice_dropped", reason="queue_full", outcome=outcome)
         self._loop.call_soon_threadsafe(enqueue)
@@ -708,8 +712,9 @@ class JarvisLive:
     async def _speak_approval_updates(self) -> None:
         from core.approval_feedback import speech_instruction
         while True:
-            owner, outcome, created = await self._approval_speech_queue.get()
+            owner, outcome, created, request_id = await self._approval_speech_queue.get()
             while (not self.session or self._is_speaking or self.ui.muted
+                   or getattr(self, "_tool_calls_in_flight", 0)
                    or self._dashboard.active_voice_device != owner
                    or owner not in self._dashboard._device_sockets):
                 if time.monotonic() - created > 120:
@@ -717,6 +722,10 @@ class JarvisLive:
                     break
                 await asyncio.sleep(0.1)
             else:
+                # If execution finished before speech was possible, report its
+                # current result once instead of replaying an obsolete "starting".
+                if not self._approval_speech_ledger.consume(request_id, outcome):
+                    continue
                 try:
                     done = self._turn_done_event
                     if done:
@@ -925,9 +934,9 @@ class JarvisLive:
         """Keep the paired companion visibly alive during long server work.
 
         Tool execution is awaited inside the Live receive loop, so no spoken
-        response can arrive until the tool returns.  Send a sparse transcript
-        heartbeat after the first delay; this is status only, not a new model
-        turn, and therefore cannot interrupt or corrupt the active task.
+        response can arrive until the tool returns. Send status-only heartbeats
+        after the first delay; never append repeated assistant chat messages or
+        create a new model turn for background progress.
         """
         labels = {
             "code_helper": "pembuatan dokumen/kode",
@@ -946,13 +955,6 @@ class JarvisLive:
                         "type": "status",
                         "state": "thinking",
                         "progress": f"Masih memproses {label}. Companion tetap terhubung.",
-                    })
-                    await self._dashboard.broadcast({
-                        "type": "log",
-                        "speaker": "jarvis",
-                        "text": f"Masih memproses {label}; belum selesai.",
-                        "progress": True,
-                        "ts": datetime.now().isoformat(),
                     })
                 await asyncio.sleep(20)
         except asyncio.CancelledError:
@@ -1046,7 +1048,9 @@ class JarvisLive:
     def speak_error(self, tool_name: str, error: str):
         short = str(error)[:120]
         self.ui.write_log(f"ERR: {tool_name} — {short}")
-        self.speak(f"Sir, {tool_name} encountered an error. {short}")
+        # The function response already carries this failure to Live. Injecting
+        # a second user turn here makes the same error speak twice.
+
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
@@ -2168,6 +2172,11 @@ class JarvisLive:
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result, "outcome": _outcome,
+                      "response_instruction": (
+                          "Bookkeeping only: do not repeat an already spoken result."
+                          if name == "task_continuity" else
+                          "Continue intermediate inspection steps silently. Give one concise final result for the user request. "
+                          "If an error prevents completion, explain that specific error once; do not repeat progress promises or an earlier success."),
                       "completion_rule": "Only VERIFIED confirms the reported step. FAILED/WAITING/UNVERIFIED are not completed user goals. Inspect the actual state; never retry side effects blindly or invent file paths.", **(confirm_gate.response_metadata(str(result))
                       if name == "test_flash_approval" else {})},
             **_extra
@@ -2214,7 +2223,7 @@ class JarvisLive:
         """
         while True:
             await asyncio.sleep(0.5)
-            if not self._pending_voice_turns:
+            if not self._pending_voice_turns or getattr(self, "_tool_calls_in_flight", 0):
                 continue
             now = time.monotonic()
             expired = [x for x in self._pending_voice_turns if x[1] <= now]
@@ -2556,28 +2565,34 @@ class JarvisLive:
                         # Tool execution is also genuine processing time before the
                         # spoken answer, so expose it as THINKING on companions.
                         self.set_thinking()
-                        fn_responses = []
-                        for fc in response.tool_call.function_calls:
-                            print(f"[JARVIS] 📞 {fc.name}")
-                            try:
-                                _tool_payload = json.dumps(dict(fc.args or {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-                            except Exception:
-                                _tool_payload = repr(dict(fc.args or {}))
-                            _tool_sig = (str(fc.name), _tool_payload)
-                            _cached = self._tool_turn_cache.get(_tool_sig)
-                            if _cached is not None:
-                                _trace_event("tool_duplicate_suppressed", tool=str(fc.name))
-                                fr = types.FunctionResponse(id=fc.id, name=fc.name, response=_cached)
-                            else:
-                                fr = await self._execute_tool(fc)
-                                _response_payload = getattr(fr, "response", None)
-                                if isinstance(_response_payload, dict):
-                                    self._tool_turn_cache[_tool_sig] = dict(_response_payload)
-                            fn_responses.append(fr)
-                        await self.session.send_tool_response(
-                            function_responses=fn_responses
-                        )
-                        await self._flush_pending_vision()
+                        self._tool_calls_in_flight += 1
+                        try:
+                            fn_responses = []
+                            for fc in response.tool_call.function_calls:
+                                print(f"[JARVIS] 📞 {fc.name}")
+                                try:
+                                    _tool_payload = json.dumps(dict(fc.args or {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                                except Exception:
+                                    _tool_payload = repr(dict(fc.args or {}))
+                                _tool_sig = (str(fc.name), _tool_payload)
+                                _cached = self._tool_turn_cache.get(_tool_sig)
+                                if _cached is not None:
+                                    _trace_event("tool_duplicate_suppressed", tool=str(fc.name))
+                                    fr = types.FunctionResponse(id=fc.id, name=fc.name, response=_cached)
+                                else:
+                                    fr = await self._execute_tool(fc)
+                                    _response_payload = getattr(fr, "response", None)
+                                    if isinstance(_response_payload, dict):
+                                        self._tool_turn_cache[_tool_sig] = dict(_response_payload)
+                                fn_responses.append(fr)
+                            await self.session.send_tool_response(
+                                function_responses=fn_responses
+                            )
+                            await self._flush_pending_vision()
+                        finally:
+                            self._tool_calls_in_flight -= 1
+                            self._note_live_progress()
+
         except Exception as e:
             # Preserve the visible/input text even when the provider closes before
             # turn_complete. The next session can continue from an explicit partial

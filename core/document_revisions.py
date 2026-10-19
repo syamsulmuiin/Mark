@@ -268,7 +268,10 @@ def revise(source, params, generate=None):
         raise ValueError('Revised document must retain .docx format')
     folder = ARTIFACT_ROOT / 'documents'
     folder.mkdir(parents=True, exist_ok=True)
-    output = folder / f'{Path(name).stem}.revised-{uuid.uuid4().hex[:12]}.docx'
+    stem = re.sub(r'(?:\.revised-[0-9a-f]{12})+$', '', Path(name).stem)
+    # Keep revision chains within common filesystem component byte limits.
+    stem = stem.encode('utf-8')[:180].decode('utf-8', errors='ignore') or 'document'
+    output = folder / f'{stem}.revised-{uuid.uuid4().hex[:12]}.docx'
     created = False
     try:
         with output.open('xb') as handle:
@@ -328,7 +331,13 @@ def create(params, generate=None):
         if not isinstance(raw, str) or len(raw) > 150000:
             raise ValueError('Text provider returned invalid or oversized document content')
         try:
-            payload = json.loads(raw)
+            # Accept exactly one outer JSON code fence, never commentary or
+            # arbitrary embedded JSON. Block validation remains unchanged.
+            content = raw.strip()
+            fenced = re.fullmatch(r'```(?:json)?\s*\n(.*?)\n```', content, re.DOTALL | re.IGNORECASE)
+            if fenced:
+                content = fenced.group(1)
+            payload = json.loads(content)
             explicit = payload['blocks'] if isinstance(payload, dict) else None
         except (ValueError, KeyError, TypeError):
             raise ValueError('Text provider did not return structured document blocks; no file was created') from None

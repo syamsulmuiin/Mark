@@ -24,10 +24,14 @@ Use a trusted public TLS endpoint for remote access. A tunnel provides transport
 
 The code is bound to that device's signed pairing request and expires with it. Normal reconnects use persistent Ed25519 identity, not a fresh code.
 
-The desktop client currently uses the legacy six-character offer/accept pairing protocol. Its code is not interchangeable with Android's request/claim code. See the [desktop guide](../desktop-companion/README.md) for the current compatibility limitation.
+Desktop uses the same eight-character request/claim protocol. Click REQUEST PAIRING first, issue the code for that desktop request on the server, then enter it and finish pairing. See the [desktop guide](../desktop-companion/README.md). Android upgrades with an older pending request must request pairing again; an established paired identity does not need to be reset.
 
 ## Persistent state
 
 Preserve `config/`, `devices/identity.json`, `devices/trusted_devices.json`, required memory files, and `storage/` across upgrades. Do not commit credentials or generated state. Corrupt identity/trust files stop startup instead of silently creating replacement identities.
 
 Install Android updates over the existing app using the same signing identity. Uninstalling or clearing app data can remove the companion key and require pairing again.
+
+## Local operator authentication
+
+Local health and pairing administration require both loopback access and the owner-readable credential in `devices/local_api.token`. The server creates it at startup and the local CLI reads it automatically. A proxy's loopback connection or the fixed `X-Jarvis-Local` header alone grants no operator authority. Keep this file private and outside Git; do not send it to companions. Restart the server after updating so the new endpoint and CLI contracts are active together.

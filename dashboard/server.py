@@ -479,6 +479,8 @@ class DashboardServer:
         self._pending_keys: dict[str, float] = {}
         self._device_sessions: dict[str, dict] = {}  # legacy browser sessions
         self._mesh                         = DeviceMesh(BASE_DIR)
+        from core.local_api_auth import local_token
+        self._local_api_token = local_token(BASE_DIR, create=True)
         self._tunnel                       = NamedTunnel(f"http://127.0.0.1:{PORT}")
         self._public_url                   = ""
         self._device_sockets: dict[str, WebSocket] = {}
@@ -1097,22 +1099,22 @@ class DashboardServer:
 
         @app.get("/api/local/health")
         async def local_health(req: Request):
-            host = req.client.host if req.client else ""
-            if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
+            from core.local_api_auth import authorized_local_request
+            if not authorized_local_request(req, self._local_api_token):
                 return JSONResponse({"error": "local access only"}, status_code=403)
             return JSONResponse({"service": "Mark", "status": "ready", "pid": os.getpid()})
 
         @app.get("/api/local/pairing/pending")
         async def local_pairing_pending(req: Request):
-            host = req.client.host if req.client else ""
-            if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
+            from core.local_api_auth import authorized_local_request
+            if not authorized_local_request(req, self._local_api_token):
                 return JSONResponse({"error": "local access only"}, status_code=403)
             return JSONResponse({"pending": self._mesh.pending_requests()})
 
         @app.post("/api/local/pairing/new")
         async def local_pairing_new(req: Request):
-            host = req.client.host if req.client else ""
-            if host not in ("127.0.0.1", "::1") or req.headers.get("x-jarvis-local") != "1":
+            from core.local_api_auth import authorized_local_request
+            if not authorized_local_request(req, self._local_api_token):
                 return JSONResponse({"error": "local access only"}, status_code=403)
             try:
                 body = await req.json()

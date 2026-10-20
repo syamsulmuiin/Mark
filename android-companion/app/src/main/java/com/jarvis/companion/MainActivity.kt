@@ -277,11 +277,12 @@ class MainActivity : AppCompatActivity() {
     private fun verify(pub:String,data:ByteArray,sig:String):Boolean = try { val v=Ed25519Signer(); v.init(false,Ed25519PublicKeyParameters(unb64(pub),0)); v.update(data,0,data.size); v.verifySignature(unb64(sig)) } catch(_:Exception){false}
 
     private fun requestPairing() {
+        val requestServer = serverBase
         pairLoading("Meminta permintaan pairing…")
         val ident = identity()
         val peer = JSONObject().put("device_id", ident.first).put("name", Build.MODEL).put("public_key", b64(ident.third))
         val request = Request.Builder()
-            .url("${serverBase}/api/pairing/request")
+            .url("${requestServer}/api/pairing/request")
             .post(peer.toString().let { JSONObject().put("peer", peer).toString().toRequestBody("application/json".toMediaType()) })
             .build()
         client.newCall(request).enqueue(object : Callback {
@@ -292,11 +293,11 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val o = JSONObject(body)
                     prefs.edit()
-                        .putString("server", serverBase)
+                        .putString("pending_server", requestServer)
                         .putString("pending_pairing_id", o.getString("pairing_id"))
                         .putString("pending_pairing_nonce", o.getString("nonce"))
-                        .putString("server_key", o.getJSONObject("local").getString("public_key"))
-                        .putString("server_id", o.getJSONObject("local").getString("device_id"))
+                        .putString("pending_server_key", o.getJSONObject("local").getString("public_key"))
+                        .putString("pending_server_id", o.getJSONObject("local").getString("device_id"))
                         .apply()
                     pairUi("Permintaan dibuat. Minta kode satu kali dari operator, lalu masukkan di bawah.")
                     runOnUiThread { findViewById<Button>(R.id.requestPairing).text = "Minta kode baru" }
@@ -309,7 +310,10 @@ class MainActivity : AppCompatActivity() {
         val code = rawCode.trim().uppercase()
         val pairingId = prefs.getString("pending_pairing_id", null)
         val nonce = prefs.getString("pending_pairing_nonce", null)
-        if (pairingId.isNullOrBlank() || nonce.isNullOrBlank()) {
+        val pendingServer = prefs.getString("pending_server", null)
+        val pendingKey = prefs.getString("pending_server_key", null)
+        val pendingServerId = prefs.getString("pending_server_id", null)
+        if (pairingId.isNullOrBlank() || nonce.isNullOrBlank() || pendingServer.isNullOrBlank() || pendingKey.isNullOrBlank() || pendingServerId.isNullOrBlank()) {
             pairUi("Minta permintaan pairing terlebih dahulu.")
             return
         }
@@ -323,14 +327,25 @@ class MainActivity : AppCompatActivity() {
         val signature = sign("$pairingId:$code:$nonce".toByteArray())
         val caps = org.json.JSONArray(DEVICE_CAPABILITIES)
         val body = JSONObject().put("pairing_id", pairingId).put("code", code).put("signature", signature).put("capabilities", caps)
-        val request = Request.Builder().url("${serverBase}/api/pairing/claim")
+        val request = Request.Builder().url("${pendingServer}/api/pairing/claim")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(c: Call, e: java.io.IOException) = pairUi("Pairing gagal: ${e.message}")
             override fun onResponse(c: Call, r: Response) { r.use {
                 if (!it.isSuccessful) { pairUi("Pairing ditolak: HTTP ${it.code}"); return }
-                prefs.edit().remove("pending_pairing_id").remove("pending_pairing_nonce").putBoolean("paired", true).apply()
-                showVoice(); connect()
+                try {
+                    val result = JSONObject(it.body?.string().orEmpty())
+                    val local = result.getJSONObject("local")
+                    if (!result.optBoolean("ok") || local.getString("public_key") != pendingKey || local.getString("device_id") != pendingServerId) {
+                        pairUi("Identitas server berubah saat pairing. Minta pairing baru."); return
+                    }
+                    // Promote pending trust only after the bound claim succeeded.
+                    prefs.edit().putString("server", pendingServer).putString("server_key", pendingKey)
+                        .putString("server_id", pendingServerId).putBoolean("paired", true)
+                        .remove("pending_pairing_id").remove("pending_pairing_nonce")
+                        .remove("pending_server").remove("pending_server_key").remove("pending_server_id").apply()
+                    showVoice(); connect()
+                } catch (_: Exception) { pairUi("Respons konfirmasi pairing tidak valid") }
             }}
         })
     }

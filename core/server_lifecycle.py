@@ -10,6 +10,7 @@ import sys
 import subprocess as _subprocess
 from pathlib import Path
 from core.network_config import LOCAL_BASE_URL, DASHBOARD_PORT
+from core.local_api_auth import local_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MAIN_FILE = BASE_DIR / "main.py"
@@ -78,7 +79,7 @@ def _local_server_identity(timeout=1.0):
     """
     try:
         import urllib.request as _ur, json as _json
-        req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/health", headers={"X-Jarvis-Local": "1"})
+        req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/health", headers=local_headers(BASE_DIR))
         with _ur.urlopen(req, timeout=timeout) as r:
             data = _json.loads(r.read().decode("utf-8"))
         if data.get("service") == "Mark" and data.get("status") == "ready":
@@ -196,14 +197,14 @@ def _pair_device(pairing_id: str | None = None):
     try:
         import urllib.request as _ur, json as _json
         if not pairing_id:
-            req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/pending", method="GET", headers={"X-Jarvis-Local": "1"})
+            req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/pending", method="GET", headers=local_headers(BASE_DIR))
             with _ur.urlopen(req, timeout=3) as r:
                 data = _json.loads(r.read().decode("utf-8"))
             print(_json.dumps(data, indent=2))
             print("Use --pairing-id <id> to issue one code after reviewing the request.")
             return
         payload = _json.dumps({"pairing_id": pairing_id}).encode("utf-8")
-        req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/new", data=payload, method="POST", headers={"X-Jarvis-Local": "1", "Content-Type": "application/json"})
+        req = _ur.Request(f"{LOCAL_BASE_URL}/api/local/pairing/new", data=payload, method="POST", headers={**local_headers(BASE_DIR), "Content-Type": "application/json"})
         with _ur.urlopen(req, timeout=3) as r:
             data = _json.loads(r.read().decode("utf-8"))
         print(f"Mark Pair Code: {data['code']}")

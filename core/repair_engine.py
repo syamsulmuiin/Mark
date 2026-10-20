@@ -306,7 +306,7 @@ def validate_sandbox(candidates: dict[str, str], timeout: int = VALIDATION_TIMEO
     """Validate a candidate in an isolated temporary repository copy first."""
     with tempfile.TemporaryDirectory(prefix="mark-repair-sandbox-") as td:
         root = Path(td) / "repo"
-        shutil.copytree(BASE_DIR, root, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", "storage", "build", "dist", ".pytest_cache", "pytest-of-root", "runtime"))
+        shutil.copytree(BASE_DIR, root, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", "storage", "build", "dist", ".pytest_cache", "pytest-of-root", "runtime", "devices", "provider_auth", "api_keys.json", "credentials.json", "token*.json", ".env", ".env.*", "*.key", "*.pem", "*.p12", "*.pfx"))
         for rel, text in candidates.items():
             target = root / normalize_rel(rel); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(text, encoding="utf-8")
         return _run_validators(root, list(candidates), timeout)

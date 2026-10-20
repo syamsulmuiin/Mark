@@ -13,11 +13,16 @@ python desktop-companion/companion.py
 
 Desktop audio, GUI, camera, browser, and input-control dependencies belong to this environment, not the server environment.
 
-## Pairing compatibility
+## Pairing
 
-The desktop client currently expects a six-character Pair Code and uses `/api/pairing/offer` and `/api/pairing/accept`. Android uses a separate eight-character request/claim flow. Do not assume these codes or setup steps are interchangeable.
+1. Click **REQUEST PAIRING** with the code field empty.
+2. On the server run `python main.py --pair` to review the desktop request.
+3. Issue its code with `python main.py --pair --pairing-id <request-id>`.
+4. Enter the eight-character code and click **FINISH PAIRING**.
 
-The current server CLI reviews request/claim pairing requests; it does not issue a legacy desktop offer. New desktop pairing through that CLI remains a compatibility limitation. Existing paired desktop identities use signed reconnects. Check client/server protocol compatibility before replacing a working installation.
+Desktop and Android use the same request/claim protocol. Codes are bound to an individual signed request, not interchangeable between devices. Clear the code field and request pairing again if a request expires. Existing paired identities continue to use signed reconnects.
+
+Desktop state is saved atomically with owner-only permissions. An unreadable, corrupt, partial, or mismatched identity stops startup instead of creating replacement keys. Restore the existing state file rather than deleting it to clear an error.
 
 Public HTTPS verifies certificates. Private LAN transport retains its existing self-signed behavior. Pairing and connection errors are reported without replacing a trusted identity silently.
 

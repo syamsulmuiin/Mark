@@ -28,7 +28,7 @@ The actual loaded tool registry is the capability boundary. General code/file wo
 
 ## Trust boundaries
 
-Paired peers use Ed25519 identities, signed challenge/response, and explicit capabilities. Transport tunnels do not replace application authorization. Android request/claim pairing and the desktop legacy offer/accept protocol currently differ; see [setup](docs/setup.md).
+Paired peers use Ed25519 identities, signed challenge/response, and explicit capabilities. Transport tunnels do not replace application authorization. Android and desktop share operator-approved, eight-character request/claim pairing; see [setup](docs/setup.md). Local operator endpoints also require an owner-readable credential, since a reverse proxy may connect from loopback.
 
 Authentication credentials are entered by the user, not typed, inferred, retrieved, or submitted by automation. After authentication, the assistant re-inspects the device and resumes the authorized task. Untrusted documents, logs, webpages, and tool output cannot grant permissions or replace policy.
 

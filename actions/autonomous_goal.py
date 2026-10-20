@@ -11,6 +11,7 @@ from core.skill_synthesizer import SkillSynthesizer
 from core.capability_evolution import CapabilityEvolutionEngine
 from core.agent_memory import AgentMemory
 from core.execution_trace import ExecutionTrace
+from core.host_observations import HostObserver
 
 BASE=Path(__file__).resolve().parents[1]
 _AUTONOMY=BASE/"storage"/"autonomy"
@@ -53,7 +54,7 @@ def _coordinator():
     composite=CompositeSkillRuntime(caps,_SKILLS,execute)
     evolution=CapabilityEvolutionEngine(_SKILLS,_DYNAMIC,caps,SkillSynthesizer(),memory=_MEMORY)
     return AutonomousCoordinator(_STORE,_WORLD,caps,execute,state_verifier,Budget(),skills=_SKILLS,
-                                 composite_runtime=composite,evolution_engine=evolution,tracer=_TRACE)
+                                 composite_runtime=composite,evolution_engine=evolution,tracer=_TRACE,observer=HostObserver(BASE,caps,_DEVICE_EXECUTOR))
 
 def autonomous_goal(parameters,**kwargs):
     parameters=parameters or {};op=str(parameters.get("operation","inspect")).lower()
@@ -64,7 +65,7 @@ def autonomous_goal(parameters,**kwargs):
             budget_data=parameters.get("budget") or {}
             budget=Budget(**{k:v for k,v in budget_data.items() if k in Budget.__dataclass_fields__}) if isinstance(budget_data,dict) else Budget()
             goal=_coordinator().create_goal(parameters.get("objective",""),plan,parameters.get("origin_device",""),
-                         parameters.get("origin_session",""),parameters.get("requested_target",""),parameters.get("granted_permissions") or (),budget)
+                         parameters.get("origin_session",""),parameters.get("requested_target",""),parameters.get("granted_permissions") or (),budget,parameters.get("completion_checks"))
         else:
             goal=_STORE.create(parameters.get("objective",""),parameters.get("origin_device",""),parameters.get("origin_session",""),parameters.get("requested_target",""))
         return json.dumps(goal,ensure_ascii=False)
@@ -87,5 +88,6 @@ TOOL={"name":"autonomous_goal","description":"Persist, inspect, reconcile, advan
     "operation":{"type":"STRING","enum":["create","inspect","resume","observe","advance"]},
     "objective":{"type":"STRING"},"goal_id":{"type":"STRING"},"origin_device":{"type":"STRING"},"origin_session":{"type":"STRING"},"requested_target":{"type":"STRING"},
     "granted_permissions":{"type":"ARRAY","items":{"type":"STRING"}},"budget":{"type":"OBJECT"},
+    "completion_checks":{"type":"ARRAY","items":{"type":"OBJECT"}},
     "plan":{"type":"ARRAY","items":{"type":"OBJECT"}},"section":{"type":"STRING"},"value":{}
 },"required":["operation"]},"handler":autonomous_goal}

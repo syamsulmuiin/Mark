@@ -72,3 +72,21 @@ model observations. This prevents model parameters from serving as independent
 proof, but does not by itself implement device/sensor readback adapters. Wiring
 and evaluating those adapters is the next verification task; absent readback,
 completion remains unverified.
+
+## Host evidence and scoped-memory validation
+
+Supported readback now connects actual approved server-file reads and existing
+paired-device inspections to step and final-condition verification. Tests cover
+missing files despite successful tool claims, file hashes, a previous output
+removed by a later step, temporary intermediate states, changed-state baselines,
+exact device permissions, and wrong-device/socket/capability replies. Final goal
+verification evaluates declared end-state conditions, not just completed-step
+counts. Procedural-memory tests cover environment, commit, age, future timestamps
+and contradiction exclusions while preserving historical records.
+
+Coverage remains bounded: companion transport is tested with protocol fixtures,
+not physical Android/desktop devices. Only the listed readback adapters are
+implemented. Semantic completeness of model-authored goal criteria and document
+quality still need workflow-specific evaluation. Scoped procedural retrieval is
+not a replacement for personal-memory privacy/retention controls, and these
+checks do not provide external exactly-once execution or multi-process locking.

@@ -1186,7 +1186,7 @@ class JarvisLive:
         # into the replacement session as context instead of pretending the
         # conversation vanished. This is only used after an actual rejected
         # resumption handle; normal fresh launches remain fresh.
-        if self._recovery_context_pending and self._session_log:
+        if self._recovery_context_pending and self._resume_handle is None and self._session_log:
             recent = "\n".join(self._session_log[-40:])
             parts.append(
                 "SESSION ROLLOVER CONTEXT (reference only; do not answer, repeat, summarize, or act on this block unless the user sends a new request):\n"
@@ -3456,12 +3456,22 @@ class JarvisLive:
                 # operator a useful, bounded diagnostic and avoid a tight retry
                 # loop while preserving normal session reconstruction.
                 if "1008" in err_str and "requested entity was not found" in err_str.lower():
+                    # A missing entity during resumption can refer to the dead
+                    # session handle, not necessarily the configured model. Try
+                    # a fresh session once; never change provider/model.
+                    clear_rejected_handle = bool(_resumed_with and not _connected_this_attempt)
+                    if clear_rejected_handle:
+                        self._resume_handle = None
+                        self._recovery_context_pending = bool(self._session_log)
+                    _trace_event("live_reconnect", reason="requested_entity_not_found",
+                        resume_handle_cleared=clear_rejected_handle, model_fallback=False)
                     self._conn_backoff = min(
                         max(getattr(self, "_conn_backoff", 3) * 2, 10), 60
                     )
                     self.ui.write_log(
                         "LIVE: Gemini rejected a requested entity (1008). "
-                        "Check the configured Live model and API access; "
+                        "Retrying without a rejected session handle when applicable. "
+                        "If this persists, check the configured Live model and API access; "
                         f"retrying the session in {self._conn_backoff}s."
                     )
                     # Continue runs finally but skips the normal delay below.

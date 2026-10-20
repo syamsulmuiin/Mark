@@ -68,12 +68,15 @@ def test_error_log_redacts_credentials_with_actual_whitespace():
     assert all(secret not in result for secret in ['private-one', 'private-two', 'private-three'])
 
 
-@pytest.mark.parametrize('message,clear_handle,delay,previous_delay,age', [
-    ('1008 None. BidiGenerateContent session not found or expired', True, 2, 0, 0),
-    ('1008 None. BidiGenerateContent session not found or expired', True, 8, 4, 100),
-    ('1011 None. You exceeded your current quota, please check your plan and billing details.', False, 60, 0, 0),
+@pytest.mark.parametrize('message,clear_handle,delay,previous_delay,age,resumed,connected', [
+    ('1008 None. BidiGenerateContent session not found or expired', True, 2, 0, 0, True, False),
+    ('1008 None. BidiGenerateContent session not found or expired', True, 8, 4, 100, True, False),
+    ('1008 None. Requested entity was not found.', True, 10, 0, 0, True, False),
+    ('1008 None. Requested entity was not found.', False, 10, 0, 0, True, True),
+    ('1008 None. Requested entity was not found.', False, 10, 0, 0, False, False),
+    ('1011 None. You exceeded your current quota, please check your plan and billing details.', False, 60, 0, 0, True, False),
 ])
-def test_actual_runtime_handler_clears_expired_handle_and_waits(message, clear_handle, delay, previous_delay, age):
+def test_actual_runtime_handler_clears_expired_handle_and_waits(message, clear_handle, delay, previous_delay, age, resumed, connected):
     tree, namespace = runtime_functions()
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'JarvisLive')
     run = next(n for n in cls.body if getattr(n, 'name', '') == 'run')
@@ -91,7 +94,7 @@ def test_actual_runtime_handler_clears_expired_handle_and_waits(message, clear_h
         raise StopRetry()
 
     namespace.update(dict(asyncio=NS(sleep=sleep, Queue=asyncio.Queue), time=time,
-        injected=RuntimeError(message), _resumed_with=True, _connected_this_attempt=False, live_model='configured-only',
+        injected=RuntimeError(message), _resumed_with=resumed, _connected_this_attempt=connected, live_model='configured-only',
         _is_reconnect_signal=lambda e: False, _is_transient_transport_error=lambda e: False,
         Boundary=Boundary, ErrorAction=ErrorAction, classify_error=classify_error,
         is_expired_live_session=is_expired_live_session, next_quota_delay=next_quota_delay,
@@ -100,6 +103,8 @@ def test_actual_runtime_handler_clears_expired_handle_and_waits(message, clear_h
     exec(compile(ast.fix_missing_locations(template), 'runtime_handler', 'exec'), namespace)
     host = NS(_resume_handle='expired-handle', _session_log=['User: previous request'],
         _conn_backoff=previous_delay, _last_live_connected_at=time.monotonic() - age, _dashboard=None, ui=NS(write_log=lambda text: None))
+    host._tuned_live = False
+    host._enhanced_live = False
     host._is_speaking = True
     host.set_speaking = lambda value: setattr(host, '_is_speaking', value)
     with pytest.raises(StopRetry):
@@ -112,5 +117,20 @@ def test_actual_runtime_handler_clears_expired_handle_and_waits(message, clear_h
     assert events[0][1]['model_fallback'] is False
     if clear_handle:
         assert events[-1][1]['resume_handle_cleared'] is True
+    elif 'Requested entity' in message:
+        assert events[-1][1]['resume_handle_cleared'] is False
     else:
         assert events[-1][1]['reason'] == 'quota'
+
+
+def test_successful_resumption_does_not_inject_duplicate_local_transcript():
+    tree = ast.parse((ROOT / 'main.py').read_text())
+    guard = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+        and 'SESSION ROLLOVER CONTEXT' in ast.unparse(n)
+        and isinstance(n.test, ast.BoolOp)
+        and '_recovery_context_pending' in ast.unparse(n.test))
+    expression = compile(ast.Expression(guard.test), 'recovery_guard', 'eval')
+    for handle, expected in [('valid-handle', False), (None, True)]:
+        host = NS(_recovery_context_pending=True, _resume_handle=handle,
+                  _session_log=['User: earlier request'])
+        assert bool(eval(expression, {'self': host})) is expected

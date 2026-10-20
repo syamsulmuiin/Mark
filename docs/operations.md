@@ -76,3 +76,10 @@ Repair validation failures report their stage (copy preparation, source copy, ca
 
 Rollback verifies transaction identifiers, manifest identity, non-symlink snapshot paths, unique allowed targets and every stored snapshot hash before restoring any source. Protected authority files cannot be restored through a modified transaction manifest. If an incomplete transaction cannot be recovered, new repair is blocked for manual inspection. I/O failure during restoration can still require manual recovery; multi-file replacement is not one filesystem-atomic operation.
  Repair source replacement preserves existing file permission bits, including executable permissions.
+
+Device revocation, capability manifests, health counters and last-seen updates
+publish their in-memory state only after the trusted-device file is successfully
+replaced. Failed writes leave the previous committed state intact and report an
+error; a failed revocation must be retried before treating access as revoked.
+Device-state temporary files are flushed and synced before replacement. These
+updates preserve existing identities, capability grants and pairing rules.

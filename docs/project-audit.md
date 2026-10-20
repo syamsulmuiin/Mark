@@ -55,23 +55,17 @@ claim or unrelated observation is insufficient. This is not an exactly-once
 protocol with external devices/services; unknown outcomes require inspection,
 and separate server processes are not coordinated by the in-process lock.
 
-Task checkpoints retain observed action identifiers and evidence. Knowledge
-records already retain evidence, validation status, environment, repository
-commit and contradiction history; capability evolution requests verified
-records. Remaining work before multi-agent expansion includes evaluating
-whether whole-goal completion criteria are actually met, filtering retrieved
-knowledge by environment/repository applicability and age, and independent
-real-device tests of disconnect/restart during approval and file delivery.
-These are evaluation gaps, not claims that all recovery or memory behavior has
-been validated in production.
+Task checkpoints retain observed action identifiers and evidence. Procedural
+knowledge retains validation status, environment, repository commit, validation
+time and contradiction history. Automatic capability-evolution retrieval filters
+these records by the current scope and age. Remaining evaluation includes the
+semantic completeness of goal criteria, broader host/device readback coverage,
+and real-device disconnect/restart tests during approval and file delivery.
 
-A verification audit found that the model-facing `observe` operation previously
-wrote directly to independent observed state. It now records an unverified claim
-in expected state. The verifier requires host provenance and rejects legacy
-model observations. This prevents model parameters from serving as independent
-proof, but does not by itself implement device/sensor readback adapters. Wiring
-and evaluating those adapters is the next verification task; absent readback,
-completion remains unverified.
+The model-facing `observe` operation records an unverified claim in expected
+state. The verifier requires host provenance and rejects legacy model
+observations; supported readback adapters are described below. Absent supported
+readback, completion remains unverified.
 
 ## Host evidence and scoped-memory validation
 

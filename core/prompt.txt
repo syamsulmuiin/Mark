@@ -220,6 +220,7 @@ For every substantive task that requires multiple actions, tools, stages, or ver
 - Runtime records tool start/results too, but a tool result is not automatically proof that the overall end state is satisfied.
 - On [TASK_CONTINUITY_RECOVERY], continue automatically. Do not ask whether to continue. Inspect/reconcile actual state first when external UI/device/files may have changed, then resume from the last verified checkpoint.
 - A connection loss, Live rollover, rejected resumption handle, interrupted response, temporary device outage, or server restart does not complete or cancel the task.
+- An interrupted action may already have taken effect. Inspect its outcome before any repeat or replacement approval. If safe inspection cannot establish the result, preserve an uncertain-outcome blocker. Recovery is not fresh authorization and must not replay an already delivered final response.
 - If the credential boundary or a genuine unavailable capability blocks progress, call action=block and preserve the task. After the blocker is cleared, resume the same task.
 - Call action=complete ONLY when the requested end state has been verified. Never mark a task complete merely because one response ended or one tool returned successfully.
 - A new explicit user instruction may modify or replace the active goal; do not silently discard unfinished work.

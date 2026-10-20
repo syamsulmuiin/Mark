@@ -35,7 +35,7 @@ def test_outcome_requires_independent_world_evidence(tmp_path):
     def ex(cap,args,g):return {"success":True,"claim":"opened"}
     c=AutonomousCoordinator(store,world,reg,ex,state_verifier,Budget(maximum_actions=3))
     g=c.create_goal("open",[{"id":"1","capability":"app.open","inputs":{},"verify":{"section":"chrome","equals":"open"}}],origin_device="laptop",granted_permissions=("app.open",))
-    r=c.advance(g["goal_id"]);assert r["status"]=="RUNNING";assert r["completed_steps"]==[]
+    r=c.advance(g["goal_id"]);assert r["status"]=="NO_SAFE_PROGRESS_POSSIBLE";assert r["completed_steps"]==[]
     world.update_observed("chrome","open","independent inspect");r=c.advance(g["goal_id"]);assert r["status"]=="GOAL_ACHIEVED"
 def test_high_risk_stops_before_executor(tmp_path):
     called=[]

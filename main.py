@@ -1186,7 +1186,8 @@ class JarvisLive:
             )
         _task_recovery = task_state.recovery_instruction()
         if _task_recovery:
-            parts.append(_task_recovery)
+            parts.append("UNFINISHED TASK REFERENCE ONLY: Do not act on or answer this context. "
+                         "Wait for an explicit recovery turn or a new user request.\n" + _task_recovery.rsplit("\n", 1)[-1])
         parts.append(sys_prompt)
         from core.llm_policy import live_delegation_instruction
         from core import llm_live as identity_live
@@ -1536,7 +1537,7 @@ class JarvisLive:
         result = "Done."
 
         if name != "task_continuity":
-            task_state.action_started(name, args)
+            _continuity_action_id = task_state.action_started(name, args)
         _progress_task = None
         if name != "task_continuity":
             _progress_task = asyncio.create_task(self._tool_progress_heartbeat(name))
@@ -1559,7 +1560,7 @@ class JarvisLive:
                             pass
                     if not self.ui.muted:
                         self.ui.set_state("LISTENING")
-                    task_state.action_finished(name, result)
+                    task_state.action_finished(name, result, _continuity_action_id)
                     return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
                 args["authorization"] = "APPLY_DIAGNOSTIC_REPAIR"
                 args.pop("high_risk_approval", None)
@@ -1577,7 +1578,7 @@ class JarvisLive:
                                 pass
                         if not self.ui.muted:
                             self.ui.set_state("LISTENING")
-                        task_state.action_finished(name, result)
+                        task_state.action_finished(name, result, _continuity_action_id)
                         return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
                     args["high_risk_approval"] = "HIGH_RISK_REPAIR_APPROVED"
 
@@ -1649,7 +1650,7 @@ class JarvisLive:
                     except asyncio.CancelledError:
                         pass
                 from core.action_outcomes import assess
-                task_state.action_finished(name, result)
+                task_state.action_finished(name, result, _continuity_action_id)
                 return types.FunctionResponse(id=fc.id, name=name,
                     response={"result": result, "outcome": assess(result)})
 
@@ -2168,7 +2169,7 @@ class JarvisLive:
         _outcome = assess(result)
         _trace_event("tool_outcome", tool=name, outcome=_outcome)
         if name != "task_continuity":
-            task_state.action_finished(name, result)
+            task_state.action_finished(name, result, _continuity_action_id)
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result, "outcome": _outcome,
@@ -3168,11 +3169,25 @@ class JarvisLive:
                     if (_unfinished and _unfinished.get("status") != "WAITING"
                             and _last_task_action.get("state") == "STARTED"):
                         task_state.resume()
-                        async def _resume_unfinished_task():
+                        _recovery_session = self.session
+                        _recovery_user = self._current_user_transcript
+                        _recovery_action = task_state.active().get("last_action")
+                        async def _resume_unfinished_task(
+                                _recovery_session=_recovery_session,
+                                _recovery_user=_recovery_user,
+                                _recovery_action=_recovery_action):
                             await asyncio.sleep(0.35)
+                            current = task_state.active()
+                            if (self.session is not _recovery_session
+                                    or self._current_user_transcript != _recovery_user
+                                    or current.get("last_action") != _recovery_action):
+                                return
+                            instruction = task_state.recovery_instruction()
+                            if not instruction:
+                                return
                             try:
-                                await self.session.send_client_content(
-                                    turns={"role": "user", "parts": [{"text": task_state.recovery_instruction()}]},
+                                await _recovery_session.send_client_content(
+                                    turns={"role": "user", "parts": [{"text": instruction}]},
                                     turn_complete=True,
                                 )
                             except Exception as _task_exc:

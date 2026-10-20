@@ -110,8 +110,8 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
 
     with _lock:
         now = time.monotonic()
-        for old_key, (at, _) in list(_recent_proposals.items()):
-            if now - at > PROPOSAL_REPLAY_SECONDS:
+        for old_key, (at, state) in list(_recent_proposals.items()):
+            if state != "running" and now - at > PROPOSAL_REPLAY_SECONDS:
                 _recent_proposals.pop(old_key, None)
         if key.startswith("text_proposal:") and key in _recent_proposals:
             state = _recent_proposals[key][1]

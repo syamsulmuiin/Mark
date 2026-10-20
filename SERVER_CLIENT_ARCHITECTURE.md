@@ -10,7 +10,7 @@ Mark is a headless orchestration server. Android and desktop companions provide 
 | Android companion | Microphone/playback, native device capabilities, optional Accessibility automation, and attachments |
 | Desktop companion | Microphone/playback, PyQt interface, desktop actions, and attachments |
 
-The server does not open local conversational audio, desktop windows, camera, or input-control devices. Server browser automation is a headless backend capability, distinct from using a companion browser.
+The server does not open local conversational audio, desktop windows, or a camera. An optional emergency keyboard hook listens for a local stop chord where the OS session permits it; it does not provide companion input automation. Server browser automation is a headless backend capability, distinct from using a companion browser.
 
 ## Routing
 
@@ -24,6 +24,8 @@ Device automation follows inspect, act, inspect, and verify. Applications and do
 
 Text and Live use separately configured primary providers/models without automatic fallback. Live tool calls enter the host executor. Text reasoning can propose actions or produce content but cannot authorize or execute them itself. Typed chat remains text-only.
 
+`autonomous_goal` reasoning and server tool execution run in a separate process launched by `AgentProcessManager`. Device calls return through the server's authorized device bridge. The server keeps Live sessions, transport, and companion connections alive when this worker stops. Inline Live and legacy tool paths are not all isolated by this integration.
+
 The actual loaded tool registry is the capability boundary. General code/file workflows coexist with specialized document editing. Tool presence, dependency support, execution, and verified outcomes are distinct facts.
 
 ## Trust boundaries
@@ -36,9 +38,11 @@ Read-only and ordinary reversible operations run without unnecessary confirmatio
 
 ## Lifecycle and continuity
 
-The process lifecycle checks the worker PID and local API readiness. Restart waits for the previous worker to stop. Voice transport loss and provider rollover do not complete or cancel a task; conversation and task state support recovery.
+The server lifecycle checks its PID and local API readiness. Stop and restart first terminate the tracked autonomy worker, then stop the previous server process before any replacement starts. Voice transport loss and provider rollover do not complete or cancel a task; conversation and task state support recovery.
 
 Ending a conversation leaves the server running. Scheduled workflows are created only on user request. No unsolicited news, time announcement, or daily briefing is enabled by default.
+
+`python main.py --break` and the optional global hotkey use the same emergency-stop path. Owner-private runtime metadata binds the worker PID to its creation time, command, and run ID before forced termination. Confirmed termination resets runtime to `idle` and preserves an unfinished goal as `INTERRUPTED`, without automatic replay. An unconfirmed stop reports failure. Already dispatched remote actions can still complete; see [emergency stop](docs/emergency-stop.md).
 
 ## Persistence
 
@@ -55,6 +59,9 @@ Attachment objects and transfer history are durable by default. Deletion is expl
 | Module | Responsibility |
 | --- | --- |
 | `main.py` | Live orchestration and host tool dispatch |
+| `core/hotkey.py` | Push-to-talk and the separate optional global emergency hook |
+| `core/agent_worker.py`, `core/autonomy_engine.py` | Isolated goal execution, device bridge, PID verification, and emergency termination |
+| `core/autonomy_state.py` | Locked worker metadata and durable interrupted-goal state |
 | `core/server_lifecycle.py` | Process startup, readiness, restart, and shutdown |
 | `core/server_maintenance.py` | Guarded GitHub updates and detached restart jobs |
 | `core/llm_*`, `core/chat_router.py` | Provider adapters and Text/Live routing |

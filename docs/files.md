@@ -46,3 +46,5 @@ Structured creation rejects malformed blocks, literal escaped newlines, misplace
 Revisions leave the original and unrelated content intact. Output names are unique. Literal backslash-newline sequences are rejected instead of being written into Word or blindly decoded. Never invent an updated path or claim delivery before the actual result.
 
 Failed scoped revisions report a validation reason and require fresh inspection/corrected arguments before retry. They must not trigger whole-document regeneration. Structured creation accepts a single outer JSON code fence as well as bare JSON; commentary, malformed JSON, escaped content and invalid blocks remain rejected. Intermediate steps and task bookkeeping should not repeat the final spoken result.
+
+Inspection exposes `heading_level` as Word levels 1–9 (`null` for body text), matching replacement block levels. It also returns `source_sha256` as an explicit alias of `sha256`. Choose exactly one `section_heading` or `target_text`. Preserve the selected heading and use strictly greater levels for child headings. An unchanged replacement creates no new revision; do not deliver the old source as a newly updated file.

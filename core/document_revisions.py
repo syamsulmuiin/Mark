@@ -72,11 +72,21 @@ def _style_levels(parts):
 def inspect(source):
     path, parts, _, body, source_digest = _load(source)
     styles = _style_levels(parts)
-    paragraphs = [{'index': index, 'text': _text(node), 'heading_level': _level(node, styles)}
-        for index, node in enumerate(body) if node.tag == W + 'p']
+    paragraphs = []
+    for index, node in enumerate(body):
+        if node.tag != W + 'p':
+            continue
+        outline = _level(node, styles)
+        paragraphs.append({'index': index, 'text': _text(node),
+            # Public levels match replacement_blocks and Word Heading 1..9.
+            # Internal OOXML outline levels remain zero-based.
+            'heading_level': outline + 1 if outline is not None else None})
     if sum(len(p['text']) for p in paragraphs) > 100000:
         raise ValueError('Document inspection exceeds the text limit; select a smaller source')
     return {'ok': True, 'status': 'inspected', 'file_path': str(path), 'sha256': source_digest,
+            'source_sha256': source_digest,
+            'heading_level_convention': 'Word Heading 1..9; null means body text',
+            'instruction': 'For revise choose exactly one target: section_heading OR target_text, never both. Use source_sha256 from this inspection. A section heading is preserved; replacement heading levels must be greater than its heading_level. Body paragraphs have no level. If no text changes, do not claim a revised file exists.',
             'paragraphs': paragraphs, 'tables': sum(node.tag == W + 'tbl' for node in body)}
 
 

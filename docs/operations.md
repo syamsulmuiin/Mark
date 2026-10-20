@@ -2,11 +2,20 @@
 
 ## Lifecycle
 
-Use `python main.py --start`, `--stop`, or `--restart` from the server environment. `--enable` installs per-user autostart; `--disable` removes it without implicitly stopping a running worker. `--server-worker` is internal.
+Use `python main.py --start`, `--stop`, or `--restart` from the server environment. `--enable` installs per-user autostart; `--disable` removes it without implicitly stopping a running server. `--server-worker` is internal.
 
-Startup succeeds only when the local health endpoint reports the expected worker PID. A running process without a healthy API is not ready. Restart does not launch a replacement until the existing worker stops.
+Startup succeeds only when the local health endpoint reports the expected server PID. A running process without a healthy API is not ready. Restart does not launch a replacement until the existing server stops. Stop and restart first terminate the tracked autonomy worker and refuse to proceed if termination cannot be confirmed.
 
 Ending a conversation does not stop the service. Server shutdown requires an explicit server/service request.
+
+## Emergency execution stop
+
+Use `python main.py --break` to force-stop the tracked autonomy worker while
+keeping the server/companions running. Use `--stop` only to stop the server.
+Interrupted goals are preserved as `INTERRUPTED`; runtime returns to `idle` only after worker termination is confirmed. They are not automatically replayed. This currently covers `autonomous_goal`, not every inline Live or legacy tool call.
+The optional global chord is Ctrl+Alt+Shift+F12 where OS input access is available.
+See [Emergency stop](emergency-stop.md) for PID identity checks, interrupted-goal
+handling, service-session limitations and the scope of the worker integration.
 
 ## Script updates
 
@@ -184,11 +193,3 @@ protocol tests do not substitute for them.
 
 Retain the actual new logs and record the device/OS and server commit when
 reporting results. A test without device access is pending, never passed.
-
-## Emergency execution stop
-
-Use `python main.py --break` to force-stop the tracked autonomy worker while
-keeping the server/companions running. Use `--stop` only to stop the server.
-The optional global chord is Ctrl+Alt+Shift+F12 where OS input access is available.
-See [Emergency stop](emergency-stop.md) for PID identity checks, interrupted-goal
-handling, service-session limitations and the scope of the worker integration.

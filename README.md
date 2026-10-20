@@ -32,8 +32,9 @@ See [providers and authentication](docs/llm-providers.md). Typed chat currently 
 | Command | Purpose |
 | --- | --- |
 | `python main.py --start` | Start the background server |
-| `python main.py --restart` | Replace the running worker and check readiness |
+| `python main.py --restart` | Replace the server process and check readiness |
 | `python main.py --stop` | Stop the server |
+| `python main.py --break` | Force-stop the tracked autonomy worker; keep the server running |
 | `python main.py --enable` | Enable per-user autostart |
 | `python main.py --disable` | Remove autostart |
 | `python main.py --pair` | List pending companion pairing requests |
@@ -73,6 +74,7 @@ See [operations and troubleshooting](docs/operations.md) for update blockers, lo
 | [Setup](docs/setup.md) | Installation, network configuration, and pairing |
 | [Providers](docs/llm-providers.md) | Text/Live selection, authentication, and model identity |
 | [Operations](docs/operations.md) | Lifecycle, updates, diagnostics, and repair |
+| [Emergency stop](docs/emergency-stop.md) | Worker isolation, global hotkey, and stopping limits |
 | [Files](docs/files.md) | Attachments, deletion, creation, and revisions |
 | [Contributing](CONTRIBUTING.md) | Development and documentation standards |
 

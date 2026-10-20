@@ -8,6 +8,14 @@ The server does not need a display, local microphone, speaker, or desktop automa
 
 Configure Text first, then Live. Both selections are saved only after the complete setup flow succeeds. See [provider configuration](llm-providers.md).
 
+## Emergency stop availability
+
+`python main.py --break` stops the tracked autonomy worker without stopping the server or companions. It also works on headless hosts. It currently covers `autonomous_goal` execution, not every inline Live or legacy tool call.
+
+Install updated server requirements when upgrading: the worker identity checks use `psutil`, and the optional global keyboard hook uses `pynput`. The default chord is Ctrl+Alt+Shift+F12 on the server host. A service needs access to an interactive OS input session for this hook; headless sessions, Windows Session 0, and OS permissions can prevent it from starting. The CLI remains available when the hook is unavailable. A companion keyboard does not automatically control the server hook.
+
+See [emergency stop](emergency-stop.md) for configuration, PID verification, and recovery limits.
+
 ## Network configuration
 
 Edit `config/network.json` for server endpoints and ports. Resolution follows environment overrides, then JSON configuration, then built-in defaults. The desktop standalone runtime carries a corresponding network configuration; Android embeds its public URL at build time.

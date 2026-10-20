@@ -18,6 +18,10 @@ BASE_DIR           = get_base_dir()
 API_CONFIG_PATH    = BASE_DIR / "config" / "api_keys.json"
 ARTIFACTS         = ARTIFACT_ROOT / "code"
 MAX_BUILD_ATTEMPTS = 3
+BINARY_FORMATS = {'.docx', '.xlsx', '.pptx', '.pdf', '.odt', '.ods', '.odp', '.zip'}
+BINARY_GUIDANCE = ('Plain text/code cannot be saved as a binary document. Use a script filename such as .py, '
+                   'have that program create the requested document with a format library, then verify and send '
+                   'the resulting document rather than the script. DOCX can also use document_editor create.')
 # Text reasoning follows the selected provider via core.reasoning.
 # Provider failure never authorizes a switch to another provider.
 from core import reasoning as gemini
@@ -80,8 +84,10 @@ def _read_file(file_path: str) -> tuple[str, str]:
 
 def _save_file(path: Path, content: str) -> str:
     try:
+        if path.suffix.lower() in BINARY_FORMATS:
+            return 'Could not save: ' + BINARY_GUIDANCE
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        path.write_text(content, encoding="utf-8", newline="")
         return f"Saved to: {path}"
     except Exception as e:
         return f"Could not save: {e}"
@@ -95,6 +101,10 @@ def _preview(code: str, lines: int = 10) -> str:
 
 
 def _has_error(output: str) -> bool:
+    if output.startswith('Execution finished (exit_code=0)'):
+        return False
+    if output.startswith(('ERROR:', 'WAITING:')):
+        return True
     error_signals = ["error", "exception", "traceback", "syntaxerror",
                      "nameerror", "typeerror", "stderr", "failed", "crash"]
     return any(s in output.lower() for s in error_signals)
@@ -170,6 +180,9 @@ def _detect_intent(description: str, file_path: str, code: str) -> str:
 
 def _write(description: str, language: str, output_path: str, player=None) -> tuple[str, Path]:
     lang  = language or "python"
+    path = _resolve_save_path(output_path, lang)
+    if path.suffix.lower() in BINARY_FORMATS:
+        raise ValueError(BINARY_GUIDANCE)
     model = _get_gemini()
 
     prompt = f"""You are an expert {lang} developer.
@@ -226,7 +239,7 @@ def _run_file(path: Path, args: list, timeout: int) -> str:
     }
     interp = interpreters.get(path.suffix.lower())
     if not interp:
-        return f"No interpreter for {path.suffix}."
+        return f"ERROR: No interpreter for {path.suffix}."
 
     try:
         result = subprocess.run(
@@ -240,14 +253,17 @@ def _run_file(path: Path, args: list, timeout: int) -> str:
         parts  = []
         if output: parts.append(f"Output:\n{output}")
         if error:  parts.append(f"Stderr:\n{error}")
-        return "\n\n".join(parts) if parts else "Executed with no output."
+        detail = "\n\n".join(parts) if parts else "No output."
+        status = ('Execution finished (exit_code=0)' if result.returncode == 0
+                  else f'ERROR: Process exited with exit_code={result.returncode}')
+        return status + '\n' + detail
 
     except subprocess.TimeoutExpired:
-        return f"Timed out after {timeout}s."
+        return f"WAITING: Execution timed out after {timeout}s; result is unverified. Inspect side effects before retrying."
     except FileNotFoundError:
-        return f"Interpreter not found: {interp[0]}."
+        return f"ERROR: Interpreter not found: {interp[0]}."
     except Exception as e:
-        return f"Execution error: {e}"
+        return f"ERROR: Execution error: {e}"
 
 
 def _build(description, language, output_path, args, timeout, speak=None, player=None) -> str:
@@ -264,8 +280,7 @@ def _build(description, language, output_path, args, timeout, speak=None, player
         print(f"[Code] ✅ Written: {path}")
     except Exception as e:
         msg = f"Could not write initial code: {e}"
-        if speak: speak(msg)
-        return msg
+        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg})
 
     last_output = ""
     for attempt in range(1, MAX_BUILD_ATTEMPTS + 1):
@@ -274,14 +289,15 @@ def _build(description, language, output_path, args, timeout, speak=None, player
             player.write_log(f"[Code] Attempt {attempt}...")
 
         last_output = _run_file(path, args, timeout)
+        if last_output.startswith('WAITING:'):
+            return json.dumps({'ok': True, 'status': 'WAITING', 'verified': False,
+                'file_path': str(path.resolve()), 'instruction': last_output})
 
         if not _has_error(last_output):
             msg = (
-                f"Build complete, sir. "
-                f"The code is working after {attempt} attempt{'s' if attempt > 1 else ''}. "
-                f"Saved to {path}."
+                f"Script process exited successfully after {attempt} attempt{'s' if attempt > 1 else ''}. "
+                f"Source saved to {path}. Verify the requested output before claiming completion."
             )
-            if speak: speak(msg)
             return f"{msg}\n\nOutput:\n{last_output}"
 
         print(f"[Code] ⚠️ Error on attempt {attempt}, fixing...")
@@ -293,15 +309,13 @@ def _build(description, language, output_path, args, timeout, speak=None, player
             _save_file(path, code)
         except Exception as e:
             msg = f"Could not fix code on attempt {attempt}: {e}"
-            if speak: speak(msg)
-            return msg
+            return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg})
 
     msg = (
         f"I was unable to build a working version after {MAX_BUILD_ATTEMPTS} attempts, sir. "
         f"The last error was: {last_output[:200]}"
     )
-    if speak: speak(msg)
-    return f"{msg}\n\nLast code saved to: {path}"
+    return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg, 'file_path': str(path)})
 
 def _write_action(description, language, output_path, player, literal_code="") -> str:
     if literal_code:
@@ -327,7 +341,7 @@ def _write_action(description, language, output_path, player, literal_code="") -
         else:
             status = _save_file(path, literal_code)
         if not status.startswith("Saved to:"):
-            return json.dumps({"ok": False, "status": "FAILED", "error": "File write failed"})
+            return json.dumps({"ok": False, "status": "FAILED", "error": status})
         data = path.read_bytes()
         if data != literal_code.encode("utf-8"):
             return json.dumps({"ok": False, "status": "FAILED", "error": "File readback mismatch"})
@@ -342,9 +356,16 @@ def _write_action(description, language, output_path, player, literal_code="") -
     try:
         code, path = _write(description, language, output_path, player)
         print(f"[Code] ✅ Written: {path}")
-        return f"Code written. Saved to: {path}\n\nPreview:\n{_preview(code)}"
+        data = path.read_bytes()
+        if data != code.encode('utf-8'):
+            raise OSError('Generated file readback mismatch')
+        return json.dumps({'ok': True, 'status': 'SUCCESS', 'verified': True,
+            'file_path': str(path.resolve()), 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
+            'artifact_kind': 'code_file', 'code_executed': False,
+            'instruction': 'Only the source file write is verified; code was not executed. For a document request, run the script through the host approval flow, verify the generated document, and send that document, not this script.'})
     except Exception as e:
-        return f"Could not generate code: {e}"
+        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False,
+                           'error': f'Could not generate code: {e}'})
 
 
 def _edit_action(file_path, instruction, player) -> str:
@@ -419,7 +440,11 @@ def _run_action(file_path, args, timeout, player) -> str:
         return f"File not found: {file_path}"
     if player:
         player.write_log(f"[Code] Running {p.name}...")
-    return _run_file(p, args, timeout)
+    result = _run_file(p, args, timeout)
+    if result.startswith('WAITING:'):
+        return json.dumps({'ok': True, 'status': 'WAITING', 'verified': False,
+                           'file_path': str(p.resolve()), 'instruction': result})
+    return result
 
 
 def _optimize_action(file_path, code, language, output_path, player) -> str:
@@ -643,7 +668,7 @@ TOOL = {
             },
             "output_path": {
                 "type": "STRING",
-                "description": "Where to save the file"
+                "description": "Source/text output filename. For binary documents use a script filename such as .py; the program must create and verify the requested DOCX/PDF/XLSX/PPTX separately."
             },
             "file_path": {
                 "type": "STRING",

@@ -63,6 +63,7 @@ def propose_action(task: str, declarations: list[dict], *, config: dict | None =
         "Choose an operational step for the request, not bookkeeping or task tracking. "
         "For new files of any format, including papers and DOCX, existing code_helper/dev_agent can provide a general content/code generation workflow when runtime dependencies support it. "
         "Do not require document_editor create or a dedicated new tool for each extension, or claim work was executed. "
+        "Never write plain text/code to a binary document extension. Generate a source file such as .py, execute it through the host gate, then verify the actual document before delivery; a saved script is not the completed document. "
         "Structured creation is optional. If it fails before producing an artifact, propose a general creation step with the complete request, preserve host execution approval, and verify the actual output path before delivery. "
         "If creation succeeded and only delivery failed, propose delivery of the existing artifact instead of regeneration. "
         "For partial DOCX revisions use document_editor list/inspect/revise, not dev_agent. "

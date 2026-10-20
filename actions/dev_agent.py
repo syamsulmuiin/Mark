@@ -17,7 +17,7 @@ BASE_DIR         = get_base_dir()
 API_CONFIG_PATH  = BASE_DIR / "config" / "api_keys.json"
 PROJECTS_DIR     = ARTIFACT_ROOT / "projects"
 MAX_FIX_ATTEMPTS = 5
-# Model choice, timeout and fallback ladder all live in core/gemini.py.
+# Reasoning uses the configured primary Text model without provider fallback.
 from core import reasoning as gemini
 
 MODEL_PLANNER    = gemini.SMART
@@ -35,7 +35,7 @@ def _get_model(model_name: str = gemini.SMART):
         def generate_content(self, contents):
             resp = gemini.call(contents, tier=model_name, timeout_ms=60000)
             if resp is None:
-                raise RuntimeError("every Gemini model on the ladder failed")
+                raise RuntimeError("the configured Text provider returned no response")
             return resp
 
     return _W()
@@ -94,8 +94,10 @@ def _has_error(output: str, run_command: str) -> bool:
     
     low = output.lower()
 
-    if "timed out" in low:
+    if output.startswith('Execution finished (exit_code=0)'):
         return False
+    if output.startswith(('ERROR:', 'WAITING:')) or 'timed out' in low:
+        return True
 
     if not output.strip():
         return False
@@ -156,6 +158,21 @@ JSON:"""
             raise RateLimitError(str(e))
         raise
 
+def _project_source_path(project_dir, file_path):
+    from actions.code_helper import BINARY_FORMATS, BINARY_GUIDANCE
+    relative = Path(file_path)
+    if relative.is_absolute():
+        raise ValueError('Project source paths must be relative to the project directory')
+    target = (project_dir / relative).resolve()
+    try:
+        target.relative_to(project_dir.resolve())
+    except ValueError:
+        raise ValueError('Project source path escapes the project directory') from None
+    if target.suffix.lower() in BINARY_FORMATS:
+        raise ValueError(BINARY_GUIDANCE)
+    return target
+
+
 def _write_file(
     file_info: dict,
     project_description: str,
@@ -164,9 +181,9 @@ def _write_file(
     project_dir: Path,
     already_written: dict[str, str],
 ) -> str:
-    model = _get_model(MODEL_WRITER)
-
     file_path = file_info["path"]
+    full_path = _project_source_path(project_dir, file_path)
+    model = _get_model(MODEL_WRITER)
     file_desc = file_info.get("description", "")
     file_imports = file_info.get("imports", [])
 
@@ -228,7 +245,6 @@ Code for {file_path}:"""
         response = model.generate_content(prompt)
         code = _strip_fences(response.text)
 
-        full_path = project_dir / file_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(code, encoding="utf-8")
 
@@ -320,14 +336,17 @@ def _run_project(run_command: str, project_dir: Path, timeout: int = 30) -> str:
         if stderr:
             combined_parts.append(f"STDERR:\n{stderr}")
 
-        return "\n\n".join(combined_parts) if combined_parts else "Ran with no output."
+        detail = "\n\n".join(combined_parts) if combined_parts else "No output."
+        status = ('Execution finished (exit_code=0)' if result.returncode == 0
+                  else f'ERROR: Process exited with exit_code={result.returncode}')
+        return status + '\n' + detail
 
     except subprocess.TimeoutExpired:
-        return f"Timed out after {timeout}s — long-running app (server/GUI) is likely working."
+        return f"WAITING: Execution timed out after {timeout}s; no process readiness was verified. Inspect side effects before retrying."
     except FileNotFoundError as e:
-        return f"Command not found: {e}"
+        return f"ERROR: Command not found: {e}"
     except Exception as e:
-        return f"Run error: {e}"
+        return f"ERROR: Run error: {e}"
 
 def _try_auto_install(error_output: str, project_dir: Path) -> bool:
     """If there is a ModuleNotFoundError, tries to auto-install the missing package."""
@@ -382,6 +401,7 @@ def _fix_files(
     updated_codes: dict[str, str] = {}
 
     for fix_path in files_to_fix:
+        full_path = _project_source_path(project_dir, fix_path)
         current_code = file_codes.get(fix_path, "")
 
         other_ctx = ""
@@ -426,7 +446,6 @@ Fixed code for {fix_path}:"""
             response = model.generate_content(prompt)
             fixed = _strip_fences(response.text)
 
-            full_path = project_dir / fix_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(fixed, encoding="utf-8")
 
@@ -459,12 +478,10 @@ def _build_project(
         plan = _plan_project(description, language)
     except RateLimitError:
         msg = "Rate limit reached, sir. Please try again in a moment."
-        if speak: speak(msg)
-        return msg
+        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg})
     except ValueError as e:
         msg = f"Planning failed: {e}"
-        if speak: speak(msg)
-        return msg
+        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg})
 
     proj_name    = project_name or plan.get("project_name", "jarvis_project")
     proj_name    = re.sub(r"[^\w\-]", "_", proj_name)
@@ -516,8 +533,7 @@ def _build_project(
 
     if not file_codes:
         msg = "I could not write any project files, sir."
-        if speak: speak(msg)
-        return msg
+        return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg})
 
     if dependencies:
         install_result = _install_dependencies(dependencies, project_dir)
@@ -532,14 +548,15 @@ def _build_project(
         log(f"Running project (attempt {attempt}/{MAX_FIX_ATTEMPTS})...")
         last_output = _run_project(run_command, project_dir, timeout)
         log(f"Output preview: {last_output[:150]}")
+        if last_output.startswith('WAITING:'):
+            return json.dumps({'ok': True, 'status': 'WAITING', 'verified': False,
+                'project_dir': str(project_dir), 'instruction': last_output})
 
         if not _has_error(last_output, run_command):
             msg = (
-                f"Project '{proj_name}' is working, sir. "
-                f"Built in {attempt} attempt{'s' if attempt > 1 else ''}. "
-                f"Saved to: {project_dir}"
+                f"Project '{proj_name}' process exited successfully after {attempt} attempt{'s' if attempt > 1 else ''}. "
+                f"Saved to: {project_dir}. Application readiness and requested output remain unverified."
             )
-            if speak: speak(msg)
             return f"{msg}\n\nOutput:\n{last_output}"
 
         if attempt == MAX_FIX_ATTEMPTS:
@@ -569,8 +586,7 @@ def _build_project(
             time.sleep(1)
         except RateLimitError:
             msg = "Rate limit reached during fix. Project saved, check it manually in VSCode."
-            if speak: speak(msg)
-            return msg
+            return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg})
         except Exception as e:
             log(f"Fix step failed: {e}")
 
@@ -578,8 +594,7 @@ def _build_project(
         f"I couldn't fully fix '{proj_name}' after {MAX_FIX_ATTEMPTS} attempts, sir. "
         f"Project is saved at {project_dir} — open it in VSCode and check manually."
     )
-    if speak: speak(msg)
-    return f"{msg}\n\nLast error:\n{last_output[:600]}"
+    return json.dumps({'ok': False, 'status': 'FAILED', 'verified': False, 'error': msg, 'output': last_output[:600]})
 
 
 def dev_agent(

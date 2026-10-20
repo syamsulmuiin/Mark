@@ -38,6 +38,7 @@ def live_delegation_instruction(config: dict | None = None, *, live_model: str |
         "document_editor create is an optional structured-content route, not a prerequisite. "
         "The host can create and attach the file; do not claim this capability is unavailable merely because the Text model returns text. "
         "For existing documents inspect then revise; never send a new paper through the revision-only path or invent a source file. "
+        "For binary documents, code_helper output_path names the script (such as .py), not the final .docx/.pdf/.xlsx/.pptx. Run it through the existing host gate, verify the generated document, and send that document rather than source code. "
         "All file formats may use that general workflow, subject to installed dependencies and host approval for execution. "
         "If structured creation returns FAILED with recovery guidance, continue the proposed general creation step using the complete user request; do not stop at the validation error. "
         "Inspect existing artifacts first, verify the resulting file, then send its actual path to the requesting companion attachment Inbox. "

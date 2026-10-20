@@ -95,7 +95,7 @@ def _gemini_search(query: str) -> str:
     from core import gemini
 
     # Grounded search reads a live page, so it gets a longer deadline than the
-    # default — but it still HAS one, and it still walks the fallback ladder.
+    # default. Execution remains on the configured primary Text model.
     try:
         response = gemini.call(query, tier=gemini.SEARCH,
                                config={"tools": [{"google_search": {}}]},
@@ -103,7 +103,7 @@ def _gemini_search(query: str) -> str:
         if response is None:
             errors = gemini.last_call_errors()
             detail = "; ".join(f"{model}: {message}" for model, message in errors)
-            raise RuntimeError(detail or "every Gemini model on the ladder failed")
+            raise RuntimeError(detail or "the configured primary Text model returned no search response")
     except Exception as e:
         _note_gemini_error(e)
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):

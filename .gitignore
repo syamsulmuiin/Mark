@@ -83,3 +83,6 @@ config/provider_auth/
 
 # Server worker state (PID, maintenance jobs, generated files) is not source.
 /runtime/
+
+# Owner-readable local operator API credential
+devices/local_api.token

@@ -37,14 +37,47 @@ for _name in ('app.inspect','camera.capture','screen.capture','file.upload','fil
     CAPABILITY_MANIFEST[_name]['verification']='direct-evidence'
 def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
 def unb64(s): return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
+_STATE_LOCK = threading.RLock()
+
 def load():
-    try:return json.loads(STATE.read_text())
-    except Exception:return {}
-def save(d): STATE.write_text(json.dumps(d,indent=2))
+    try:
+        state = json.loads(STATE.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        raise RuntimeError('Cannot read desktop state.json; restore it instead of resetting pairing') from None
+    if not isinstance(state, dict):
+        raise RuntimeError('Invalid desktop state.json; restore it instead of resetting pairing')
+    return state
+
+def save(d):
+    with _STATE_LOCK:
+        temporary = STATE.with_name(STATE.name + '.' + uuid.uuid4().hex + '.tmp')
+        try:
+            with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as stream:
+                json.dump(d, stream, indent=2)
+            os.replace(temporary,STATE)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 def identity(st):
-    if st.get('device_id') and st.get('private_key'): return st
-    k=Ed25519PrivateKey.generate(); st.update(device_id=str(uuid.uuid4()),name=socket.gethostname(),private_key=b64(k.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption())),public_key=b64(k.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw))); save(st); return st
+    if STATE.exists() and not any(key in st for key in ('device_id','private_key','public_key')):
+        raise RuntimeError('Existing desktop state has no identity; restore state.json instead of replacing paired keys')
+    if st.get('paired') or st.get('server_key') or any(key in st for key in ('device_id','private_key','public_key')):
+        try:
+            if not isinstance(st.get('device_id'),str) or not st['device_id']:
+                raise ValueError('missing device id')
+            key = Ed25519PrivateKey.from_private_bytes(unb64(st['private_key']))
+            public = b64(key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw))
+            if not secrets.compare_digest(public,st['public_key']):
+                raise ValueError('identity key mismatch')
+        except (ValueError,TypeError,KeyError):
+            raise RuntimeError('Invalid desktop identity; restore state.json instead of replacing paired keys') from None
+        return st
+    k=Ed25519PrivateKey.generate()
+    result=dict(st,device_id=str(uuid.uuid4()),name=socket.gethostname(),private_key=b64(k.private_bytes(serialization.Encoding.Raw,serialization.PrivateFormat.Raw,serialization.NoEncryption())),public_key=b64(k.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)))
+    save(result)
+    return result
 def priv(st): return Ed25519PrivateKey.from_private_bytes(unb64(st['private_key']))
 def verify(pub,data,sig):
     try: Ed25519PublicKey.from_public_bytes(unb64(pub)).verify(unb64(sig),data); return True
@@ -117,43 +150,67 @@ class App:
             return True
     def pair(self):
         code=self.code.get().strip().upper()
-        if len(code)!=6:
-            self.root.show_login(paired=False,message='Enter the 6-character Pair Code from the server.')
+        pending=getattr(self,'_pending_pairing',None)
+        if not pending or pending['expires_at'] <= time.time():
+            code=''
+        if code and len(code)!=8:
+            self.root.show_login(paired=False,message='Enter the 8-character code issued for this desktop request.')
             return
         if getattr(self,'_pairing',False):return
         self._pairing=True
         self.root.pair_button.setEnabled(False)
         self.status.set('Pairing')
         threading.Thread(target=self._pair_worker,args=(code,),daemon=True).start()
+
     def _pair_worker(self,code):
-        base=PUBLIC_BASE_URL
         try:
-            response=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=self._tls_verify(base))
-            if response.status_code==502:
-                base=self.discover(code)
-                response=requests.get(f'{base}/api/pairing/offer/{code}',timeout=8,verify=self._tls_verify(base))
-            if response.status_code==404:
-                raise ValueError('Pair Code invalid or expired. Generate a new code on the server.')
-            response.raise_for_status()
-            try: offer=response.json()
-            except ValueError: raise ValueError('Pairing endpoint did not return JSON. Check the server address and tunnel.') from None
-            if not isinstance(offer,dict) or not all(offer.get(k) for k in ('nonce','public_key','device_id')):
-                raise ValueError(str(offer.get('error') or 'Pairing offer is incomplete; check the server and Pair Code.') if isinstance(offer,dict) else 'Pairing offer is invalid.')
-            peer={'device_id':self.st['device_id'],'name':self.st['name'],'public_key':self.st['public_key']}
-            sig=b64(priv(self.st).sign(f"{offer['nonce']}:{code}".encode()))
-            reply=requests.post(f'{base}/api/pairing/accept',json={'code':code,'peer':peer,'signature':sig,'capabilities':list(NATIVE_CAPABILITIES)},timeout=8,verify=self._tls_verify(base))
-            if not reply.ok:
-                try: reason=reply.json().get('error')
-                except ValueError: reason=None
-                raise ValueError(str(reason or f'Pairing rejected (HTTP {reply.status_code}).'))
-            self.st.update(server=base,server_key=offer['public_key'],server_id=offer['device_id'],paired=True)
-            save(self.st)
+            pending=getattr(self,'_pending_pairing',None)
+            if not code:
+                base=PUBLIC_BASE_URL
+                peer={key:self.st[key] for key in ('device_id','name','public_key')}
+                response=requests.post(f'{base}/api/pairing/request',json={'peer':peer},timeout=8,verify=self._tls_verify(base))
+                response.raise_for_status()
+                request=response.json()
+                local=request['local']
+                if (not request.get('pairing_id') or not request.get('nonce')
+                        or not local.get('device_id') or len(unb64(local['public_key']))!=32
+                        or float(request['expires_at'])<=time.time()):
+                    raise ValueError('Pairing request is incomplete or expired')
+                self._pending_pairing={**request,'base':base,'expires_at':float(request['expires_at'])}
+                self.root.after(0,self._pair_requested)
+                return
+            if not pending or pending['expires_at']<=time.time():
+                raise ValueError('Pairing request expired. Clear the code to request pairing again.')
+            base=pending['base']
+            payload=f"{pending['pairing_id']}:{code}:{pending['nonce']}".encode()
+            reply=requests.post(f'{base}/api/pairing/claim',json={
+                'pairing_id':pending['pairing_id'],'code':code,'signature':b64(priv(self.st).sign(payload)),
+                'capabilities':list(NATIVE_CAPABILITIES)},timeout=8,verify=self._tls_verify(base))
+            result=reply.json()
+            if not reply.ok or result.get('ok') is not True:
+                raise ValueError(str(result.get('error') or f'Pairing rejected (HTTP {reply.status_code}).'))
+            local=result.get('local') or {}
+            if any(local.get(key)!=pending['local'].get(key) for key in ('public_key','device_id')):
+                raise ValueError('Server identity changed during pairing; request pairing again')
+            state=dict(self.st,server=base,server_key=local['public_key'],server_id=local['device_id'],paired=True)
+            save(state)
+            self.st.update(state)
+            self._pending_pairing=None
             self.root.after(0,self._paired)
         except Exception as exc:
             message=str(exc)
             if isinstance(exc,ValueError):self.note('Pairing: '+message)
             else:self.fault('Pair failed',exc)
             self.root.after(0,lambda message=message:self._pair_failed(message))
+
+    def _pair_requested(self):
+        self._pairing=False
+        self.root.pair_button.setEnabled(True)
+        self.root.pair_button.setText('FINISH PAIRING')
+        self.root.code_input.clear()
+        request_id=self._pending_pairing['pairing_id']
+        self.root.show_login(paired=False,message='Request created. On the server run: python main.py --pair --pairing-id '+request_id+'. Enter its 8-character code here.')
+
     def _paired(self):
         self._pairing=False
         self.root.pair_button.setEnabled(True)
@@ -722,6 +779,8 @@ class App:
         self.root.show_login(paired=bool(self.st.get('paired')),
             message='Disconnected. Reconnect to continue.' if self.st.get('paired') else '')
     def prepare_new_pair_code(self):
+        self._pending_pairing=None
+        self.root.pair_button.setText('REQUEST PAIRING')
         self.disconnect()
         self.root.show_login(paired=False)
     def close(self): self.root.close()

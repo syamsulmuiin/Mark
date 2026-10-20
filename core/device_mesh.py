@@ -36,9 +36,13 @@ class DeviceMesh:
         except (OSError, ValueError):
             raise RuntimeError(f"Cannot read device state {path.name}; restore or repair it before starting the server") from None
     def _atomic(self, path, data):
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, path)
+        tmp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+        try:
+            with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as stream:
+                json.dump(data, stream, indent=2, sort_keys=True)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def _load_identity(self):
         d = self._load_json(self.identity_path, None)
@@ -84,8 +88,12 @@ class DeviceMesh:
         """Create an opaque pending request; no pairing code is returned."""
         device_id = str(peer.get("device_id", "")).strip()
         public_key = str(peer.get("public_key", "")).strip()
-        if not device_id or not public_key:
-            raise ValueError("peer identity missing")
+        if not device_id or not public_key or len(device_id) > 128 or len(public_key) > 128:
+            raise ValueError("peer identity missing or invalid")
+        try:
+            Ed25519PublicKey.from_public_bytes(self._unb64(public_key))
+        except (ValueError, TypeError):
+            raise ValueError("peer public key invalid") from None
         now = int(time.time())
         pairing_id = secrets.token_urlsafe(24)
         nonce = secrets.token_urlsafe(24)
@@ -93,7 +101,7 @@ class DeviceMesh:
             "pairing_id": pairing_id,
             "peer": {
                 "device_id": device_id,
-                "name": str(peer.get("name") or device_id),
+                "name": str(peer.get("name") or device_id)[:160],
                 "public_key": public_key,
             },
             "nonce": nonce,
@@ -104,6 +112,9 @@ class DeviceMesh:
             "claimed_at": None,
         }
         with self._lock:
+            self._pending = {key: value for key, value in self._pending.items() if value['expires_at'] > now}
+            if len(self._pending) >= 128:
+                raise ValueError('pairing queue full; wait for existing requests to expire')
             self._pending[pairing_id] = record
         return {
             "pairing_id": pairing_id,
@@ -183,8 +194,9 @@ class DeviceMesh:
                 "last_seen": int(time.time()),
                 "revoked": False,
             }
-            self._trusted[peer["device_id"]] = rec
-            self._atomic(self.trust_path, self._trusted)
+            trusted = {**self._trusted, peer["device_id"]: rec}
+            self._atomic(self.trust_path, trusted)
+            self._trusted = trusted
             self._pending.pop(pairing_id, None)
             return dict(rec)
 
@@ -196,8 +208,11 @@ class DeviceMesh:
     def set_capabilities(self, device_id, capabilities):
         with self._lock:
             if device_id not in self._trusted: raise KeyError(device_id)
-            self._trusted[device_id]["capabilities"] = sorted(set(map(str, capabilities)))
-            self._atomic(self.trust_path, self._trusted); return self._trusted[device_id]
+            record = {**self._trusted[device_id], 'capabilities': sorted(set(map(str, capabilities)))}
+            trusted = {**self._trusted, device_id: record}
+            self._atomic(self.trust_path, trusted)
+            self._trusted = trusted
+            return dict(record)
 
     def set_capability_manifest(self, device_id, manifest):
         """Persist non-authoritative capability metadata reported by a companion.

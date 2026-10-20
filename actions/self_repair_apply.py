@@ -91,7 +91,11 @@ def _apply_repair(parameters: dict) -> str:
         for key in ("problem", "root_cause", "confidence", "risk", "operations"):
             if key in plan:
                 params[key] = plan[key]
-    recover_incomplete_transactions()
+    try:
+        recover_incomplete_transactions()
+    except (RepairPolicyError, OSError, UnicodeError) as exc:
+        return _result('Repair blocked: an earlier transaction could not be recovered. Inspect its snapshot and audit log before starting another repair.',
+                       failure_stage='recover_previous_transaction', error_type=type(exc).__name__)
     try:
         attempt = int(params.get("attempt", 1))
     except (TypeError, ValueError):

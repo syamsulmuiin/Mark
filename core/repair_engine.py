@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -46,9 +47,11 @@ PROTECTED_EXACT = {
     "core/llm_proposal_handoff.py",
     "core/undo.py",
     "config/api_keys.json",
+    "requirements.txt",
+    "setup.py",
 }
 PROTECTED_PREFIXES = (
-    ".git/", "config/certs/", "storage/self_repair/", ".github/workflows/",
+    ".git/", "config/", "devices/", "runtime/", "storage/", ".github/workflows/",
 )
 SENSITIVE_RE = re.compile(r"(?i)(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|cookie|authorization)\s*[:=]\s*([^\s,;]+)")
 
@@ -125,7 +128,7 @@ def classify_risk(requested: str, files: Iterable[str], new_texts: Iterable[str]
 
 def enforce_policy(files: list[str], replacement_chars: int, risk: str, high_risk_approval: bool) -> RepairPolicy:
     normalized = [normalize_rel(x) for x in files]
-    if len(set(normalized)) != len(normalized):
+    if len({name.casefold() for name in normalized}) != len(normalized):
         raise RepairPolicyError("duplicate repair file")
     if len(normalized) > MAX_FILES:
         raise RepairPolicyError(f"repair exceeds file budget ({MAX_FILES})")
@@ -170,34 +173,69 @@ def _atomic_json(path: Path, obj: dict) -> None:
         if os.path.exists(tmp): os.unlink(tmp)
 
 
+def _transaction_manifest(txid: str):
+    if not isinstance(txid, str) or not re.fullmatch(r'[0-9]+-[0-9a-f]{10}', txid):
+        raise RepairPolicyError('invalid transaction identifier')
+    root = TX_DIR / txid
+    manifest = root / 'manifest.json'
+    if root.is_symlink() or manifest.is_symlink() or root.resolve().parent != TX_DIR.resolve():
+        raise RepairPolicyError('transaction path is not trusted')
+    obj = json.loads(manifest.read_text(encoding='utf-8'))
+    if not isinstance(obj, dict) or obj.get('id') != txid:
+        raise RepairPolicyError('transaction manifest identity mismatch')
+    return root, obj
+
+
 def set_status(txid: str, status: str, **extra) -> None:
-    path = TX_DIR / txid / "manifest.json"
-    obj = json.loads(path.read_text(encoding="utf-8"))
-    obj["status"] = status; obj.update(extra); obj["updated_at"] = int(time.time())
-    _atomic_json(path, obj)
-    audit("transaction_status", transaction=txid, status=status, **extra)
+    root, obj = _transaction_manifest(txid)
+    obj['status'] = status; obj.update(extra); obj['updated_at'] = int(time.time())
+    _atomic_json(root / 'manifest.json', obj)
+    audit('transaction_status', transaction=txid, status=status, **extra)
 
 
 def rollback(txid: str) -> list[str]:
-    root = TX_DIR / txid
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    root, manifest = _transaction_manifest(txid)
+    files = manifest.get('files')
+    if not isinstance(files, list) or not 1 <= len(files) <= MAX_FILES:
+        raise RepairPolicyError('invalid rollback file list')
+    prepared = []
+    seen = set()
+    # Check every snapshot before restoring any source. A damaged later file
+    # must not cause an otherwise avoidable partial rollback.
+    for item in files:
+        if not isinstance(item, dict):
+            raise RepairPolicyError('invalid rollback file entry')
+        rel = normalize_rel(item.get('path', ''))
+        if is_protected(rel) or rel.casefold() in seen:
+            raise RepairPolicyError('rollback target is protected or duplicated')
+        seen.add(rel.casefold())
+        snapshot = root / 'snapshot' / rel
+        current = root
+        for part in snapshot.relative_to(root).parts:
+            current = current / part
+            if current.is_symlink():
+                raise RepairPolicyError('symlink rollback snapshots are not allowed')
+        text = snapshot.read_text(encoding='utf-8')
+        if sha256_text(text) != item.get('sha256'):
+            raise RepairPolicyError('rollback snapshot integrity check failed')
+        prepared.append((rel, text))
     restored = []
-    for item in manifest["files"]:
-        rel = normalize_rel(item["path"])
-        snapshot = root / "snapshot" / rel
-        text = snapshot.read_text(encoding="utf-8")
+    for rel, text in prepared:
         _atomic_write(BASE_DIR / rel, text)
         restored.append(rel)
-    set_status(txid, "ROLLED_BACK", restored=restored)
+    set_status(txid, 'ROLLED_BACK', restored=restored)
     return restored
 
 
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.repair-", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text); fh.flush(); os.fsync(fh.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)
@@ -375,6 +413,7 @@ def recover_incomplete_transactions() -> list[str]:
     Called before a new repair. It never touches accepted transactions.
     """
     recovered = []
+    failed = False
     if not TX_DIR.exists():
         return recovered
     for manifest_path in sorted(TX_DIR.glob("*/manifest.json")):
@@ -383,7 +422,8 @@ def recover_incomplete_transactions() -> list[str]:
             status = obj.get("status")
             if status not in {"PREPARED", "CANDIDATE_WRITTEN"}:
                 continue
-            txid = str(obj.get("id") or manifest_path.parent.name)
+            txid = manifest_path.parent.name
+            _, obj = _transaction_manifest(txid)
             if status == "PREPARED":
                 # No production write has started: do not overwrite unrelated edits.
                 set_status(txid, "ROLLED_BACK", restored=[])
@@ -392,7 +432,10 @@ def recover_incomplete_transactions() -> list[str]:
             recovered.append(txid)
             audit("transaction_recovered_after_interruption", transaction=txid)
         except Exception as exc:
-            audit("transaction_recovery_failed", transaction=manifest_path.parent.name, error=repr(exc))
+            failed = True
+            audit("transaction_recovery_failed", transaction=manifest_path.parent.name, error_type=type(exc).__name__)
+    if failed:
+        raise RepairPolicyError('Incomplete transaction recovery failed; inspect snapshots before starting another repair')
     return recovered
 
 def record_knowledge(kind: str, payload: dict) -> Path:

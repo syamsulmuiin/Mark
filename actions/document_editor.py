@@ -95,6 +95,14 @@ def document_editor(parameters, player=None):
                 'or create a replacement document. Inspect the exact source again and correct the returned '
                 'version, target, boundary or replacement validation error before a new revision. '
                 'If the error cannot be corrected, explain the specific failure once and stop; do not repeat progress promises.')
+        if action in {'revise', 'append_section'}:
+            corrections = {
+                'ambiguous_target': 'Provide exactly one nonempty section_heading OR target_text, never both and never neither.',
+                'invalid_subheading_level': 'Use inspect heading_level (Word 1..9). Keep the selected heading out of replacement_blocks; child heading levels must be greater. Body blocks must use type=paragraph without level.',
+                'no_text_change': 'The replacement matches the current selected text. No revised file was created. Apply the requested actual content changes, or explain once that the current text already matches; do not resend the old file as a new revision.',
+            }
+            if reason in corrections:
+                result['recovery']['correction'] = corrections[reason]
         if action == 'create':
             result['recovery'] = {'operation': 'propose_general_creation',
                 'tools': ['code_helper', 'dev_agent'], 'executed': False}
@@ -116,11 +124,11 @@ TOOL = {
         'title': {'type': 'STRING', 'description': 'Required document title for create; infer a concise title from the user topic.'},
         'file_path': {'type': 'STRING', 'description': 'Exact existing source path from a tool result; never invent updated_paper.docx.'},
         'source_sha256': {'type': 'STRING', 'description': 'Exact source version hash returned by inspect/list; required for revise.'},
-        'target_text': {'type': 'STRING', 'description': 'Exact full text of one unique paragraph; alternative to section_heading.'},
-        'section_heading': {'type': 'STRING', 'description': 'Exact unique heading whose body should change; heading is preserved.'},
+        'target_text': {'type': 'STRING', 'description': 'Choose this OR section_heading, never both. Exact full text of one unique paragraph.'},
+        'section_heading': {'type': 'STRING', 'description': 'Choose this OR target_text, never both. Exact unique heading whose body should change; heading is preserved. Inspect heading_level uses Word levels 1..9.'},
         'end_heading': {'type': 'STRING', 'description': 'Exact next section boundary, required if heading styles do not encode a level.'},
         'replacement_text': {'type': 'STRING', 'description': 'Replacement paragraphs separated by real newlines, never escaped backslash-n. Prefer replacement_blocks.'},
-        'replacement_blocks': {'type': 'ARRAY', 'description': 'Preferred structured replacement: separate heading and body blocks. Do not combine with replacement_text.', 'items': {'type': 'OBJECT', 'properties': {'type': {'type': 'STRING', 'enum': ['heading', 'paragraph']}, 'text': {'type': 'STRING'}, 'level': {'type': 'INTEGER', 'description': 'Heading only: 1 to 9; subheadings below preserved heading'}}, 'required': ['type', 'text']}},
+        'replacement_blocks': {'type': 'ARRAY', 'description': 'Preferred structured replacement: separate heading and body blocks. Do not combine with replacement_text.', 'items': {'type': 'OBJECT', 'properties': {'type': {'type': 'STRING', 'enum': ['heading', 'paragraph']}, 'text': {'type': 'STRING'}, 'level': {'type': 'INTEGER', 'description': 'Heading only: Word 1 to 9, strictly greater than the preserved section heading_level returned by inspect; omit level for paragraphs'}}, 'required': ['type', 'text']}},
         'instruction': {'type': 'STRING', 'description': 'For create: complete user request/topic, requirements and supplied sources. For revise: requested changes to selected text only.'},
         'output_name': {'type': 'STRING', 'description': 'Optional .docx display filename; a unique revision suffix is always added.'},
     }, 'required': ['action']},

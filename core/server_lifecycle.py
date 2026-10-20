@@ -215,6 +215,11 @@ def _pair_device(pairing_id: str | None = None):
 
 def _stop_server():
     import signal, time as _time
+    from core.autonomy_engine import emergency_break
+    result=emergency_break(BASE_DIR)
+    if result.get("status") != "idle":
+        print("Refusing server stop until the tracked agent worker can be stopped safely.")
+        return
     pidfile, _ = _runtime_paths()
     pid = _server_pid()
     if not pid:
@@ -250,6 +255,10 @@ def _stop_server():
 
 def _restart_server():
     """Never launch a replacement while the previous worker is still alive."""
+    from core.autonomy_engine import emergency_break
+    if emergency_break(BASE_DIR).get("status") != "idle":
+        print("Restart aborted: tracked agent worker could not be stopped safely.")
+        return None
     pid = _server_pid()
     if pid:
         _stop_server()

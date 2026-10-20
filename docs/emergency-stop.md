@@ -10,6 +10,9 @@ python main.py --break
 child processes. The Mark server, companion connections and autostart service
 remain alive. `python main.py --stop` stops the server; `--restart` restarts it.
 The emergency CLI runs before importing model, audio or UI dependencies.
+Server stop/restart first stops the tracked agent worker to avoid leaving it
+orphaned. Unexpected parent death and detached subprocesses require additional
+OS containment; this module is not a Windows Job Object or container runtime.
 
 Run the command under the server account with access to the checkout and process
 state. This works without a terminal attached to the running service, including

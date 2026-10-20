@@ -178,3 +178,11 @@ def test_interrupted_goal_cannot_resume_its_active_step_automatically(tmp_path):
     coordinator=AutonomousCoordinator(store,WorldState(tmp_path),CapabilityRegistry(),
         lambda *a:called.append(1),state_verifier,observer=lambda *a:called.append(2))
     assert coordinator.advance(goal['goal_id'])['status']=='INTERRUPTED' and called==[]
+
+
+def test_restart_refuses_to_orphan_an_unconfirmed_agent_worker(monkeypatch):
+    from core import server_lifecycle, autonomy_engine
+    monkeypatch.setattr(autonomy_engine,'emergency_break',lambda *a:{'status':'FAILED'})
+    monkeypatch.setattr(server_lifecycle,'_server_pid',lambda:None)
+    monkeypatch.setattr(server_lifecycle,'_spawn_server',lambda:pytest.fail('replacement must not launch'))
+    assert server_lifecycle._restart_server() is None

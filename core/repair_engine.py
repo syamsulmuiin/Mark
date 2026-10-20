@@ -320,6 +320,10 @@ def _run_validators(root: Path, changed_files: list[str], timeout: int) -> tuple
                 result = {"command": " ".join(cmd), "returncode": proc.returncode, "duration_ms": int((time.monotonic()-started)*1000), "output": redact((proc.stdout + proc.stderr)[-4000:])}
             except subprocess.TimeoutExpired:
                 result = {"command": " ".join(cmd), "returncode": -1, "duration_ms": int((time.monotonic()-started)*1000), "output": "validation timeout"}
+            except OSError as exc:
+                result = {"command": " ".join(cmd), "returncode": -1,
+                    "duration_ms": int((time.monotonic()-started)*1000), "error_type": type(exc).__name__,
+                    "stage": "validator_launch", "output": "Validator could not start; inspect interpreter access and OS resources."}
             results.append(result); audit("validation", files=changed_files, root=str(root), **result)
             if result["returncode"] != 0:
                 return False, results
@@ -341,12 +345,22 @@ def _validation_copy_ignored(directory, names):
 
 def validate_sandbox(candidates: dict[str, str], timeout: int = VALIDATION_TIMEOUT) -> tuple[bool, list[dict]]:
     """Validate in a filtered temporary copy; this is not OS-level isolation."""
-    with tempfile.TemporaryDirectory(prefix="mark-repair-sandbox-") as td:
-        root = Path(td) / "repo"
-        shutil.copytree(BASE_DIR, root, ignore=_validation_copy_ignored)
-        for rel, text in candidates.items():
-            target = root / normalize_rel(rel); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(text, encoding="utf-8")
-        return _run_validators(root, list(candidates), timeout)
+    stage = 'prepare_copy'
+    try:
+        with tempfile.TemporaryDirectory(prefix="mark-repair-sandbox-") as td:
+            root = Path(td) / "repo"
+            stage = 'copy_source'
+            shutil.copytree(BASE_DIR, root, ignore=_validation_copy_ignored)
+            stage = 'write_candidates'
+            for rel, text in candidates.items():
+                target = root / normalize_rel(rel); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(text, encoding="utf-8")
+            stage = 'run_validators'
+            return _run_validators(root, list(candidates), timeout)
+    except (OSError, UnicodeError, RepairPolicyError) as exc:
+        return False, [{"command": "candidate validation", "returncode": -1,
+            "stage": stage, "error_type": type(exc).__name__,
+            "output": "Candidate validation could not complete; production source was not written."}]
+
 
 
 def validate_repository(changed_files: list[str], timeout: int = VALIDATION_TIMEOUT) -> tuple[bool, list[dict]]:

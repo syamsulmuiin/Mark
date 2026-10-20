@@ -143,11 +143,20 @@ def _apply_repair(parameters: dict) -> str:
         return _result(f"Repair rejected by Repair Guard: {exc}")
 
     validation_plan = ["candidate syntax/XML validation", "sandbox import/compile/full tests", "post-write import/compile/full tests"]
-    txid = begin_transaction(str(params.get("problem", "diagnostic repair")), risk, originals, validation_plan)
+    try:
+        txid = begin_transaction(str(params.get("problem", "diagnostic repair")), risk, originals, validation_plan)
+    except (OSError, UnicodeError) as exc:
+        return _result("Repair snapshot could not be prepared; production source was not modified.",
+                       source_modified=False, failure_stage="prepare_snapshot", error_type=type(exc).__name__)
     candidates = dict(prepared)
     sandbox_ok, sandbox_results = validate_sandbox(candidates)
     if not sandbox_ok:
-        set_status(txid, "REJECTED_SANDBOX", validation=sandbox_results)
+        try:
+            set_status(txid, "REJECTED_SANDBOX", validation=sandbox_results)
+        except (OSError, UnicodeError) as exc:
+            return _result("Repair validation failed and its status could not be persisted; inspect the transaction snapshot. Production source was not modified.",
+                transaction_id=txid, source_modified=False, failure_stage="persist_validation_failure",
+                error_type=type(exc).__name__, validation=sandbox_results)
         _record_failure({"problem": str(params.get("problem", "")), "hypothesis": str(params.get("root_cause", "")), "files_changed": [], "test_result": sandbox_results, "failure_reason": "sandbox validation failed before production write", "rollback": [], "confidence": "EXPERIMENTAL", "validation_status": "failed"})
         return _result(f"Repair candidate failed sandbox validation; production files were not modified. Transaction: {txid}.", transaction_id=txid, validation=sandbox_results, source_modified=False)
     for rel, original in originals.items():

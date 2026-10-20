@@ -119,6 +119,27 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
         else:
             chunks.append("No relevant interaction events returned from the bounded scan; see file availability above.")
 
+    # Inspection is not delivery. Expose only existing fixed log sources so
+    # the model can continue an explicit file request without inventing paths.
+    sources = []
+    names = (["error.log"] if scope == "error" else
+             ["interaction.log"] if scope == "interaction" else
+             ["error.log", "interaction.log"])
+    for name in names:
+        path = RUNTIME_DIR / name
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            sources.append({"source": str(path.resolve()), "destination_name": name})
+        except OSError:
+            continue
+    chunks.append("Log attachment sources (JSON):\n" + json.dumps(sources) + "\n"
+                  "Reading diagnostics has not sent any file. If the user requested log files, "
+                  "call send_server_file once per requested source above, with destination_device=current "
+                  "and save_direct=false. Use these actual files, not copied diagnostic text or a renamed script. "
+                  "Do not claim delivery until the transfer result confirms it. Raw log attachments are "
+                  "not the redacted diagnostic excerpt. Existing file authorization still applies.")
+
     chunks.append("Error logs contain failures/warnings, not normal chat. An empty error log does not prove absence of failures. "
                   "Interaction entries are event metadata, not a full conversation transcript. "
                   "Interaction reads scan at most 2 MiB from the tail; older events may be outside this window.")
@@ -140,7 +161,9 @@ TOOL = {
         "and runtime/interaction.log locations. Use this when the user asks to inspect server errors, "
         "warnings, crashes, reconnect failures, conversation activity, model usage, missing logs, or why Mark failed. "
         "Call this tool before claiming logs are absent or empty. This action is read-only and cannot "
-        "read arbitrary server files, credentials, configuration secrets, or companion-local logs."
+        "read arbitrary server files, credentials, configuration secrets, or companion-local logs. "
+        "Inspection does not send files. For an explicit request to send logs, use the returned "
+        "Log attachment sources with send_server_file to destination_device=current, save_direct=false."
     ),
     "parameters": {
         "type": "OBJECT",

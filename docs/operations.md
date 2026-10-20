@@ -49,6 +49,8 @@ A detached helper schedules restart after ten seconds. Scheduled/restarting mean
 
 Interaction logs do not contain transcript text or audio. A quiet error log is normal during successful operation and does not prove that no failures occurred.
 
+To request attachments, say “Send the server error and interaction logs to this device.” Diagnostic inspection alone does not deliver files. The diagnostic report lists existing fixed log sources; Mark must then call `send_server_file` for each requested log, using the current companion Inbox by default. Raw attachments differ from the redacted diagnostic excerpt. Missing files must be reported rather than replaced with generated text or renamed scripts.
+
 Ask voice Mark to inspect runtime logs. `runtime_diagnostics` reads fixed server paths, redacts credentials, distinguishes missing/empty/unreadable files, and scans at most 2 MiB of interaction history while filtering audio noise. Older events can fall outside that window. Typed chat does not execute this tool.
 
 Interaction writers report storage failures to stderr, rate-limited per path. If both logging destinations are unwritable, persistence cannot be guaranteed. Check permissions and disk space.

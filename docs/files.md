@@ -61,3 +61,29 @@ recovery, rather than removing bytes still referenced by committed metadata.
 These guarantees do not make the object index and attachment inbox a single
 cross-file transaction. Object lookups accept only canonical SHA-256 identifiers
 and do not follow object symlinks.
+
+## Content checks
+
+DOCX inspection includes a bounded `quality` report. Supported content readback
+formats are DOCX, UTF-8 TXT and Markdown. Checks cover required headings/text,
+text required within a named section, forbidden text, word-count minima,
+bibliography placement, empty sections, duplicated headings, merged numbered
+subheadings and obvious escaped-newline defects. DOCX heading inheritance is
+resolved, and finding indices match the actual body-paragraph indices used by
+inspection. Findings report codes and positions rather than copying document
+content into diagnostic logs.
+
+A `document_content` host probe can use these conditions independently of the
+creation tool. Omit `path` to use the host-returned artifact reference for that
+step; final checks can name its `step_id`. Thus generated files do not require a
+model-invented path or a new format-specific creation tool.
+
+```json
+{"section":"report_content","equals":true,"probe":{"type":"document_content","field":"checks_passed","criteria":{"required_headings":["Conclusion"],"section_required_text":{"Conclusion":["observed results"]},"require_bibliography":true,"min_words":500}}}
+```
+
+Passing verifies only the listed structural/content conditions. The report keeps
+`semantic_accuracy_verified`, `citations_verified` and `layout_rendered` false.
+It does not establish factual accuracy, source authenticity, academic quality or
+visual layout. Other formats/unsupported criteria need separate adapters and
+remain unverified. Quality inspection never rewrites an existing document.

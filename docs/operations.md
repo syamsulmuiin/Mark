@@ -157,3 +157,30 @@ capture this scope; promotion records validation time. Old records are retained
 and remain inspectable, but require revalidation in the current scope before
 automatic reuse. This policy applies to procedural knowledge used in capability
 evolution, not the user's language preferences or general conversation history.
+
+## Declared requirement coverage
+
+Goals may declare `requirements` as objects with an `id` and `description`.
+Every declared requirement must have at least one final `completion_checks`
+entry naming its `requirement_id`; unknown or uncovered identifiers are rejected
+before execution. Rule validation rejects multiple operators, unsupported fields
+and invalid boolean operators instead of silently ignoring part of a condition.
+Coverage is checked again at finalization. It verifies the declared contract,
+not whether model-authored requirements exhaust the user's natural-language
+request; `semantic_completeness_verified` remains false.
+
+## Physical-device acceptance checks
+
+These checks require a connected operator-owned Android/desktop device. Automated
+protocol tests do not substitute for them.
+
+| Scenario | Expected result | Evidence to retain |
+| --- | --- | --- |
+| Disconnect during approval | Reconnect does not execute from a stale approval reply | Request ID, approval decision and execution events |
+| Restart after an action starts | Inspect/reconcile before any repeat; uncertain outcomes stay blocked | One execution event and subsequent readback |
+| Create, revise and receive a document | Original stays intact; only selected content changes; returned revision reaches the origin Inbox | Source/revision SHA-256, attachment ID and device-open result |
+| Repeat a final-result/status event | No duplicate action, approval popup or unchanged final speech | Interaction log and observed companion behavior |
+| Inspect foreground/UI | Readback comes from the exact paired device with its existing grant | Call ID, capability result and device identity |
+
+Retain the actual new logs and record the device/OS and server commit when
+reporting results. A test without device access is pending, never passed.

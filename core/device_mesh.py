@@ -5,7 +5,7 @@ from conversational memory. Pairing proves possession of a peer private key;
 permissions are explicit capabilities and are never implied by trust alone.
 """
 from __future__ import annotations
-import base64, hashlib, hmac, json, os, secrets, socket, threading, time, uuid
+import copy, base64, hashlib, hmac, json, os, secrets, socket, threading, time, uuid
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
@@ -40,6 +40,8 @@ class DeviceMesh:
         try:
             with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as stream:
                 json.dump(data, stream, indent=2, sort_keys=True)
+                stream.flush()
+                os.fsync(stream.fileno())
             os.replace(tmp, path)
         finally:
             tmp.unlink(missing_ok=True)
@@ -228,8 +230,9 @@ class DeviceMesh:
                     name=str(name).strip()
                     if not name or name not in self._trusted[device_id].get("capabilities",[]):continue
                     clean[name]=dict(meta) if isinstance(meta,dict) else {}
-            self._trusted[device_id]["capability_manifest"]=clean
-            self._atomic(self.trust_path,self._trusted);return clean
+            record = {**self._trusted[device_id], "capability_manifest": clean}
+            self._commit_record(device_id, record)
+            return clean
 
     def record_capability_result(self, device_id, capability, success, latency_ms=0, error="", *, verified=None):
         """Record execution health separately from post-condition verification.
@@ -239,7 +242,7 @@ class DeviceMesh:
         failure. Verification coverage is tracked independently.
         """
         with self._lock:
-            rec=self._trusted.get(device_id)
+            rec=copy.deepcopy(self._trusted.get(device_id))
             if not rec:return None
             health=rec.setdefault("capability_health",{}).setdefault(str(capability),{
                 "success_count":0,"failure_count":0,"verified_count":0,"unverified_count":0,
@@ -255,14 +258,24 @@ class DeviceMesh:
             elif success:health["last_error"]=""
             if int(health.get("failure_count",0))>=3 and int(health.get("failure_count",0))>int(health.get("success_count",0)):health["health"]="degraded"
             if success and health.get("health")=="degraded" and int(health.get("success_count",0))>=int(health.get("failure_count",0)):health["health"]="healthy"
-            self._atomic(self.trust_path,self._trusted);return dict(health)
+            self._commit_record(device_id, rec)
+            return dict(health)
+
+    def _commit_record(self, device_id, record):
+        """Called under the mesh lock; publish only after persistence succeeds."""
+        trusted = {**self._trusted, device_id: record}
+        self._atomic(self.trust_path, trusted)
+        self._trusted = trusted
 
     def revoke(self, device_id):
         with self._lock:
             if device_id in self._trusted:
-                self._trusted[device_id]["revoked"] = True; self._atomic(self.trust_path, self._trusted); return True
+                record = {**self._trusted[device_id], "revoked": True}
+                self._commit_record(device_id, record)
+                return True
         return False
     def touch(self, device_id):
         with self._lock:
             if device_id in self._trusted:
-                self._trusted[device_id]["last_seen"] = int(time.time()); self._atomic(self.trust_path, self._trusted)
+                record = {**self._trusted[device_id], "last_seen": int(time.time())}
+                self._commit_record(device_id, record)

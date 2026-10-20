@@ -61,3 +61,55 @@ class WorldState:
     def set_expected(self,section,value):
         self.data.setdefault("expected",{})[section]=value; self.data["updated_at"]=now(); _atomic(self.path,self.data); return self.data
     def observed(self,section,default=None): return (self.data.get("observed",{}).get(section) or {}).get("value",default)
+
+
+class AgentRuntimeState:
+    """Owner-only worker PID metadata, separate from durable goal evidence."""
+    def __init__(self, base_dir=None):
+        self.base = Path(base_dir or ROOT)
+        self.path = self.base/'runtime'/'agent_process.json'
+        self.lock_path = self.path.with_suffix('.lock')
+
+    def locked(self):
+        from contextlib import contextmanager
+        @contextmanager
+        def lock():
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            with os.fdopen(fd, 'r+b') as stream:
+                if os.name == 'nt':
+                    import msvcrt
+                    if stream.seek(0, 2) == 0:stream.write(b'0');stream.flush()
+                    stream.seek(0);msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                try:yield
+                finally:
+                    if os.name == 'nt':
+                        stream.seek(0);msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        return lock()
+
+    def read(self):
+        return _read(self.path, {'status':'idle','pid':None})
+
+    def write(self, data):
+        _atomic(self.path, {**data, 'updated_at':now()})
+
+    def finish(self, run_id, reason='completed'):
+        with self.locked():
+            data = self.read()
+            if data.get('run_id') != run_id or data.get('status') == 'idle':return
+            data.update(status='idle', pid=None, reason=reason)
+            self.write(data)
+
+    def interrupt_goal(self, data):
+        gid = data.get('goal_id')
+        if not gid:return
+        store = GoalStore(self.base/'storage'/'autonomy')
+        goal = store.load(gid)
+        if goal and goal.get('status') not in {'GOAL_ACHIEVED','INTERRUPTED'}:
+            goal['status']='INTERRUPTED'
+            goal.setdefault('failures',[]).append({'reason':'emergency_stop','run_id':data.get('run_id')})
+            store.save(goal)

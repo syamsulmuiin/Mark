@@ -7,7 +7,7 @@ from core.host_observations import artifact_reference
 
 _ADVANCE_LOCK = threading.RLock()
 RANK={"LOW":0,"MEDIUM":1,"HIGH":2}
-TERMINAL={"GOAL_ACHIEVED","SAFETY_LIMIT_REACHED","HUMAN_APPROVAL_REQUIRED","NO_SAFE_PROGRESS_POSSIBLE","FAILED"}
+TERMINAL={"INTERRUPTED","GOAL_ACHIEVED","SAFETY_LIMIT_REACHED","HUMAN_APPROVAL_REQUIRED","NO_SAFE_PROGRESS_POSSIBLE","FAILED"}
 @dataclass
 class Budget:
     maximum_actions:int=20; maximum_repair_attempts:int=3; maximum_external_calls:int=10; maximum_changed_files:int=10; maximum_risk_level:str="MEDIUM"
@@ -115,6 +115,7 @@ class AutonomousCoordinator:
             return self.store.save(g)
         g=self.store.reconcile(gid) or g
         if not g:return {"status":"FAILED","reason":"goal_not_found"}
+        if g.get("status") == "INTERRUPTED":return g
         if g.get("active_step"):
             return self._recover_step(g)
         if g.get("status")=="RECONCILING":
@@ -225,3 +226,148 @@ class AutonomousCoordinator:
 def state_verifier(step,result,world,goal):
     from core.verification_engine import verify_step
     return verify_step(step,result,world,goal)
+
+
+# The service owns this supervisor; reasoning/execution lives in its child.
+def _owned_worker(data):
+    import os
+    import math
+    import psutil
+    pid = data.get('pid')
+    if type(pid) is not int or pid <= 1 or pid in {os.getpid(), data.get('owner_pid')}:
+        return None
+    try:
+        process = psutil.Process(pid)
+        created=float(data['create_time'])
+        if not math.isfinite(created) or abs(process.create_time()-created) > .01:return None
+        command = process.cmdline()
+        if ('core.agent_worker' not in command or '--run-id' not in command
+                or command[command.index('--run-id')+1] != data['run_id']):return None
+        return process
+    except (psutil.Error, KeyError, ValueError, IndexError, TypeError):
+        return None
+
+
+def emergency_break(base_dir=None):
+    """Kill only the identity-checked worker, never the server/companion PID."""
+    import os
+    import signal
+    import psutil
+    from core.autonomy_state import AgentRuntimeState
+    state = AgentRuntimeState(base_dir)
+    with state.locked():
+        data = state.read()
+        if data.get('status') == 'idle':return {'status':'idle','stopped':False,'reason':'no_agent_worker'}
+        if data.get('status') != 'running' or type(data.get('pid')) is not int or data['pid'] <= 1:
+            return {'status':'FAILED','stopped':False,'reason':'invalid_worker_metadata'}
+        process = _owned_worker(data)
+        if process is None:
+            if data.get('pid') and psutil.pid_exists(data['pid']):
+                return {'status':'FAILED','stopped':False,'reason':'worker_identity_mismatch'}
+        else:
+            # Kill immediately; graceful cancellation is not an emergency stop.
+            try:
+                descendants = process.children(recursive=True)
+                if os.name != 'nt' and os.getpgid(process.pid) == process.pid:
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:process.kill()
+                for child in reversed(descendants):
+                    try:child.kill()
+                    except psutil.NoSuchProcess:pass
+                try:process.wait(timeout=1)
+                except psutil.TimeoutExpired:
+                    if process.is_running() and process.status() != psutil.STATUS_ZOMBIE:raise
+            except psutil.NoSuchProcess:pass
+            except (psutil.Error, OSError):
+                return {'status':'FAILED','stopped':False,'reason':'worker_kill_not_confirmed'}
+        # Never erase STARTED steps: remote side effects may already have occurred.
+        goal_error = ''
+        try:state.interrupt_goal(data)
+        except Exception as exc:goal_error=type(exc).__name__
+        data.update(status='idle', pid=None, reason='emergency_stop', recovery_error=goal_error)
+        state.write(data)
+        return {'status':'idle','stopped':process is not None,'reason':'emergency_stop',
+                'goal_recovery_error':goal_error}
+
+
+class AgentProcessManager:
+    """One supervised worker per server root; no automatic restart after stop."""
+    def __init__(self, base_dir=None):
+        from core.autonomy_state import AgentRuntimeState
+        self.state = AgentRuntimeState(base_dir)
+
+    @property
+    def pid(self):
+        return self.state.read().get('pid')
+
+    def stop(self):
+        return emergency_break(self.state.base)
+
+    def run(self, entrypoint, payload, *, device_rpc=None, goal_id=''):
+        import json
+        import os
+        import subprocess
+        import sys
+        import uuid
+        import psutil
+        run_id = uuid.uuid4().hex
+        process = None
+        with self.state.locked():
+            current = self.state.read()
+            if current.get('status') == 'running':
+                if _owned_worker(current) is not None:
+                    return {'status':'WAITING','reason':'agent_worker_busy','verified':False}
+                if current.get('pid') and psutil.pid_exists(current['pid']):
+                    return {'status':'FAILED','reason':'worker_identity_mismatch','verified':False}
+            flags = {'start_new_session':True} if os.name != 'nt' else {
+                'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+            log_path = self.state.path.parent/'agent_worker.log'
+            with os.fdopen(os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), 'ab') as log:
+                process = subprocess.Popen([sys.executable,'-m','core.agent_worker','--run-id',run_id],
+                    cwd=self.state.base, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log,
+                    text=True, encoding='utf-8', bufsize=1, **flags)
+            try:
+                created = psutil.Process(process.pid).create_time()
+            except psutil.Error:
+                process.kill();process.wait(timeout=3)
+                process.stdin.close();process.stdout.close()
+                return {'status':'FAILED','reason':'worker_identity_unavailable','verified':False}
+            data = {'status':'running','pid':process.pid,'create_time':created,
+                    'owner_pid':os.getpid(),'run_id':run_id,'goal_id':goal_id}
+            try:self.state.write(data)
+            except Exception:
+                process.kill();process.wait(timeout=3);raise
+        reason = 'worker_exited'
+        try:
+            process.stdin.write(json.dumps({'entrypoint':entrypoint,'payload':payload})+'\n');process.stdin.flush()
+            while True:
+                line = process.stdout.readline(8*1024*1024+1)
+                if not line:break
+                if len(line)>8*1024*1024:raise ValueError('worker_message_limit')
+                message = json.loads(line)
+                if message.get('type') == 'device_call':
+                    if device_rpc is None:reply={'status':'FAILED','reason':'device_bridge_unavailable'}
+                    else:
+                        reply=device_rpc(message['capability'],message.get('args') or {},message.get('goal') or {})
+                    if process.poll() is None:
+                        process.stdin.write(json.dumps({'result':reply})+'\n');process.stdin.flush()
+                elif message.get('type') == 'result':
+                    reason='completed'
+                    return message['result']
+                elif message.get('type') == 'error':
+                    reason='worker_failed'
+                    return {'status':'FAILED','reason':'agent_worker_failed','error_type':message.get('error_type'),'verified':False}
+            return {'status':'CANCELLED','reason':'agent_worker_interrupted','verified':False}
+        except (OSError, ValueError):
+            return {'status':'CANCELLED','reason':'agent_worker_interrupted','verified':False}
+        finally:
+            if process.poll() is None:
+                try:process.wait(timeout=1)
+                except subprocess.TimeoutExpired:self.stop()
+            # EOF/crash keeps goal evidence and stops accidental replay.
+            if reason != 'completed':
+                try:self.state.interrupt_goal(data)
+                except Exception:pass
+            if process.poll() is not None:
+                self.state.finish(run_id, reason)
+            process.stdin.close();process.stdout.close()

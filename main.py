@@ -42,6 +42,14 @@ for _stream in ("stdout", "stderr"):
     except Exception:
         pass          # pythonw / redirected pipes / anything exotic — never fatal
 
+# The emergency CLI must work without importing model/audio/UI dependencies.
+if __name__ == '__main__' and _sys.argv[1:] == ['--break']:
+    import json as _break_json
+    from core.autonomy_engine import emergency_break as _emergency_break
+    _break_result = _emergency_break()
+    print(_break_json.dumps(_break_result))
+    raise SystemExit(0 if _break_result.get('status') == 'idle' else 1)
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 import asyncio
@@ -3066,6 +3074,7 @@ class JarvisLive:
                 device_executor=_autonomy_device_executor,
                 server_executor=_autonomy_server_executor,
             )
+            _autonomous_goal.start_emergency_monitor()
             self._dashboard.assert_port_available()
             self._dashboard_task = asyncio.create_task(self._dashboard.serve())
             # Give the task a bounded startup window. If it returns/raises before
@@ -3501,6 +3510,9 @@ def main(argv=None):
         value = save_response_language(mode.split(":", 1)[1])["response_language"]
         print(f"Response language saved: {value}. Run python main.py --restart to apply to Live.")
         return
+    if mode=="break":
+        from core.autonomy_engine import emergency_break
+        print(json.dumps(emergency_break())); return
     if mode=="start": _spawn_server(); return
     if mode=="restart": _restart_server(); return
     if mode=="stop": _stop_server(); return
@@ -3520,6 +3532,8 @@ def main(argv=None):
     pidfile,_=_runtime_paths(); pidfile.write_text(str(os.getpid()),encoding="utf-8")
     try: asyncio.run(jarvis.run())
     finally:
+        from actions import autonomous_goal as _goal_runtime
+        _goal_runtime.close_runtime()
         try:
             if pidfile.exists() and pidfile.read_text().strip()==str(os.getpid()): pidfile.unlink()
         except Exception: pass

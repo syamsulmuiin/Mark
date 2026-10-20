@@ -10,7 +10,7 @@ assistant while another window has focus.
 
 How it works, and what it costs
 -------------------------------
-Zero new dependencies, best available mechanism per platform:
+Push-to-talk uses no extra dependencies, with the best available mechanism per platform:
 
 * **Windows** — `GetAsyncKeyState` polled from one small thread. This is
   deliberately *not* `RegisterHotKey`, which only reports a press: push-to-talk
@@ -23,7 +23,10 @@ Zero new dependencies, best available mechanism per platform:
   window has focus. `scope` reports which of the two you got, so the UI can say
   so honestly rather than pretending.
 
-The class never raises. If the platform hook cannot be installed it simply
+EmergencyHotkey below is separate: it uses pynput for a true global emergency
+chord and never falls back to a window shortcut.
+
+The PushToTalk class never raises. If the platform hook cannot be installed it simply
 reports `scope == "window"` and the Qt shortcut carries it.
 """
 
@@ -171,3 +174,56 @@ class PushToTalk:
 
         self._set_held(False)
         self._scope = "window"
+
+
+class EmergencyHotkey:
+    """Global hook independent of the reasoning worker; never a Qt shortcut.
+
+    Requires OS access to the interactive input session. Headless/session-zero
+    failures are reported explicitly; the out-of-process --break CLI still works.
+    """
+    def __init__(self, on_break, chord='<ctrl>+<alt>+<shift>+<f12>'):
+        self.on_break=on_break
+        self.chord=chord
+        self.listener=None
+        self.last_error=''
+        self._dispatch_lock=threading.Lock()
+
+    @property
+    def active(self):
+        return self.listener is not None and self.listener.is_alive()
+
+    def _activate(self):
+        # Never block the OS input callback while waiting for process exit/I/O.
+        if not self._dispatch_lock.acquire(blocking=False):return
+        def stop_worker():
+            try:self.on_break()
+            except Exception as exc:self.last_error=type(exc).__name__
+            finally:self._dispatch_lock.release()
+        threading.Thread(target=stop_worker,name='agent-emergency-stop',daemon=True).start()
+
+    def start(self):
+        self.stop()
+        try:
+            from pynput.keyboard import GlobalHotKeys
+            self.listener=GlobalHotKeys({self.chord:self._activate})
+            self.listener.start()
+            ready=threading.Event()
+            listener=self.listener
+            def wait_ready():
+                try:listener.wait();ready.set()
+                except Exception:pass
+            threading.Thread(target=wait_ready,name='emergency-hook-ready',daemon=True).start()
+            if not ready.wait(timeout=2):raise RuntimeError('keyboard_hook_startup_timeout')
+            self.last_error=''
+            return self.active
+        except Exception as exc:
+            self.last_error=type(exc).__name__
+            self.stop()
+            return False
+
+    def stop(self):
+        listener,self.listener=self.listener,None
+        if listener is not None:
+            try:listener.stop();listener.join(timeout=1)
+            except (RuntimeError, OSError):pass

@@ -5,7 +5,7 @@ Verification describes the reported step only, never an entire user goal.
 import json
 import re
 
-FAILED = {'FAILED', 'ERROR', 'BLOCKED', 'REJECTED', 'DENIED', 'CANCELLED', 'CANCELED', 'EXPIRED'}
+FAILED = {'INTERRUPTED', 'FAILED', 'ERROR', 'BLOCKED', 'REJECTED', 'DENIED', 'CANCELLED', 'CANCELED', 'EXPIRED'}
 WAITING = {'PENDING', 'QUEUED', 'WAITING', 'RUNNING', 'STARTED', 'ACCEPTED', 'IN_PROGRESS', 'ALREADY_HANDLED'}
 
 

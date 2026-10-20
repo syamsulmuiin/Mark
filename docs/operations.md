@@ -184,3 +184,11 @@ protocol tests do not substitute for them.
 
 Retain the actual new logs and record the device/OS and server commit when
 reporting results. A test without device access is pending, never passed.
+
+## Emergency execution stop
+
+Use `python main.py --break` to force-stop the tracked autonomy worker while
+keeping the server/companions running. Use `--stop` only to stop the server.
+The optional global chord is Ctrl+Alt+Shift+F12 where OS input access is available.
+See [Emergency stop](emergency-stop.md) for PID identity checks, interrupted-goal
+handling, service-session limitations and the scope of the worker integration.

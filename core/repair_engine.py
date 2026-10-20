@@ -36,6 +36,13 @@ VALIDATION_TIMEOUT = 120
 # through the normal repository workflow, but the agent itself cannot.
 PROTECTED_EXACT = {
     "core/repair_engine.py",
+    "core/hotkey.py",
+    "core/agent_worker.py",
+    "core/autonomy_engine.py",
+    "core/autonomy_state.py",
+    "core/server_lifecycle.py",
+    "actions/autonomous_goal.py",
+    "main.py",
     "actions/self_repair_apply.py",
     "actions/self_repair_diagnostic.py",
     "core/action_loader.py",

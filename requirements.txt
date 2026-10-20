@@ -13,6 +13,7 @@ beautifulsoup4>=4.12,<5
 
 # System, files, documents, and server-side integrations
 psutil>=5.9,<8
+pynput>=1.7.6,<2  # optional runtime hook requires access to the user input session
 send2trash
 youtube-transcript-api
 python-pptx

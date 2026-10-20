@@ -19,8 +19,8 @@ def test_path_traversal_and_protected_files_rejected():
 
 
 def test_high_risk_requires_separate_approval():
-    with pytest.raises(r.RepairPolicyError): r.enforce_policy(["main.py"], 10, "high", False)
-    assert r.enforce_policy(["main.py"], 10, "high", True).risk == "high"
+    with pytest.raises(r.RepairPolicyError): r.enforce_policy(["core/example.py"], 10, "high", False)
+    assert r.enforce_policy(["core/example.py"], 10, "high", True).risk == "high"
 
 
 def test_snapshot_and_full_rollback(monkeypatch, tmp_path):
@@ -52,8 +52,8 @@ def test_knowledge_promotion_and_search(monkeypatch, tmp_path):
 
 
 def test_change_budget_and_duplicate_rejected():
-    with pytest.raises(r.RepairPolicyError): r.enforce_policy(["main.py", "main.py"], 2, "low", False)
-    with pytest.raises(r.RepairPolicyError): r.enforce_policy(["main.py"], r.MAX_DIFF_CHARS + 1, "low", False)
+    with pytest.raises(r.RepairPolicyError): r.enforce_policy(["core/example.py", "core/example.py"], 2, "low", False)
+    with pytest.raises(r.RepairPolicyError): r.enforce_policy(["core/example.py"], r.MAX_DIFF_CHARS + 1, "low", False)
 
 
 def test_validation_timeout_is_failure(monkeypatch, tmp_path):
@@ -63,7 +63,7 @@ def test_validation_timeout_is_failure(monkeypatch, tmp_path):
             import subprocess
             raise subprocess.TimeoutExpired(cmd=a[0], timeout=kw.get("timeout", 1))
     monkeypatch.setattr(r.subprocess, "run", TimeoutRun())
-    ok, results = r.validate_repository(["main.py"], timeout=1)
+    ok, results = r.validate_repository(["core/example.py"], timeout=1)
     assert not ok and results[0]["output"] == "validation timeout"
 
 
@@ -93,31 +93,33 @@ def test_human_approval_language_gate():
 
 
 def _apply_params(old="x = 1", new="x = 2"):
-    return {"apply": True, "authorization": "APPLY_DIAGNOSTIC_REPAIR", "confidence": "high", "risk": "low", "problem": "change test value", "attempt": 1, "operations": [{"file":"main.py", "old":old, "new":new}]}
+    return {"apply": True, "authorization": "APPLY_DIAGNOSTIC_REPAIR", "confidence": "high", "risk": "low", "problem": "change test value", "attempt": 1, "operations": [{"file":"core/example.py", "old":old, "new":new}]}
 
 
 def test_apply_success_transaction(monkeypatch, tmp_path):
     import actions.self_repair_apply as a
     _sandbox(monkeypatch, tmp_path); monkeypatch.setattr(a, "BASE_DIR", tmp_path)
-    (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path/"core").mkdir(exist_ok=True)
+    (tmp_path / "core/example.py").write_text("x = 1\n", encoding="utf-8")
     monkeypatch.setattr(a, "recover_incomplete_transactions", lambda: [])
     monkeypatch.setattr(a, "validate_sandbox", lambda candidates: (True, [{"returncode":0}]))
     monkeypatch.setattr(a, "validate_repository", lambda files: (True, [{"returncode":0}]))
     result = a.self_repair_apply(_apply_params())
     assert "accepted" in result.lower()
-    assert (tmp_path / "main.py").read_text() == "x = 2\n"
+    assert (tmp_path / "core/example.py").read_text() == "x = 2\n"
 
 
 def test_post_write_failure_rolls_back_all(monkeypatch, tmp_path):
     import actions.self_repair_apply as a
     _sandbox(monkeypatch, tmp_path); monkeypatch.setattr(a, "BASE_DIR", tmp_path)
-    (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path/"core").mkdir(exist_ok=True)
+    (tmp_path / "core/example.py").write_text("x = 1\n", encoding="utf-8")
     monkeypatch.setattr(a, "recover_incomplete_transactions", lambda: [])
     monkeypatch.setattr(a, "validate_sandbox", lambda candidates: (True, [{"returncode":0}]))
     monkeypatch.setattr(a, "validate_repository", lambda files: (False, [{"returncode":1, "output":"failed"}]))
     result = a.self_repair_apply(_apply_params())
     assert "rolled back" in result.lower()
-    assert (tmp_path / "main.py").read_text() == "x = 1\n"
+    assert (tmp_path / "core/example.py").read_text() == "x = 1\n"
 
 
 def test_attempt_budget_stops_repair(monkeypatch):
@@ -130,14 +132,15 @@ def test_attempt_budget_stops_repair(monkeypatch):
 def test_knowledge_write_failure_rolls_back(monkeypatch, tmp_path):
     import actions.self_repair_apply as a
     _sandbox(monkeypatch, tmp_path); monkeypatch.setattr(a, "BASE_DIR", tmp_path)
-    (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path/"core").mkdir(exist_ok=True)
+    (tmp_path / "core/example.py").write_text("x = 1\n", encoding="utf-8")
     monkeypatch.setattr(a, "recover_incomplete_transactions", lambda: [])
     monkeypatch.setattr(a, "validate_sandbox", lambda candidates: (True, [{"returncode":0}]))
     monkeypatch.setattr(a, "validate_repository", lambda files: (True, [{"returncode":0}]))
     monkeypatch.setattr(a, "record_knowledge", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
     result = a.self_repair_apply(_apply_params())
     assert "rolled back" in result.lower()
-    assert (tmp_path / "main.py").read_text() == "x = 1\n"
+    assert (tmp_path / "core/example.py").read_text() == "x = 1\n"
 
 
 def test_core_helper_repairs_can_apply_but_authority_files_stay_protected(monkeypatch, tmp_path):

@@ -70,11 +70,10 @@ class SeqSynth:
         return {'name':'calc','description':'calc','parameters':{'type':'OBJECT','properties':{}},'code':'def execute(**kwargs):\n    return 2\n','tests':[{'input':{},'expected':2}]}
 
 def test_evolution_uses_verified_agent_memory_context(tmp_path):
-    from core.memory_scope import current_scope
-    environment, commit = current_scope()
+    environment, commit = {'os':'test','python':'test'}, 'fixture-commit'
     mem=AgentMemory(tmp_path/'mem');r=mem.add('failure','calc failed on old candidate','trace',environment=environment,repository_commit=commit);mem.promote(r['id'],'VERIFIED','regression evidence')
     skills=SkillRegistry(tmp_path/'skills');caps=CapabilityRegistry();dyn=DynamicSkillRegistry(tmp_path/'dyn',skills);s=SeqSynth()
-    evo=CapabilityEvolutionEngine(skills,dyn,caps,s,memory=mem);made=evo.ensure_capability('calc','calc')
+    evo=CapabilityEvolutionEngine(skills,dyn,caps,s,memory=mem,environment=environment,repository_commit=commit);made=evo.ensure_capability('calc','calc')
     assert made['status']=='VERIFIED' and s.context_seen and 'calc failed' in s.context_seen[0]['statement']
     assert any(x['validation_status']=='VERIFIED' and 'passed Crucible' in x['statement'] for x in mem.search('calc'))
 

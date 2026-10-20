@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from core.autonomy_state import GoalStore,WorldState
-from core.autonomy_engine import AutonomousCoordinator,Budget,state_verifier
+from core.autonomy_engine import AutonomousCoordinator,Budget,state_verifier,AgentProcessManager
 from core.capability_registry import build_registry,Capability
 from core.skill_registry import SkillRegistry
 from core.composite_skill_runtime import CompositeSkillRuntime
@@ -27,11 +27,32 @@ _DEVICES_PROVIDER=None
 _SERVER_ACTIONS_PROVIDER=None
 _DEVICE_EXECUTOR=None
 _SERVER_EXECUTOR=None
+_ISOLATE=True
+_MANAGER=None
+_EMERGENCY_MONITOR=None
 
-def configure_runtime(*,devices_provider,server_actions_provider,device_executor,server_executor):
-    global _DEVICES_PROVIDER,_SERVER_ACTIONS_PROVIDER,_DEVICE_EXECUTOR,_SERVER_EXECUTOR
+def configure_runtime(*,devices_provider,server_actions_provider,device_executor,server_executor,isolate=True):
+    global _DEVICES_PROVIDER,_SERVER_ACTIONS_PROVIDER,_DEVICE_EXECUTOR,_SERVER_EXECUTOR,_ISOLATE,_MANAGER
     _DEVICES_PROVIDER=devices_provider;_SERVER_ACTIONS_PROVIDER=server_actions_provider
     _DEVICE_EXECUTOR=device_executor;_SERVER_EXECUTOR=server_executor
+    _ISOLATE=isolate
+    if isolate:_MANAGER=AgentProcessManager(BASE)
+
+def start_emergency_monitor():
+    global _EMERGENCY_MONITOR
+    if _EMERGENCY_MONITOR is None:
+        import os
+        from core.hotkey import EmergencyHotkey
+        _EMERGENCY_MONITOR=EmergencyHotkey(lambda:_MANAGER.stop(),
+            chord=os.environ.get('MARK_EMERGENCY_HOTKEY','<ctrl>+<alt>+<shift>+<f12>'))
+        if not _EMERGENCY_MONITOR.start():
+            print('[Emergency] Global keyboard hook unavailable; python main.py --break remains available.')
+
+
+def close_runtime():
+    if _EMERGENCY_MONITOR is not None:_EMERGENCY_MONITOR.stop()
+    if _MANAGER is not None:_MANAGER.stop()
+
 
 def _runtime_ready():
     return all(x is not None for x in (_DEVICES_PROVIDER,_SERVER_ACTIONS_PROVIDER,_DEVICE_EXECUTOR,_SERVER_EXECUTOR))
@@ -74,7 +95,15 @@ def autonomous_goal(parameters,**kwargs):
     if op=="resume":return json.dumps(_STORE.reconcile(gid),ensure_ascii=False)
     if op=="advance":
         if not _runtime_ready():return json.dumps({"status":"FAILED","reason":"autonomy_runtime_not_ready"})
-        return json.dumps(_coordinator().advance(gid),ensure_ascii=False)
+        if not _ISOLATE:
+            return json.dumps(_coordinator().advance(gid),ensure_ascii=False)
+        def bridge(capability,args,goal):
+            return _DEVICE_EXECUTOR(Capability(**capability),args,goal)
+        result=_MANAGER.run('core.agent_worker:advance_goal',
+            {'goal_id':gid,'devices':list(_DEVICES_PROVIDER() or []),
+             'server_actions':sorted(set(_SERVER_ACTIONS_PROVIDER() or []))}, device_rpc=bridge,goal_id=gid)
+        _WORLD.data=WorldState(_AUTONOMY).data
+        return json.dumps(result,ensure_ascii=False)
     if op=="observe":
         section=str(parameters.get("section",""))
         # Tool parameters are model-authored claims, not independent sensor data.

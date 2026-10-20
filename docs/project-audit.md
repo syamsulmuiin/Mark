@@ -107,3 +107,19 @@ Physical Android/desktop acceptance remains pending: the audit environment has
 no connected device transport. The operations guide lists concrete acceptance
 cases and evidence to retain. No hardware, voice playback, accessibility or
 real-device download result is marked passed by unit/protocol tests.
+
+
+## Emergency process control
+
+The autonomy coordinator path now runs in a dedicated child controlled by the
+service. `python main.py --break` reads owner-only PID metadata and verifies
+creation time, command and run identity before forceful termination. Runtime
+state returns to idle only after confirmed death; interrupted goal evidence is
+retained. Emergency files are protected from autonomous repair. Pynput supplies
+a separate global listener where the OS grants input-session access; unavailable
+hooks are reported explicitly and the CLI remains usable.
+
+Coverage is the autonomous_goal worker path, not every legacy inline Live/tool
+handler. Local hosted PID-namespace restrictions explicitly skip affected real
+process tests. Native Linux CI must execute those cases without skipping;
+physical keyboard and Windows/macOS service behavior remain platform tests.

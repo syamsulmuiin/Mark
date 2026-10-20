@@ -57,10 +57,11 @@ def test_manifest_identifier_mismatch_blocks_recovery_and_new_repair(tmp_path,mo
     from actions import self_repair_apply as action
     from test_self_repair import _apply_params
     monkeypatch.setattr(action,'BASE_DIR',tmp_path)
-    (tmp_path/'main.py').write_text('x = 1\n')
+    (tmp_path/'core').mkdir(exist_ok=True)
+    (tmp_path/'core/example.py').write_text('x = 1\n')
     result=json.loads(action.self_repair_apply(_apply_params()))
     assert result['status']=='FAILED' and result['failure_stage']=='recover_previous_transaction'
-    assert (tmp_path/'main.py').read_text()=='x = 1\n'
+    assert (tmp_path/'core/example.py').read_text()=='x = 1\n'
     assert (tmp_path/'a.py').read_text()=='candidate A'
 
 

@@ -215,6 +215,11 @@ def _pair_device(pairing_id: str | None = None):
 
 def _stop_server():
     import signal, time as _time
+    from core.autonomy_engine import emergency_break
+    result=emergency_break(BASE_DIR)
+    if result.get("status") != "idle":
+        print("Refusing server stop until the tracked agent worker can be stopped safely.")
+        return
     pidfile, _ = _runtime_paths()
     pid = _server_pid()
     if not pid:
@@ -250,6 +255,10 @@ def _stop_server():
 
 def _restart_server():
     """Never launch a replacement while the previous worker is still alive."""
+    from core.autonomy_engine import emergency_break
+    if emergency_break(BASE_DIR).get("status") != "idle":
+        print("Restart aborted: tracked agent worker could not be stopped safely.")
+        return None
     pid = _server_pid()
     if pid:
         _stop_server()
@@ -299,6 +308,7 @@ def _runtime_mode(argv=None):
     g.add_argument("--enable",action="store_true",help="enable autostart and start server")
     g.add_argument("--language", type=normalize_language, metavar="LANGUAGE", help="save primary response language (ID, EN, etc.) or auto; restart afterward")
     g.add_argument("--restart",action="store_true",help="stop the tracked worker, then start server")
+    g.add_argument("--break",dest="emergency_break",action="store_true",help="force-stop only the tracked agent execution process; keep server alive")
     g.add_argument("--stop",action="store_true",help="stop server")
     g.add_argument("--disable",action="store_true",help="disable autostart")
     g.add_argument("--pair",action="store_true",help="list pending companion pairing requests or issue a code")
@@ -306,6 +316,7 @@ def _runtime_mode(argv=None):
     g.add_argument("--server-worker",action="store_true",help=argparse.SUPPRESS)
     a=parser.parse_args(argv)
     if a.language is not None:return "language:" + a.language
+    if a.emergency_break:return "break"
     if a.restart:return "restart"
     if a.start:return "start"
     if a.enable:return "enable"

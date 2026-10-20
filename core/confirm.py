@@ -55,12 +55,14 @@ class _Pending:
     detail:  str
     run:     Callable[[], str]
     at:      float
+    scope: str = ""
     timer:   Optional[threading.Timer] = None
 
 
 _pending: Optional[_Pending] = None
 _lock = threading.Lock()
 _recent_proposals: dict[str, tuple[float, str]] = {}
+_recent_proposal_scopes: dict[str, str] = {}
 PROPOSAL_REPLAY_SECONDS = 60.0
 
 # Set once at startup by main.py. Signature: (title, detail) -> None for show,
@@ -87,7 +89,7 @@ def _log(msg: str) -> None:
             pass
 
 
-def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
+def request(key: str, title: str, detail: str, run: Callable[[], str], *, scope: str = "") -> str:
     """Park an irreversible action behind the on-screen gate.
 
     Returns the sentence the tool should hand back to the model — phrased as an
@@ -113,17 +115,19 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
         for old_key, (at, state) in list(_recent_proposals.items()):
             if state != "running" and now - at > PROPOSAL_REPLAY_SECONDS:
                 _recent_proposals.pop(old_key, None)
+                _recent_proposal_scopes.pop(old_key, None)
         if key.startswith("text_proposal:") and key in _recent_proposals:
             state = _recent_proposals[key][1]
-            return (f"[CONFIRMATION_COMPLETED] This exact action was already handled ({state}). "
-                    "Do not request approval or execute it again.")
+            if state == "running" or _recent_proposal_scopes.get(key, "") == scope:
+                return (f"[CONFIRMATION_COMPLETED] This exact action was already handled ({state}). "
+                        "Do not request approval or execute it again in this user turn.")
         # A new request must never silently replace an unanswered approval.
         # An expired request is discarded; the old callback can no longer run.
         if _pending is not None and time.monotonic() - _pending.at <= TIMEOUT_SECONDS:
             return ("Another confirmation is still pending. "
                     "Wait for the user to approve, reject, or let it expire.")
         _pending = _Pending(key=key, request_id=secrets.token_urlsafe(24), title=title, detail=detail,
-                            run=run, at=time.monotonic())
+                            run=run, at=time.monotonic(), scope=scope)
         p = _pending
 
     try:
@@ -187,6 +191,7 @@ def resolve(accepted: bool, *, expected_key: Optional[str] = None,
         p, _pending = _pending, None
         if p is not None and p.key.startswith("text_proposal:"):
             _recent_proposals[p.key] = (time.monotonic(), "running" if accepted else "rejected")
+            _recent_proposal_scopes[p.key] = p.scope
 
     if p is not None and p.timer is not None:
         p.timer.cancel()

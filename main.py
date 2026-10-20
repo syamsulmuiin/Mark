@@ -1381,6 +1381,7 @@ class JarvisLive:
                             + self._action_registry.get_tool_declarations()
                             + self._plugin_registry.get_tool_declarations())
             _proposal_stage = "generation"
+            _proposal_scope = f"{getattr(self, '_session_generation', 0)}:{getattr(self, '_voice_turn_seq', 0)}"
             try:
                 _trace_event("text_action_proposal", stage="started")
                 proposed = await asyncio.to_thread(propose_action, task, declarations)
@@ -1451,6 +1452,7 @@ class JarvisLive:
                     key="text_proposal:" + _proposal_key,
                     title=_approval_title, detail=_approval_detail,
                     run=_run_approved_proposal,
+                    scope=_proposal_scope,
                 )
                 if _approval_message.startswith("[CONFIRMATION_COMPLETED]"):
                     self._text_proposal_handoff.clear()

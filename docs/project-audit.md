@@ -38,3 +38,37 @@ Update the server and desktop checkout, restart the server, and install the upda
 Required real-device checks: new desktop pairing through the operator CLI; existing desktop/Android reconnect after restart; failed or cancelled re-pairing preserves active trust; voice interruption and single result feedback; document revision followed by opening the received artifact; explicit direct save; Android Accessibility execution and background reconnection. Windows/macOS desktop and optional native AEC3 targets remain platform-specific validation work.
 
 The repair validation copy is not an operating-system sandbox: validators still run under the server account. Credential/environment exclusion and symlink restrictions reduce accidental exposure, but do not provide process-level filesystem/network isolation. Validators can still access paths available to the server account; full OS isolation remains a separate deployment requirement.
+
+## Task recovery, verification and memory
+
+Recovery checks cover interruption after a side effect, interruption during
+verification, persisted executor results, fresh versus stale observations,
+legacy interrupted state, late tool results, duplicate checkpoints and delayed
+reconnect turns. Coordinator advances are serialized within one server process.
+Task/goal state with invalid JSON is preserved and reported rather than silently
+replaced. Goal and knowledge identifiers reject path traversal and symlinks.
+
+Verification remains step-specific: a delivery record proves server handoff,
+not device saving or document quality. Recovery requires a fresh observation of
+the relevant verification section before accepting an interrupted step. An LLM
+claim or unrelated observation is insufficient. This is not an exactly-once
+protocol with external devices/services; unknown outcomes require inspection,
+and separate server processes are not coordinated by the in-process lock.
+
+Task checkpoints retain observed action identifiers and evidence. Knowledge
+records already retain evidence, validation status, environment, repository
+commit and contradiction history; capability evolution requests verified
+records. Remaining work before multi-agent expansion includes evaluating
+whether whole-goal completion criteria are actually met, filtering retrieved
+knowledge by environment/repository applicability and age, and independent
+real-device tests of disconnect/restart during approval and file delivery.
+These are evaluation gaps, not claims that all recovery or memory behavior has
+been validated in production.
+
+A verification audit found that the model-facing `observe` operation previously
+wrote directly to independent observed state. It now records an unverified claim
+in expected state. The verifier requires host provenance and rejects legacy
+model observations. This prevents model parameters from serving as independent
+proof, but does not by itself implement device/sensor readback adapters. Wiring
+and evaluating those adapters is the next verification task; absent readback,
+completion remains unverified.

@@ -48,6 +48,9 @@ class GenericVerificationEngine:
         section = check.get("section")
         if not section:
             return VerificationDecision(False, "verification_section_required", {"check": check}).to_dict()
+        observation = world.data.get("observed", {}).get(section) or {}
+        if observation.get("source") != "host":
+            return VerificationDecision(False, "host_observation_required", {"section": section}).to_dict()
         after = world.observed(section, None)
         if "equals" in check:
             rule = {"op":"equals","expected":check.get("equals")}

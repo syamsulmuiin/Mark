@@ -75,11 +75,14 @@ def autonomous_goal(parameters,**kwargs):
         if not _runtime_ready():return json.dumps({"status":"FAILED","reason":"autonomy_runtime_not_ready"})
         return json.dumps(_coordinator().advance(gid),ensure_ascii=False)
     if op=="observe":
-        section=str(parameters.get("section",""));_WORLD.update_observed(section,parameters.get("value"),"autonomous_goal observation")
-        return json.dumps({"status":"observed","section":section})
+        section=str(parameters.get("section",""))
+        # Tool parameters are model-authored claims, not independent sensor data.
+        _WORLD.set_expected(section,{"claim":parameters.get("value"),"source":"model"})
+        return json.dumps({"status":"UNVERIFIED","verified":False,"section":section,
+                           "reason":"host_observation_required"})
     return json.dumps({"status":"NO_SAFE_PROGRESS_POSSIBLE","reason":"unsupported_operation"})
 
-TOOL={"name":"autonomous_goal","description":"Persist, inspect, reconcile, advance, or add independently observed world state for a long-running goal. Advance uses Mark's capability registry, risk/permission gates, verification, safe fallback, and skill lifecycle; it never bypasses companion pairing or repair approval boundaries.",
+TOOL={"name":"autonomous_goal","description":"Persist, inspect, reconcile, advance, or record an unverified world-state claim for a long-running goal. Model-supplied observations cannot establish independent verification. Advance uses Mark's capability registry, risk/permission gates, verification, safe fallback, and skill lifecycle; it never bypasses companion pairing or repair approval boundaries.",
 "parameters":{"type":"OBJECT","properties":{
     "operation":{"type":"STRING","enum":["create","inspect","resume","observe","advance"]},
     "objective":{"type":"STRING"},"goal_id":{"type":"STRING"},"origin_device":{"type":"STRING"},"origin_session":{"type":"STRING"},"requested_target":{"type":"STRING"},

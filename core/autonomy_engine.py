@@ -1,5 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import copy
+import threading
+
+_ADVANCE_LOCK = threading.RLock()
 RANK={"LOW":0,"MEDIUM":1,"HIGH":2}
 TERMINAL={"GOAL_ACHIEVED","SAFETY_LIMIT_REACHED","HUMAN_APPROVAL_REQUIRED","NO_SAFE_PROGRESS_POSSIBLE","FAILED"}
 @dataclass
@@ -21,8 +25,46 @@ class AutonomousCoordinator:
         d=self.store.create(objective,origin_device,origin_session,requested_target,budget=(budget or self.default_budget).__dict__)
         d["plan"]=plan;d["pending_steps"]=[x["id"] for x in plan];d["execution_context"]["granted_permissions"]=list(granted_permissions);d["status"]="RUNNING";return self.store.save(d)
     def advance(self,gid):
-        g=self.store.reconcile(gid) or self.store.load(gid)
+        # Serialize read/execute/commit across coordinators in this process.
+        with _ADVANCE_LOCK:
+            return self._advance(gid)
+
+    def _recover_step(self, g):
+        active = g['active_step']
+        step = next((s for s in g.get('plan', []) if s.get('id') == active.get('id')), None)
+        observed = self.world.data.get('observed', {})
+        reason = 'interrupted_step_requires_reinspection'
+        verdict = None
+        section = ((step or {}).get('verify') or {}).get('section')
+        if section and observed.get(section) != active.get('observed_before', {}).get(section):
+            result = active.get('result', {'status': 'UNVERIFIED', 'verified': False})
+            verdict = self.verifier(step, result, self.world, g)
+            if verdict.get('verified') is True:
+                if step['id'] not in g['completed_steps']:
+                    g['completed_steps'].append(step['id'])
+                g['pending_steps'] = [x for x in g['pending_steps'] if x != step['id']]
+                g.pop('active_step', None)
+                g.pop('interrupted_status', None)
+                g['status'] = 'GOAL_ACHIEVED' if len(g['completed_steps']) == len(g['plan']) else 'RUNNING'
+                g['observations'].append({'type': 'recovery_verified', 'task_id': step['id'], 'evidence': verdict.get('evidence')})
+                return self.store.save(g)
+            reason = 'interrupted_step_not_verified'
+        g['status'] = 'NO_SAFE_PROGRESS_POSSIBLE'
+        event = {'task_id': active.get('id'), 'reason': reason}
+        if not g['failures'] or g['failures'][-1] != event:
+            g['failures'].append(event)
+        return self.store.save(g)
+
+    def _advance(self,gid):
+        g=self.store.load(gid)
+        if g and g.get('status') not in TERMINAL and (g.get('status') in {'EXECUTING', 'VERIFYING'} or g.get('interrupted_status') in {'EXECUTING', 'VERIFYING'}) and not g.get('active_step'):
+            g['status'] = 'NO_SAFE_PROGRESS_POSSIBLE'
+            g['failures'].append({'reason': 'legacy_interrupted_step_requires_reinspection'})
+            return self.store.save(g)
+        g=self.store.reconcile(gid) or g
         if not g:return {"status":"FAILED","reason":"goal_not_found"}
+        if g.get("active_step"):
+            return self._recover_step(g)
         if g.get("status")=="RECONCILING":
             g["observations"].append({"type":"reconcile","observed_state":self.world.data.get("observed",{})});g["status"]="RUNNING";self.store.save(g)
         if g.get("status") in TERMINAL:return g
@@ -54,13 +96,17 @@ class AutonomousCoordinator:
                 cap=evolved.get("capability")
         if not cap and not composite_id:
             g["status"]="NO_SAFE_PROGRESS_POSSIBLE";g["failures"].append({"task_id":s["id"],"reason":"capability_unavailable"});return self.store.save(g)
-        g["execution_target"]=(f"skill:{composite_id}" if composite_id else cap.device_id);g["status"]="EXECUTING";self.store.save(g)
+        g["execution_target"]=(f"skill:{composite_id}" if composite_id else cap.device_id);g["status"]="EXECUTING"
+        g["active_step"]={"id":s["id"],"execution_target":g["execution_target"],"observed_before":copy.deepcopy(self.world.data.get("observed",{}))}
+        self.store.save(g)
         if composite_id:
             result=self.composite_runtime.execute(composite_id,g,origin_device=g.get("origin_device",""),requested_target=g.get("requested_target",""),granted_permissions=granted)
         elif getattr(cap,"source","")=="generated_skill" and self.evolution_engine is not None:
             result=self.evolution_engine.execute(cap,s.get("inputs",{}))
         else:
             result=self.executor(cap,s.get("inputs",{}),g)
+        g["active_step"]["result"] = result
+        self.store.save(g)
         g["observations"].append({"task_id":s["id"],"type":"executor_result","result":result}); self._trace("execution_result",goal_id=gid,task_id=s.get("id"),capability=s.get("capability"),device_id=(cap.device_id if cap else g.get("execution_target")),status=(result.get("status") if isinstance(result,dict) else "LEGACY"),verified=(result.get("verified") if isinstance(result,dict) else False))
         # Structured execution status can stop the loop before independent state
         # verification. Legacy executor results continue through the old path.
@@ -73,31 +119,41 @@ class AutonomousCoordinator:
             s["fallback_attempted"]=True
             if alt is not None:
                 self._trace("fallback_selected",goal_id=gid,task_id=s.get("id"),from_device=cap.device_id,to_device=alt.device_id,capability=alt.name)
+                g["active_step"]["execution_target"] = alt.device_id
+                g["active_step"].pop("result", None)
+                self.store.save(g)
                 alt_result=self.executor(alt,s.get("inputs",{}),g)
+                g["active_step"]["result"] = alt_result
+                self.store.save(g)
                 g["observations"].append({"task_id":s["id"],"type":"fallback_executor_result","device_id":alt.device_id,"result":alt_result})
                 self.capabilities.record(cap.name,cap.device_id,False,error=result.get("reason","execution_failed"))
                 cap=alt; result=alt_result
                 structured_status=str(result.get("status","")).upper() if isinstance(result,dict) else ""
                 self._trace("fallback_result",goal_id=gid,task_id=s.get("id"),device_id=alt.device_id,status=structured_status or "LEGACY")
         if structured_status in {"FAILED","BLOCKED","WAITING"}:
+            if structured_status == "FAILED" and s.get("fallback_safe", False):
+                g.pop("active_step", None)
             if cap:self.capabilities.record(cap.name,cap.device_id,False,error=result.get("reason",structured_status))
             g["failures"].append({"task_id":s["id"],"reason":result.get("reason") or structured_status.lower(),"evidence":result.get("evidence")})
             if structured_status in {"BLOCKED","WAITING"}:g["status"]="HUMAN_APPROVAL_REQUIRED" if structured_status=="BLOCKED" else "NO_SAFE_PROGRESS_POSSIBLE"
             else:
                 s["attempts"]=int(s.get("attempts",0))+1
-                g["status"]="RUNNING" if s["attempts"]<int(s.get("max_attempts",2)) else "NO_SAFE_PROGRESS_POSSIBLE"
+                g["status"]="RUNNING" if s.get("fallback_safe", False) and s["attempts"]<int(s.get("max_attempts",2)) else "NO_SAFE_PROGRESS_POSSIBLE"
             return self.store.save(g)
         g["status"]="VERIFYING";self.store.save(g)
         verdict=self.verifier(s,result,self.world,g); self._trace("verification_result",goal_id=gid,task_id=s.get("id"),verified=verdict.get("verified"),reason=verdict.get("reason",""),evidence=verdict.get("evidence"))
         if verdict.get("verified") is True:
+            g.pop("active_step", None)
             g["completed_steps"].append(s["id"]);g["pending_steps"]=[x for x in g["pending_steps"] if x!=s["id"]]
             if cap:self.capabilities.record(cap.name,cap.device_id,True)
             g["status"]="GOAL_ACHIEVED" if len(g["completed_steps"])==len(g["plan"]) else "RUNNING"
         else:
+            if s.get("fallback_safe", False):
+                g.pop("active_step", None)
             if cap:self.capabilities.record(cap.name,cap.device_id,False,error=verdict.get("reason","outcome_not_verified"))
             g["failures"].append({"task_id":s["id"],"reason":verdict.get("reason","outcome_not_verified"),"evidence":verdict.get("evidence")})
             s["attempts"]=int(s.get("attempts",0))+1
-            g["status"]="RUNNING" if s["attempts"]<int(s.get("max_attempts",2)) else "NO_SAFE_PROGRESS_POSSIBLE"
+            g["status"]="RUNNING" if s.get("fallback_safe", False) and s["attempts"]<int(s.get("max_attempts",2)) else "NO_SAFE_PROGRESS_POSSIBLE"
         return self.store.save(g)
 def state_verifier(step,result,world,goal):
     from core.verification_engine import verify_step

@@ -83,3 +83,30 @@ replaced. Failed writes leave the previous committed state intact and report an
 error; a failed revocation must be retried before treating access as revoked.
 Device-state temporary files are flushed and synced before replacement. These
 updates preserve existing identities, capability grants and pairing rules.
+
+Interrupted autonomous steps retain their step identifier, execution target and
+available result before recovery. Advancing such a goal does not replay its
+executor. Supply a fresh observation of the step's verification section, then
+advance again to reconcile it. Unchanged historical observations or unrelated
+observations cannot confirm the interrupted step. If its outcome remains
+uncertain, the goal stays blocked for inspection. Legacy interrupted goals with
+no recorded active step also stop for inspection. Recovery does not recreate an
+approval or grant authority to execute a replacement action.
+
+Live reconnect configuration carries unfinished work as reference context. The
+host sends a recovery turn only while its captured session, user input and active
+action still match. Late tool results cannot overwrite a newer task/action, and
+replayed checkpoints for the same observed action do not duplicate task memory.
+Approval replay protection remains active while an approved text action is still
+running, even beyond the usual completed-proposal replay window.
+
+A failed or unverified coordinator result does not authorize an automatic repeat.
+Only steps already explicitly marked `fallback_safe` as safe to repeat retain
+bounded retry behavior. Otherwise retain the active step and inspect its outcome.
+
+The model-facing `autonomous_goal observe` operation records an unverified claim
+under expected state; it cannot write independent observed state. Verification
+requires a fresh host observation, including for historical records without host
+provenance. A goal without a host/device readback must remain unverified rather
+than accepting model-supplied values as proof. Host observation adapters still
+need coverage for each supported workflow.

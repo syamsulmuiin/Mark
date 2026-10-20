@@ -73,3 +73,6 @@ Repair validators receive an allowlisted runtime environment, temporary HOME/con
 The validation copy excludes root server `runtime/` state while retaining `desktop-companion/runtime/` source. A global runtime-directory exclusion would remove desktop modules and make the full validation suite fail.
 
 Repair validation failures report their stage (copy preparation, source copy, candidate write, or validator launch) without exposing environment values. A copy/launch failure rejects the prepared transaction before production edits. Snapshot preparation or rejection-status persistence failures return explicit `FAILED` results with `source_modified=false`; inspect the reported transaction if its status could not be saved.
+
+Rollback verifies transaction identifiers, manifest identity, non-symlink snapshot paths, unique allowed targets and every stored snapshot hash before restoring any source. Protected authority files cannot be restored through a modified transaction manifest. If an incomplete transaction cannot be recovered, new repair is blocked for manual inspection. I/O failure during restoration can still require manual recovery; multi-file replacement is not one filesystem-atomic operation.
+ Repair source replacement preserves existing file permission bits, including executable permissions.

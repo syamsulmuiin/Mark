@@ -2,22 +2,28 @@
 from __future__ import annotations
 from core.capability_registry import Capability
 from core.skill_crucible import SkillCrucible
+from core.memory_scope import current_scope
 import inspect
 
 class CapabilityEvolutionEngine:
-    def __init__(self,skills,dynamic_registry,capabilities,synthesizer,memory=None):
+    def __init__(self,skills,dynamic_registry,capabilities,synthesizer,memory=None,*,environment=None,repository_commit=None,max_memory_age_days=30):
+        current_environment, current_commit = current_scope()
+        self.environment = current_environment if environment is None else environment
+        self.repository_commit = current_commit if repository_commit is None else repository_commit
+        self.max_memory_age_days = max_memory_age_days
         self.skills=skills;self.dynamic=dynamic_registry;self.capabilities=capabilities;self.synthesizer=synthesizer;self.memory=memory
     def _remember(self,kind,statement,evidence,environment=None,verified=False):
         if self.memory is None:return None
         try:
-            rec=self.memory.add(kind,statement,str(evidence),environment=environment or {})
+            rec=self.memory.add(kind,statement,str(evidence),environment=self.environment if environment is None else environment,repository_commit=self.repository_commit)
             if verified:rec=self.memory.promote(rec['id'],'VERIFIED',str(evidence))
             return rec
         except Exception:return None
     def _context(self,name):
         if self.memory is None:return []
         try:
-            rows=self.memory.search(name,verified_only=True)[:6]
+            rows=self.memory.search(name,verified_only=True,environment=self.environment,repository_commit=self.repository_commit,
+                                    max_age_days=self.max_memory_age_days,strict_scope=True)[:6]
             return [{"type":r.get("type"),"statement":r.get("statement"),"evidence":str(r.get("evidence",""))[:600]} for r in rows]
         except Exception:return []
     def _synthesize(self,name,purpose,parameters):

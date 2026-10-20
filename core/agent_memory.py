@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json, os, re, uuid
-from datetime import datetime,timezone
+from datetime import datetime,timezone,timedelta
 from pathlib import Path
 def _now():return datetime.now(timezone.utc).isoformat(timespec="seconds")
 class AgentMemory:
@@ -25,10 +25,10 @@ class AgentMemory:
         r=self.get(mid)
         if status not in {"VALIDATED","VERIFIED","REJECTED","EXPERIMENTAL","OBSOLETE","DEPRECATED"}:raise ValueError("invalid status")
         if not str(evidence).strip():raise ValueError("promotion evidence required")
-        r.setdefault("history",[]).append({"status":r.get("validation_status"),"at":_now(),"evidence":evidence}); r["validation_status"]=status; r["evidence"]=str(evidence); self._write(r); return r
+        r.setdefault("history",[]).append({"status":r.get("validation_status"),"at":_now(),"evidence":evidence}); r["validation_status"]=status; r["validated_at"]=_now(); r["evidence"]=str(evidence); self._write(r); return r
     def get(self,mid):
         return json.loads(self._path(mid).read_text(encoding="utf-8"))
-    def search(self,text,verified_only=False):
+    def search(self,text,verified_only=False,*,environment=None,repository_commit=None,max_age_days=None,now=None,strict_scope=False):
         words=set(str(text).lower().split()); out=[]
         for p in self.dir.glob("*.json"):
             if p.is_symlink():continue
@@ -36,6 +36,20 @@ class AgentMemory:
             except Exception:continue
             if not isinstance(r, dict) or r.get("id") != p.stem:continue
             if verified_only and r.get("validation_status")!="VERIFIED":continue
+            if environment is not None:
+                scope = r.get('environment') or {}
+                if not isinstance(scope, dict) or (strict_scope and not scope):continue
+                if strict_scope and scope != environment:continue
+                if any(environment.get(k) != v for k, v in scope.items()):continue
+            if repository_commit is not None:
+                if strict_scope and (not repository_commit or not r.get('repository_commit')):continue
+                if r.get('repository_commit') and r['repository_commit'] != repository_commit:continue
+            if max_age_days is not None:
+                try:
+                    at = datetime.fromisoformat(r.get('validated_at') or r['created_at'])
+                    current = now or datetime.now(timezone.utc)
+                    if at.tzinfo is None or at > current or current-at > timedelta(days=float(max_age_days)):continue
+                except (ValueError, TypeError, KeyError):continue
             score=len(words & set((r.get("statement","")+" "+r.get("evidence","")).lower().split()))
             if score:out.append((score,r))
         return [r for _,r in sorted(out,key=lambda x:x[0],reverse=True)]

@@ -62,7 +62,11 @@ class GenericVerificationEngine:
             rule = {"op":"contains","expected":check.get("contains")}
         elif check.get("changed") is True:
             before_section = check.get("before_section") or section
-            before = ((goal or {}).get("execution_context") or {}).get("verification_baseline",{}).get(before_section)
+            context = (goal or {}).get("execution_context") or {}
+            baseline = context.get("verification_baselines", {}).get(step.get('id'), context.get("verification_baseline", {}))
+            if before_section not in baseline:
+                return VerificationDecision(False, "verification_baseline_required", {"section": section}).to_dict()
+            before = baseline[before_section]
             d = self.compare(before, after, {"op":"changed"})
             d.evidence = {**(d.evidence or {}), "section": section, "before_section": before_section}
             return d.to_dict()

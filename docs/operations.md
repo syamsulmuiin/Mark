@@ -110,3 +110,50 @@ requires a fresh host observation, including for historical records without host
 provenance. A goal without a host/device readback must remain unverified rather
 than accepting model-supplied values as proof. Host observation adapters still
 need coverage for each supported workflow.
+
+## Host readback and whole-goal completion
+
+Autonomous steps can attach a read-only `probe` to their `verify` rule. A
+`server_file` probe uses the existing runtime/storage export policy and reads
+actual bytes, size and SHA-256. A `companion` probe permits only `app.inspect` or
+`android.ui.inspect`, on the exact execution device with its existing capability
+grant. Companion results must report successful verified readback with evidence;
+no mutating action is accepted as a verification probe. Capability replies are
+bound to their original device, socket, capability and call identifier.
+
+Example file verification:
+
+```json
+{"section":"report","equals":true,"probe":{"type":"server_file","path":"storage/artifacts/report.docx","field":"exists"}}
+```
+
+Example Android foreground verification:
+
+```json
+{"section":"foreground","equals":"com.example.app","probe":{"type":"companion","capability":"app.inspect","field":"evidence.active_package"}}
+```
+
+A successful step count is insufficient for `GOAL_ACHIEVED`. The coordinator
+checks final post-conditions again. Supply `completion_checks` for the complete
+requested end state; otherwise it conservatively rechecks each step condition.
+Explicit final conditions allow temporary intermediate states, such as opening
+an app before closing it. A final condition can name `step_id` to reuse that
+step's execution device. Changed-state rules use the host's recorded per-step
+baseline. A failed final check preserves completed steps and can be inspected
+again without re-executing them.
+
+File existence/hash verification does not validate document content, references,
+layout or delivery. These need separate matching final conditions and supported
+readback. Unsupported probes remain unverified. The implemented companion probes
+use existing native capabilities; no APK protocol change is required.
+
+## Scoped procedural memory
+
+Automatic capability-evolution context includes only VERIFIED knowledge matching
+the current OS, machine architecture, Python version and exact Git commit, with
+validation no older than 30 days. Unknown scope, unavailable commit, expired or
+future timestamps and contradicted knowledge are excluded. New automatic records
+capture this scope; promotion records validation time. Old records are retained
+and remain inspectable, but require revalidation in the current scope before
+automatic reuse. This policy applies to procedural knowledge used in capability
+evolution, not the user's language preferences or general conversation history.

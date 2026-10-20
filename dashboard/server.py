@@ -485,6 +485,7 @@ class DashboardServer:
         self._public_url                   = ""
         self._device_sockets: dict[str, WebSocket] = {}
         self._device_pending_calls: dict[str, asyncio.Future] = {}
+        self._device_pending_targets: dict[str, tuple] = {}
         self._active_voice_device: str | None = None
         self._approval_pending: dict[str, dict] = {}
         self._approval_completion_targets: dict[str, tuple] = {}
@@ -792,6 +793,7 @@ class DashboardServer:
         call_id = secrets.token_urlsafe(12)
         fut = asyncio.get_running_loop().create_future()
         self._device_pending_calls[call_id] = fut
+        self._device_pending_targets[call_id] = (device_id, ws, capability)
         started = time.monotonic()
         try:
             _interaction_event("capability_call", device_id=device_id, capability=capability)
@@ -823,6 +825,20 @@ class DashboardServer:
             raise
         finally:
             self._device_pending_calls.pop(call_id, None)
+            self._device_pending_targets.pop(call_id, None)
+
+    def accept_capability_reply(self, device_id, websocket, msg):
+        call_id = str(msg.get('call_id') or '')
+        target = self._device_pending_targets.get(call_id)
+        if (not target or target[0] != device_id or target[1] is not websocket
+                or self._device_sockets.get(device_id) is not websocket
+                or msg.get('capability') != target[2]):
+            return False
+        future = self._device_pending_calls.get(call_id)
+        if future is None or future.done():
+            return False
+        future.set_result(dict(msg))
+        return True
 
     def _new_transfer_ticket(self, mode: str, **data) -> str:
         token = secrets.token_urlsafe(24)
@@ -1510,8 +1526,7 @@ class DashboardServer:
                     elif msg.get("type") == "capability.result":
                         call_id = str(msg.get("call_id") or "")
                         _interaction_event("capability_result", device_id=device_id, ok=bool(msg.get("ok")), has_call_id=bool(call_id))
-                        fut = self._device_pending_calls.pop(call_id, None)
-                        if fut and not fut.done(): fut.set_result(msg)
+                        self.accept_capability_reply(device_id, websocket, msg)
             except WebSocketDisconnect as exc:
                 disconnect_reason = f"websocket_disconnect:{getattr(exc, 'code', 'unknown')}"
             except asyncio.TimeoutError:

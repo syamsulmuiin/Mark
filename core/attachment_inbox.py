@@ -1,6 +1,6 @@
 """Persistent, device-scoped attachment inbox referencing the shared SHA-256 object store."""
 from __future__ import annotations
-import json, os, secrets, time
+import json, os, secrets, tempfile, time
 from pathlib import Path
 
 
@@ -10,14 +10,25 @@ class AttachmentInbox:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-            self.items = data if isinstance(data, dict) else {}
-        except (FileNotFoundError, ValueError):
+            if not isinstance(data, dict) or any(not isinstance(item, dict) or
+                    not {"source_device", "destination_device", "name", "sha256", "size", "created_at"} <= item.keys()
+                    for item in data.values()):
+                raise ValueError("Invalid attachment metadata")
+            self.items = data
+        except FileNotFoundError:
             self.items = {}
 
     def _save(self):
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(self.items, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(temp, self.path)
+        fd, name = tempfile.mkstemp(prefix="attachments-", suffix=".tmp", dir=self.path.parent)
+        temp = Path(name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(self.items, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp, self.path)
+        finally:
+            temp.unlink(missing_ok=True)
 
     def create(self, *, source_device, destination_device, name, sha256, size, assistant_upload=False, server_upload=False, source_path=""):
 
@@ -29,7 +40,11 @@ class AttachmentInbox:
                     source_path=str(source_path or ""),
                     status="stored" if server_upload else "assistant_ready" if assistant_upload else "pending")
         self.items[item["id"]] = item
-        self._save()
+        try:
+            self._save()
+        except Exception:
+            self.items.pop(item["id"], None)
+            raise
         return dict(item)
 
     def for_device(self, device_id):
@@ -55,7 +70,11 @@ class AttachmentInbox:
         item = self.get(device_id, attachment_id)
         if item:
             self.items[attachment_id]["status"] = status
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                self.items[attachment_id] = item
+                raise
         return item is not None
 
     def referenced(self, digest):

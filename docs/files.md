@@ -51,3 +51,13 @@ Inspection exposes `heading_level` as Word levels 1–9 (`null` for body text), 
 
 General creation must distinguish source code from its generated document. `code_helper` and `dev_agent` source writers reject known binary document/container extensions such as DOCX, PDF, XLSX and PPTX. Generate a script under its source extension, execute it through the existing approval gate with a format library, verify the actual document, then deliver that document. Source-file readback verifies only that write. Format-only heading changes count as a revision even when their text is unchanged.
  Project source paths are resolved inside their project directory before writing, including symlink resolution; absolute and escaping paths are rejected.
+
+Attachment metadata is not reset when its JSON is corrupt or has an invalid
+structure. Startup reports the error so the original metadata can be recovered.
+Failed metadata writes restore the previous in-memory state. Object ingestion
+keeps the source until the index commits; deletion commits the index before
+removing bytes. An interrupted operation can leave an unreferenced object for
+recovery, rather than removing bytes still referenced by committed metadata.
+These guarantees do not make the object index and attachment inbox a single
+cross-file transaction. Object lookups accept only canonical SHA-256 identifiers
+and do not follow object symlinks.

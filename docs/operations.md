@@ -67,3 +67,7 @@ Approval speech is scoped to the approval request: duplicate status events are s
 Code/project runners use process exit status rather than error-like words in successful stdout. A timeout is an unverified `WAITING` result, not proof of a working GUI/server, and stops the automatic build/fix retry loop pending inspection. Build tools return their final result through the tool response rather than injecting a second speech turn.
 
 Operator health/pairing endpoints require `devices/local_api.token` in addition to loopback access; the CLI supplies it automatically. Keep that credential private. Candidate repair copies exclude live device/provider state and credential/key files. The validation checkout is not an OS sandbox and still runs validators as the server account.
+
+Repair validators receive an allowlisted runtime environment, temporary HOME/config/cache directories, no inherited provider credentials, no user-site Python packages and no automatically loaded pytest plugins. Validation copies omit symlinks; repair targets with symlink components are rejected and protected names are compared case-insensitively. Local operator authentication and server export policy are immutable to automatic repair. These controls are not OS isolation; validators still run with the server account's filesystem and network privileges.
+
+The validation copy excludes root server `runtime/` state while retaining `desktop-companion/runtime/` source. A global runtime-directory exclusion would remove desktop modules and make the full validation suite fail.

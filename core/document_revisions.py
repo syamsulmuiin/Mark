@@ -50,7 +50,8 @@ def _level(paragraph, styles):
         return None
     outline = props.find(W + 'outlineLvl')
     if outline is not None:
-        return int(outline.get(W + 'val'))
+        value = int(outline.get(W + 'val'))
+        return value if 0 <= value <= 8 else None
     style = props.find(W + 'pStyle')
     return styles.get(style.get(W + 'val')) if style is not None else None
 
@@ -61,11 +62,21 @@ def _style_levels(parts):
     if not data:
         return {}
     root = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+    styles = {style.get(W+'styleId'): style for style in root.findall(W+'style')}
     result = {}
-    for style in root.findall(W + 'style'):
-        outline = style.find('./' + W + 'pPr/' + W + 'outlineLvl')
+    def resolve(name, seen):
+        if name in result:return result[name]
+        if name in seen or name not in styles:return None
+        style = styles[name]
+        outline = style.find('./'+W+'pPr/'+W+'outlineLvl')
         if outline is not None:
-            result[style.get(W + 'styleId')] = int(outline.get(W + 'val'))
+            value = int(outline.get(W+'val'))
+            result[name] = value if 0 <= value <= 8 else None
+        else:
+            parent = style.find(W+'basedOn')
+            result[name] = resolve(parent.get(W+'val'), seen | {name}) if parent is not None else None
+        return result[name]
+    for name in styles:resolve(name, set())
     return result
 
 
@@ -83,7 +94,12 @@ def inspect(source):
             'heading_level': outline + 1 if outline is not None else None})
     if sum(len(p['text']) for p in paragraphs) > 100000:
         raise ValueError('Document inspection exceeds the text limit; select a smaller source')
-    return {'ok': True, 'status': 'inspected', 'file_path': str(path), 'sha256': source_digest,
+    from core.document_quality import audit_document
+    try:
+        quality = audit_document(path)
+    except (ValueError, OSError):
+        quality = {"checks_passed":False,"reason":"content_quality_unavailable"}
+    return {'quality': quality, 'ok': True, 'status': 'inspected', 'file_path': str(path), 'sha256': source_digest,
             'source_sha256': source_digest,
             'heading_level_convention': 'Word Heading 1..9; null means body text',
             'instruction': 'For revise choose exactly one target: section_heading OR target_text, never both. Use source_sha256 from this inspection. A section heading is preserved; replacement heading levels must be greater than its heading_level. Body paragraphs have no level. If no text changes, do not claim a revised file exists.',

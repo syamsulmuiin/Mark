@@ -19,6 +19,18 @@ def _field(value, field):
     return value
 
 
+def artifact_reference(result):
+    for _ in range(3):
+        if isinstance(result, str):
+            try:result = json.loads(result)
+            except ValueError:return {}
+        if not isinstance(result, dict):return {}
+        if isinstance(result.get('file_path'), str):
+            return {k:result[k] for k in ('file_path', 'sha256', 'size') if k in result}
+        result = result.get('result')
+    return {}
+
+
 class HostObserver:
     def __init__(self, base_dir, capabilities, device_executor):
         self.base_dir = Path(base_dir)
@@ -31,8 +43,10 @@ class HostObserver:
         section = check.get('section')
         if not probe or not section:
             return False
+        reference = artifact_reference(result) or goal.get('execution_context', {}).get('step_artifacts', {}).get(step.get('id'), {})
+        source_path = probe.get('path') or reference.get('file_path', '')
         if probe.get('type') == 'server_file':
-            path = approve_server_export(probe.get('path', ''), base_dir=self.base_dir).path
+            path = approve_server_export(source_path, base_dir=self.base_dir).path
             digest = hashlib.sha256()
             with path.open('rb') as stream:
                 before = os.fstat(stream.fileno())
@@ -45,6 +59,11 @@ class HostObserver:
             if probe.get('sha256') and value['sha256'] != probe['sha256']:
                 raise ValueError('artifact_hash_mismatch')
             evidence = {'kind': 'server_file_readback', 'path': str(path), **value}
+        elif probe.get('type') == 'document_content':
+            from core.document_quality import audit_document
+            path = approve_server_export(source_path, base_dir=self.base_dir).path
+            value = audit_document(path, probe.get('criteria'))
+            evidence = {'kind': 'document_content_readback', 'path': str(path), **value}
         elif probe.get('type') == 'companion':
             name = probe.get('capability')
             if name not in READ_ONLY_DEVICE_PROBES:

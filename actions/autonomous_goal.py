@@ -65,7 +65,7 @@ def autonomous_goal(parameters,**kwargs):
             budget_data=parameters.get("budget") or {}
             budget=Budget(**{k:v for k,v in budget_data.items() if k in Budget.__dataclass_fields__}) if isinstance(budget_data,dict) else Budget()
             goal=_coordinator().create_goal(parameters.get("objective",""),plan,parameters.get("origin_device",""),
-                         parameters.get("origin_session",""),parameters.get("requested_target",""),parameters.get("granted_permissions") or (),budget,parameters.get("completion_checks"))
+                         parameters.get("origin_session",""),parameters.get("requested_target",""),parameters.get("granted_permissions") or (),budget,parameters.get("completion_checks"),parameters.get("requirements"))
         else:
             goal=_STORE.create(parameters.get("objective",""),parameters.get("origin_device",""),parameters.get("origin_session",""),parameters.get("requested_target",""))
         return json.dumps(goal,ensure_ascii=False)
@@ -88,6 +88,7 @@ TOOL={"name":"autonomous_goal","description":"Persist, inspect, reconcile, advan
     "operation":{"type":"STRING","enum":["create","inspect","resume","observe","advance"]},
     "objective":{"type":"STRING"},"goal_id":{"type":"STRING"},"origin_device":{"type":"STRING"},"origin_session":{"type":"STRING"},"requested_target":{"type":"STRING"},
     "granted_permissions":{"type":"ARRAY","items":{"type":"STRING"}},"budget":{"type":"OBJECT"},
+    "requirements":{"type":"ARRAY","items":{"type":"OBJECT","properties":{"id":{"type":"STRING"},"description":{"type":"STRING"}},"required":["id","description"]}},
     "completion_checks":{"type":"ARRAY","items":{"type":"OBJECT"}},
     "plan":{"type":"ARRAY","items":{"type":"OBJECT"}},"section":{"type":"STRING"},"value":{}
 },"required":["operation"]},"handler":autonomous_goal}

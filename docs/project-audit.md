@@ -84,3 +84,26 @@ implemented. Semantic completeness of model-authored goal criteria and document
 quality still need workflow-specific evaluation. Scoped procedural retrieval is
 not a replacement for personal-memory privacy/retention controls, and these
 checks do not provide external exactly-once execution or multi-process locking.
+
+
+## Document content and goal-contract coverage
+
+DOCX/TXT/Markdown readback evaluates declared content and structural conditions;
+DOCX inspection surfaces defects without rewriting the source. Regression tests
+cover merged subheadings, escaped newline text, empty conclusions, required text
+in the wrong section, inherited heading styles, dynamic artifact paths and
+requirement-to-final-check coverage. Invalid or ambiguous rules fail before
+execution. Coverage and content results do not certify semantic completeness,
+source authenticity or academic quality.
+
+A previously supplied DOCX was reviewed read-only as an eight-page render and
+through extracted structure. It showed duplicated/merged headings, visible
+escaped newlines, placeholder identity text and a conclusion with no separate
+body before the bibliography. Equivalent synthetic cases are in the regression
+suite; the private source file is not included in the repository. That review is
+not a claim that current generation reproduces those historical defects.
+
+Physical Android/desktop acceptance remains pending: the audit environment has
+no connected device transport. The operations guide lists concrete acceptance
+cases and evidence to retain. No hardware, voice playback, accessibility or
+real-device download result is marked passed by unit/protocol tests.

@@ -7,6 +7,7 @@ successful function return into proof by itself.
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
+from core.goal_contracts import validate_rule
 from core.action_result import normalize, FAILED, BLOCKED, WAITING
 
 @dataclass
@@ -45,6 +46,10 @@ class GenericVerificationEngine:
         if not check:
             return VerificationDecision(False, "independent_verification_required",
                                         {"action_result": normalized}).to_dict()
+        try:
+            validate_rule(check)
+        except ValueError as exc:
+            return VerificationDecision(False, str(exc)).to_dict()
         section = check.get("section")
         if not section:
             return VerificationDecision(False, "verification_section_required", {"check": check}).to_dict()

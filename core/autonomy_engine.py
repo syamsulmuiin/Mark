@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import copy
 import threading
+from core.goal_contracts import validate_rule, requirement_coverage
+from core.host_observations import artifact_reference
 
 _ADVANCE_LOCK = threading.RLock()
 RANK={"LOW":0,"MEDIUM":1,"HIGH":2}
@@ -22,7 +24,7 @@ class AutonomousCoordinator:
         if self.tracer is not None:
             try:self.tracer.emit(event,**fields)
             except Exception:pass
-    def create_goal(self,objective,plan,origin_device="",origin_session="",requested_target="",granted_permissions=(),budget=None,completion_checks=None):
+    def create_goal(self,objective,plan,origin_device="",origin_session="",requested_target="",granted_permissions=(),budget=None,completion_checks=None,requirements=None):
         if not isinstance(plan, list) or not plan or any(not isinstance(s, dict) for s in plan):
             raise ValueError('nonempty_plan_required')
         ids = [s.get('id') for s in plan]
@@ -31,7 +33,14 @@ class AutonomousCoordinator:
         checks = completion_checks or []
         if not isinstance(checks, list) or any(not isinstance(c, dict) or not c.get('section') or (c.get('step_id') is not None and c['step_id'] not in ids) for c in checks):
             raise ValueError('invalid_completion_checks')
+        for step in plan:
+            if step.get('verify') is not None:validate_rule(step['verify'])
+        for check in checks:validate_rule(check)
+        required = requirements if requirements is not None else []
+        coverage = requirement_coverage(required, checks)
         d=self.store.create(objective,origin_device,origin_session,requested_target,budget=(budget or self.default_budget).__dict__)
+        d["requirements"]=required
+        d["criteria_coverage"]=coverage
         d["completion_checks"]=checks
         d["plan"]=plan;d["pending_steps"]=[x["id"] for x in plan];d["execution_context"]["granted_permissions"]=list(granted_permissions);d["status"]="RUNNING";return self.store.save(d)
     def advance(self,gid):
@@ -45,8 +54,8 @@ class AutonomousCoordinator:
         try:
             if self.observer(step, result, self.world, g) is True:
                 return True
-        except (OSError, ValueError, PermissionError, ConnectionError, TimeoutError):
-            pass
+        except Exception as exc:
+            self._trace("host_probe_failed", error_type=type(exc).__name__)
         # Do not allow an older observation to mask a failed fresh probe.
         section = (step.get('verify') or {}).get('section')
         self.world.update_observed(section, None, {'reason': 'host_probe_unavailable'})
@@ -54,6 +63,12 @@ class AutonomousCoordinator:
 
     def _finish_goal(self, g):
         explicit = g.get('completion_checks', [])
+        try:
+            g['criteria_coverage'] = requirement_coverage(g.get('requirements', []), explicit)
+        except ValueError:
+            g['status'] = 'NO_SAFE_PROGRESS_POSSIBLE'
+            g['completion_verification'] = [{'verified': False, 'reason': 'goal_requirements_not_covered'}]
+            return self.store.save(g)
         checks = ([({'id': check.get('step_id', 'goal-final'), 'verify': check}, check) for check in explicit]
                   if explicit else [(step, step.get('verify') or {}) for step in g.get('plan', [])])
         decisions = []
@@ -153,6 +168,8 @@ class AutonomousCoordinator:
         else:
             result=self.executor(cap,s.get("inputs",{}),g)
         g["active_step"]["result"] = result
+        reference = artifact_reference(result)
+        if reference:g["execution_context"].setdefault("step_artifacts", {})[s["id"]] = reference
         self.store.save(g)
         g["observations"].append({"task_id":s["id"],"type":"executor_result","result":result}); self._trace("execution_result",goal_id=gid,task_id=s.get("id"),capability=s.get("capability"),device_id=(cap.device_id if cap else g.get("execution_target")),status=(result.get("status") if isinstance(result,dict) else "LEGACY"),verified=(result.get("verified") if isinstance(result,dict) else False))
         # Structured execution status can stop the loop before independent state
@@ -171,6 +188,8 @@ class AutonomousCoordinator:
                 self.store.save(g)
                 alt_result=self.executor(alt,s.get("inputs",{}),g)
                 g["active_step"]["result"] = alt_result
+                reference = artifact_reference(alt_result)
+                if reference:g["execution_context"].setdefault("step_artifacts", {})[s["id"]] = reference
                 self.store.save(g)
                 g["observations"].append({"task_id":s["id"],"type":"fallback_executor_result","device_id":alt.device_id,"result":alt_result})
                 self.capabilities.record(cap.name,cap.device_id,False,error=result.get("reason","execution_failed"))

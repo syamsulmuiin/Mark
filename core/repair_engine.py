@@ -41,6 +41,8 @@ PROTECTED_EXACT = {
     "core/plugin_loader.py",
     "core/confirm.py",
     "core/action_policy.py",
+    "core/local_api_auth.py",
+    "core/server_export_policy.py",
     "core/llm_proposal_handoff.py",
     "core/undo.py",
     "config/api_keys.json",
@@ -91,6 +93,11 @@ def normalize_rel(rel: str) -> str:
     if any(part in {"", ".", ".."} for part in p.parts):
         raise RepairPolicyError("path traversal is not allowed")
     normalized = p.as_posix()
+    current = BASE_DIR
+    for part in p.parts:
+        current = current / part
+        if current.is_symlink():
+            raise RepairPolicyError("symlink repair targets are not allowed")
     resolved = (BASE_DIR / normalized).resolve()
     try:
         resolved.relative_to(BASE_DIR.resolve())
@@ -100,8 +107,8 @@ def normalize_rel(rel: str) -> str:
 
 
 def is_protected(rel: str) -> bool:
-    rel = normalize_rel(rel)
-    return rel in PROTECTED_EXACT or any(rel.startswith(prefix) for prefix in PROTECTED_PREFIXES)
+    rel = normalize_rel(rel).casefold()
+    return rel in {name.casefold() for name in PROTECTED_EXACT} or any(rel.startswith(prefix.casefold()) for prefix in PROTECTED_PREFIXES)
 
 
 def classify_risk(requested: str, files: Iterable[str], new_texts: Iterable[str]) -> str:
@@ -276,6 +283,21 @@ def select_related_tests(root: Path, changed_files: list[str]) -> list[str]:
     return selected
 
 
+def _validator_environment(root: Path, home: Path) -> dict[str, str]:
+    # Keep runtime discovery/locale, never inherit provider tokens, Python hooks,
+    # user configuration homes, or arbitrary deployment secrets.
+    allowed = ('PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
+               'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SYSTEMDRIVE')
+    env = {name: os.environ[name] for name in allowed if name in os.environ}
+    temporary = home / 'tmp'
+    temporary.mkdir(parents=True, exist_ok=True)
+    env.update(HOME=str(home), USERPROFILE=str(home), APPDATA=str(home / 'AppData' / 'Roaming'),
+               LOCALAPPDATA=str(home / 'AppData' / 'Local'), XDG_CONFIG_HOME=str(home / '.config'),
+               XDG_CACHE_HOME=str(home / '.cache'), TMPDIR=str(temporary), TEMP=str(temporary), TMP=str(temporary),
+               PYTHONPATH=str(root), PYTHONNOUSERSITE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')
+    return env
+
+
 def _run_validators(root: Path, changed_files: list[str], timeout: int) -> tuple[bool, list[dict]]:
     if importlib.util.find_spec("pytest") is None:
         return False, [{"command": "repair validation preflight", "returncode": -1,
@@ -289,24 +311,39 @@ def _run_validators(root: Path, changed_files: list[str], timeout: int) -> tuple
     if related:
         commands.insert(2, [sys.executable, "-m", "pytest", "-q", *related])
     results = []
-    for cmd in commands:
-        started = time.monotonic()
-        try:
-            proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout, env={**os.environ, "PYTHONPATH": str(root)})
-            result = {"command": " ".join(cmd), "returncode": proc.returncode, "duration_ms": int((time.monotonic()-started)*1000), "output": redact((proc.stdout + proc.stderr)[-4000:])}
-        except subprocess.TimeoutExpired:
-            result = {"command": " ".join(cmd), "returncode": -1, "duration_ms": int((time.monotonic()-started)*1000), "output": "validation timeout"}
-        results.append(result); audit("validation", files=changed_files, root=str(root), **result)
-        if result["returncode"] != 0:
-            return False, results
+    with tempfile.TemporaryDirectory(prefix='mark-validator-home-') as temporary_home:
+        env = _validator_environment(root, Path(temporary_home))
+        for cmd in commands:
+            started = time.monotonic()
+            try:
+                proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout, env=env)
+                result = {"command": " ".join(cmd), "returncode": proc.returncode, "duration_ms": int((time.monotonic()-started)*1000), "output": redact((proc.stdout + proc.stderr)[-4000:])}
+            except subprocess.TimeoutExpired:
+                result = {"command": " ".join(cmd), "returncode": -1, "duration_ms": int((time.monotonic()-started)*1000), "output": "validation timeout"}
+            results.append(result); audit("validation", files=changed_files, root=str(root), **result)
+            if result["returncode"] != 0:
+                return False, results
+
     return True, results
 
 
+def _validation_copy_ignored(directory, names):
+    ignored = shutil.ignore_patterns('.git', '.venv', 'venv', '__pycache__', 'storage',
+        'build', 'dist', '.pytest_cache', 'pytest-of-root',
+        'provider_auth', 'api_keys.json', 'credentials.json', 'token*.json', '.env', '.env.*',
+        '*.key', '*.pem', '*.p12', '*.pfx')(directory, names)
+    # Runtime state exists at the server root; the desktop's nested runtime
+    # directory is application source and must remain in the validation checkout.
+    if Path(directory).resolve() == BASE_DIR.resolve():
+        ignored.update(name for name in names if name in {'runtime', 'devices'})
+    return set(ignored) | {name for name in names if (Path(directory) / name).is_symlink()}
+
+
 def validate_sandbox(candidates: dict[str, str], timeout: int = VALIDATION_TIMEOUT) -> tuple[bool, list[dict]]:
-    """Validate a candidate in an isolated temporary repository copy first."""
+    """Validate in a filtered temporary copy; this is not OS-level isolation."""
     with tempfile.TemporaryDirectory(prefix="mark-repair-sandbox-") as td:
         root = Path(td) / "repo"
-        shutil.copytree(BASE_DIR, root, ignore=shutil.ignore_patterns(".git", ".venv", "venv", "__pycache__", "storage", "build", "dist", ".pytest_cache", "pytest-of-root", "runtime", "devices", "provider_auth", "api_keys.json", "credentials.json", "token*.json", ".env", ".env.*", "*.key", "*.pem", "*.p12", "*.pfx"))
+        shutil.copytree(BASE_DIR, root, ignore=_validation_copy_ignored)
         for rel, text in candidates.items():
             target = root / normalize_rel(rel); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(text, encoding="utf-8")
         return _run_validators(root, list(candidates), timeout)

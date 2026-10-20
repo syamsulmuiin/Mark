@@ -12,7 +12,7 @@ This audit reviews source contracts and automated checks across the server and n
 | Desktop state and UI | Atomic state writes, identity validation, new pairing controls; compile and protocol tests | No interactive Qt, microphone or OS-control test |
 | Android | Pending versus active trust separation, identity comparison before promotion, existing approval/audio/attachment regression checks and CI compilation | No physical Android test |
 | Storage and file transfer | Trusted export roots, traversal/symlink restrictions, durable Inbox, device-scoped deletion and transfer tests | No production storage migration or disk stress test |
-| Self-repair | Existing risk gates, isolated validation, interrupted-transaction recovery and rollback tests | Production credential files are excluded from the validation copy; authority boundaries are preserved |
+| Self-repair | Existing risk gates, isolated validation, interrupted-transaction recovery and rollback tests | Production credential files and symlinks are excluded from the validation copy; validators use a minimal environment and temporary configuration home. Critical authority files remain protected even through case aliases |
 | Setup and CI | Server/desktop dependency separation, lifecycle checks, Python compilation, workflow review and CI | Optional native AEC3 builds and hardware audio require separate validation |
 
 ## Confirmed findings addressed
@@ -27,6 +27,8 @@ This audit reviews source contracts and automated checks across the server and n
 | Medium | Unauthenticated pending pairing requests were unbounded | Expired requests are pruned, the queue is capped, and peer public keys are validated |
 | Medium | Android overwrote active server trust when merely requesting new pairing | Pending server identity remains separate until a matching successful claim |
 
+Validation copies retain `desktop-companion/runtime` application source; only root server runtime state is excluded. An actual filtered-copy validation run is required in addition to ordinary repository tests.
+
 Earlier document/execution fixes remain covered: consistent heading levels, structure-only revisions, single-path build feedback, timeout honesty, binary-format source-write rejection and verified source/document distinction.
 
 ## Deployment and remaining validation
@@ -35,4 +37,4 @@ Update the server and desktop checkout, restart the server, and install the upda
 
 Required real-device checks: new desktop pairing through the operator CLI; existing desktop/Android reconnect after restart; failed or cancelled re-pairing preserves active trust; voice interruption and single result feedback; document revision followed by opening the received artifact; explicit direct save; Android Accessibility execution and background reconnection. Windows/macOS desktop and optional native AEC3 targets remain platform-specific validation work.
 
-The repair validation copy is not an operating-system sandbox: validators still run under the server account. Credential exclusion reduces accidental copying, but does not provide process-level filesystem/network isolation.
+The repair validation copy is not an operating-system sandbox: validators still run under the server account. Credential/environment exclusion and symlink restrictions reduce accidental exposure, but do not provide process-level filesystem/network isolation. Validators can still access paths available to the server account; full OS isolation remains a separate deployment requirement.

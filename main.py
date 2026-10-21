@@ -2212,7 +2212,7 @@ class JarvisLive:
         from core.action_outcomes import assess, trace_metadata
         _outcome = assess(result)
         _trace_event("tool_outcome", tool=name, outcome=_outcome, **trace_metadata(result, args))
-        from core.tool_feedback import observed_files, skill_feedback
+        from core.tool_feedback import observed_files, skill_feedback, artifact_feedback
         _files = observed_files(result)
         if _files:
             if not hasattr(self, '_observed_tool_files'):self._observed_tool_files = {}
@@ -2223,10 +2223,11 @@ class JarvisLive:
             id=fc.id, name=name,
             response={"result": result, "outcome": _outcome,
                       **(skill_feedback(result, args) if name == "skill_manager" else {}),
+                      **artifact_feedback(name, result, args),
                       "response_instruction": (
                           "Bookkeeping only: do not repeat an already spoken result."
                           if name == "task_continuity" else
-                          "Continue intermediate inspection steps silently. Give one concise final result for the user request. "
+                          "Continue intermediate inspection steps silently. Give one concise final result for the user request, including requested calculations, changed values and conclusions. File delivery alone does not replace the substantive answer, including after revisions. "
                           "If an error prevents completion, explain that specific error once; do not repeat progress promises or an earlier success."),
                       "completion_rule": "Only VERIFIED confirms the reported step. FAILED/WAITING/UNVERIFIED are not completed user goals. Inspect the actual state; never retry side effects blindly or invent file paths.", **(confirm_gate.response_metadata(str(result))
                       if name == "test_flash_approval" else {})},

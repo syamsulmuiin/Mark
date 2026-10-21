@@ -91,3 +91,10 @@ Passing verifies only the listed structural/content conditions. The report keeps
 It does not establish factual accuracy, source authenticity, academic quality or
 visual layout. Other formats/unsupported criteria need separate adapters and
 remain unverified. Quality inspection never rewrites an existing document.
+
+For small UTF-8 text, Markdown, CSV and JSON outputs, Mark returns bounded file
+readback to the conversation after writing and attachment notification. Readback
+must match the returned SHA-256 and stay within the artifact directory. The final
+answer should include the requested substantive results and revision changes,
+not just a delivery acknowledgement. File identity verification does not certify
+calculation correctness; requested calculations still require verification.

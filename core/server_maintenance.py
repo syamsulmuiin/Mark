@@ -136,7 +136,18 @@ def maintain(operation='status'):
             outcome = 'WAITING' if state.get('status') in _ACTIVE | {'dependencies_required'} else 'FAILED' if state.get('status') == 'failed' else 'VERIFIED'
             return {'ok': outcome != 'FAILED', 'status': outcome, 'verified': outcome == 'VERIFIED', 'maintenance': state,
                     'operations': ['check', 'update', 'restart', 'update_restart'],
-                    'instruction': 'A scheduled restart is not completed; report its recorded state accurately.'}
+                    'instruction': (
+                        'Restart completed and replacement server readiness was verified. '
+                        'Report completion; do not describe this restart as queued or pending.'
+                        if state.get('status') == 'completed' else
+                        'Restart is scheduled or in progress, not completed. Report the recorded state; do not schedule it again.'
+                        if state.get('status') in _ACTIVE else
+                        'Dependency installation is required before activation; do not claim restart completion.'
+                        if state.get('status') == 'dependencies_required' else
+                        'Maintenance failed. Report the recorded failure; do not claim completion.'
+                        if state.get('status') == 'failed' else
+                        'Report the recorded maintenance state. Do not infer a pending or completed restart from another operation.'
+                    )}
         if operation not in {'check', 'update', 'restart', 'update_restart'}:
             raise ValueError('Unknown server maintenance operation')
         previous = _read_state()

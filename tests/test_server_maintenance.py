@@ -126,3 +126,20 @@ def test_restart_launches_fixed_detached_helper_and_stays_waiting(tmp_path,monke
     assert calls[0][0]==[maintenance.sys.executable,'-m','core.server_maintenance','--restart-helper']
     assert calls[0][1]['cwd']==tmp_path
     assert maintenance.maintain('status')['status']=='WAITING'
+
+
+@pytest.mark.parametrize('state,status,phrase', [
+    ({'status':'completed','verified':True}, 'VERIFIED', 'Restart completed'),
+    ({'status':'scheduled'}, 'WAITING', 'not completed'),
+    ({'status':'restarting'}, 'WAITING', 'not completed'),
+    ({'status':'dependencies_required'}, 'WAITING', 'installation is required'),
+    ({'status':'failed'}, 'FAILED', 'Maintenance failed'),
+    ({'status':'updated'}, 'VERIFIED', 'Do not infer'),
+    ({}, 'VERIFIED', 'Do not infer'),
+])
+def test_status_instruction_matches_recorded_operation(monkeypatch, state, status, phrase):
+    monkeypatch.setattr(maintenance, '_read_state', lambda: state)
+    result = maintenance.maintain('status')
+    assert result['status'] == status
+    assert phrase in result['instruction']
+    assert result['maintenance'] == state

@@ -121,7 +121,9 @@ def test_numbered_provider_capability_and_route_selection(config_file, monkeypat
         model_profiles.getpass, "getpass", lambda prompt: "image-secret"
     )
     # Add OpenAI image generation, then select existing Text/Live and the new image route.
-    answer(monkeypatch, ["1", "2", "3", "1", "Illustrations", "2", "", "", "1", "3"])
+    answer(
+        monkeypatch, ["1", "2", "3", "1", "Illustrations", "", "2", "", "", "1", "3"]
+    )
     assert model_profiles.configure()
     cfg = json.loads(config_file.read_text())
     policy = cfg["model_routing"]
@@ -200,3 +202,17 @@ def test_route_prompt_keeps_existing_priority_and_failover(config_file):
     assert any("[2,1]" in prompt for prompt in prompts)
     assert policy["routes"]["text"] == ["extra", "current_text"]
     assert policy["failover"] == ["text"]
+
+
+def test_new_image_model_can_be_assigned_during_add(config_file, monkeypatch):
+    monkeypatch.setattr(
+        model_profiles, "discover_models", lambda *a: ["gpt-image-test"]
+    )
+    monkeypatch.setattr(
+        model_profiles.getpass, "getpass", lambda prompt: "image-secret"
+    )
+    answer(monkeypatch, ["1", "2", "3", "1", "", "", "3"])
+    assert model_profiles.configure()
+    cfg = json.loads(config_file.read_text())
+    assert model_profiles.primary("image", cfg)["model"] == "gpt-image-test"
+    assert cfg["model_routing"]["failover"] == []

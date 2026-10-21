@@ -70,6 +70,8 @@ A detached helper schedules restart after ten seconds. Scheduled/restarting mean
 | `runtime/maintenance.log` | Detached restart-helper output |
 | `~/.mark-companion/logs/error.log` | Desktop companion failures; separate from server logs |
 
+Tool-outcome events include bounded operation/status/reason codes, error types and verification flags when available. They exclude argument values, source/output content, file paths and raw exception messages. Listing a registry verifies that inspection only; a successful script process still requires checking the requested artifact.
+
 Interaction logs do not contain transcript text or audio. A quiet error log is normal during successful operation and does not prove that no failures occurred.
 
 To request attachments, say “Send the server error and interaction logs to this device.” Diagnostic inspection alone does not deliver files. The diagnostic report lists existing fixed log sources; Mark must then call `send_server_file` for each requested log, using the current companion Inbox by default. Raw attachments differ from the redacted diagnostic excerpt. Missing files must be reported rather than replaced with generated text or renamed scripts.

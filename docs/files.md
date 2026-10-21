@@ -22,6 +22,8 @@ Android and desktop separate Received and Sent entries.
 
 Only the authenticated sender or recipient can manage an entry. Shared objects and other aliases are retained. Original server source documents and already-downloaded device copies are unchanged by server attachment deletion.
 
+CSV processing uses pandas UTF-8 decoding with replacement for invalid bytes. Read failures are reported as failures rather than successful inspection; inspect the actual generated file before treating its content as correct.
+
 ## Creating files
 
 `code_helper` and `dev_agent` provide general content/code workflows. A new extension does not inherently require a new tool, but installed libraries, runtime support, and execution approval still apply.

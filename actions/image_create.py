@@ -76,7 +76,7 @@ def image_create(parameters, **kwargs):
     except ImageGenerationError as exc:
         failed(type(exc).__name__,str(exc))
         return json.dumps({'status':'BLOCKED','verified':False,'reason':str(exc),
-            'instruction':'Check the active image route with python -m core.model_profiles --configure, or the legacy image service with python -m core.image_generation --configure. Only explicitly approved routes may be attempted. No local renderer or search-image substitute was used.'})
+            'instruction':'Check the active image route with python -m core.model_profiles --configure, or the legacy image service with python -m core.image_generation --configure. Adding a model to the pool does not assign it: choose option 2 and select it for Image generation. A new skill or source patch is not required for this setup step. Only explicitly approved routes may be attempted. No local renderer or search-image substitute was used.'})
     except VisualReviewUnavailable:
         failed('VisualReviewUnavailable','visual_review_unavailable')
         return json.dumps({'status':'BLOCKED','verified':False,'reason':'visual_review_unavailable',

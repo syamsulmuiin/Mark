@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 import re
-from core.skill_registry import SkillRegistry, IMAGE_SEARCH_STEPS, is_builtin_image_search
+from core.skill_registry import SkillRegistry, IMAGE_SEARCH_STEPS, is_builtin_image_search, IMAGE_CREATE_STEPS, is_builtin_image_create
 from core.dynamic_skill_registry import DynamicSkillRegistry
 from core.capability_registry import CapabilityRegistry
 from core.capability_evolution import CapabilityEvolutionEngine
@@ -29,13 +29,13 @@ def skill_manager(parameters, **kwargs):
             if any(r.get('name') == name for r in store.all()):
                 raise ValueError('Skill name already exists; list saved skills and use its ID')
             kind = params.get('kind')
-            if kind == 'image_search':
-                record = store.create(name, str(params.get('purpose') or 'Search for images'), _IMAGE_STEPS,
-                                      provenance={'template':'builtin_image_search_v1'})
+            if kind in {'image_search','image_create'}:
+                record = store.create(name, str(params.get('purpose') or ('Search for images' if kind=='image_search' else 'Create local PNG designs')), _IMAGE_STEPS if kind=='image_search' else IMAGE_CREATE_STEPS,
+                                      provenance={'template':'builtin_image_search_v1' if kind=='image_search' else 'builtin_image_create_v1'})
                 return json.dumps({'status':'REGISTERED','skill_id':record['skill_id'],
-                                   'verified':False,'instruction':'Saved search composition; no network search has run yet. Run this skill by ID with a query. Provider availability is required.'})
+                                   'verified':False,'instruction':'Saved built-in image composition only; no image has been created or searched yet. Run by ID with inputs.query for search or inputs.prompt for creation.'})
             if kind != 'pure':
-                raise ValueError('Supported kinds: pure, image_search')
+                raise ValueError('Supported kinds: pure, image_search, image_create')
             engine = CapabilityEvolutionEngine(store, dynamic, CapabilityRegistry(), SkillSynthesizer())
             result = engine.ensure_capability(name, str(params.get('purpose') or ''), params.get('parameters'))
             record = result.get('skill') or {}
@@ -55,6 +55,9 @@ def skill_manager(parameters, **kwargs):
             raise ValueError('Skill inputs must be an object')
         if record.get('skill_type') == 'GENERATED':
             return json.dumps(dynamic.execute(sid, inputs), ensure_ascii=False)
+        if is_builtin_image_create(record):
+            from actions.image_create import image_create
+            return image_create(inputs)
         if not is_builtin_image_search(record):
             raise ValueError('This composite requires the autonomy executor')
         from actions.web_search import web_search
@@ -69,10 +72,10 @@ def skill_manager(parameters, **kwargs):
 
 
 TOOL = {'name':'skill_manager',
-    'description':'Create, list, or run persisted reusable skills. Fixed image-search template creation and execution need no approval; generated Python retains host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Image runs download validated files for companion Inbox handoff; internal execution alone does not prove delivery.',
+    'description':'Create, list, or run persisted reusable skills. Fixed image-search/image-create templates need no approval; generated Python retains host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_create saves an original local PNG design workflow; run with inputs.prompt. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Image runs produce reviewed PNG designs or download reviewed search results for companion Inbox handoff; internal execution alone does not prove delivery.',
     'parameters':{'type':'OBJECT','properties':{
         'operation':{'type':'STRING','enum':['list','create','run']},
-        'kind':{'type':'STRING','enum':['pure','image_search']},
+        'kind':{'type':'STRING','enum':['pure','image_search','image_create']},
         'name':{'type':'STRING'},'purpose':{'type':'STRING'},
         'parameters':{'type':'OBJECT'}, 'skill_id':{'type':'STRING'},'inputs':{'type':'OBJECT'}},
         'required':['operation']},'handler':skill_manager}

@@ -113,7 +113,7 @@ def is_builtin_image_search(record):
             and record["provenance"].get("template") == "builtin_image_search_v1")
 
 
-def saved_image_search_is_safe(skill_id):
+def saved_image_template_is_safe(skill_id):
     """Read the host record without accepting model-supplied kind or paths."""
     import re
     if not isinstance(skill_id, str) or not re.fullmatch(r"[a-f0-9]{32}", skill_id):
@@ -121,6 +121,17 @@ def saved_image_search_is_safe(skill_id):
     path = Path(__file__).resolve().parents[1] / "storage/autonomy/skills" / f"{skill_id}.json"
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
-        return record.get("skill_id") == skill_id and is_builtin_image_search(record)
+        return record.get("skill_id") == skill_id and (is_builtin_image_search(record) or is_builtin_image_create(record))
     except (OSError, ValueError, AttributeError):
         return False
+
+
+IMAGE_CREATE_STEPS = [{"capability":"image_create", "inputs":{}}]
+
+
+def is_builtin_image_create(record):
+    return (isinstance(record,dict) and record.get('skill_type')=='COMPOSITE'
+            and record.get('operational_state') in {'ACTIVE','DEGRADED'}
+            and record.get('steps')==IMAGE_CREATE_STEPS
+            and isinstance(record.get('provenance'),dict)
+            and record['provenance'].get('template')=='builtin_image_create_v1')

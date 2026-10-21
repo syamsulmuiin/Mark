@@ -76,11 +76,11 @@ def image_create(parameters, **kwargs):
     except ImageGenerationError as exc:
         failed(type(exc).__name__,str(exc))
         return json.dumps({'status':'BLOCKED','verified':False,'reason':str(exc),
-            'instruction':'Configure or check the explicitly selected image service with python -m core.image_generation --configure. No local renderer, search-image substitute, alternate model or Codex login credential was used.'})
+            'instruction':'Check the active image route with python -m core.model_profiles --configure, or the legacy image service with python -m core.image_generation --configure. Only explicitly approved routes may be attempted. No local renderer or search-image substitute was used.'})
     except VisualReviewUnavailable:
         failed('VisualReviewUnavailable','visual_review_unavailable')
         return json.dumps({'status':'BLOCKED','verified':False,'reason':'visual_review_unavailable',
-            'instruction':'Selected Text provider cannot review the image; no model fallback or unverified delivery occurred.'})
+            'instruction':'The configured visual review route is unavailable. Check the vision route in profile mode or the Text model in legacy mode. No unverified delivery occurred.'})
     except Exception as exc:
         failed(type(exc).__name__)
         return json.dumps({'status':'FAILED','verified':False,'error_type':type(exc).__name__,
@@ -88,6 +88,6 @@ def image_create(parameters, **kwargs):
 
 
 TOOL = {'name':'image_create',
-    'description':'Create ONE original image using the explicitly configured image-generation service (default mode=generate), not an internet search. Missing service access is BLOCKED, never substituted with geometric art. Use mode=local_design ONLY when the user explicitly requests a simple text/geometric layout. Both paths use selected Text visual review; artistic quality is not guaranteed. Produces an image attachment through companion handoff, never a Python script. No arbitrary code executes. For a reusable creation skill use skill_manager kind=image_create.',
+    'description':'Create ONE original image using the explicitly configured image-generation service (default mode=generate), not an internet search. Missing service access is BLOCKED, never substituted with geometric art. Use mode=local_design ONLY when the user explicitly requests a simple text/geometric layout. Both paths use the configured vision route (primary Text in legacy mode) for visual review; artistic quality is not guaranteed. Produces an image attachment through companion handoff, never a Python script. No arbitrary code executes. For a reusable creation skill use skill_manager kind=image_create.',
     'parameters':{'type':'OBJECT','properties':{'mode':{'type':'STRING','enum':['generate','local_design'],'description':'Default generate. local_design only on explicit request for text/geometric rendering.'},'prompt':{'type':'STRING','description':'Complete user design request including any requested text, style and date.'}},'required':['prompt']},
     'handler':image_create}

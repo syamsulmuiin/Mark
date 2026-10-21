@@ -15,7 +15,8 @@ FAST, SMART = gemini.FAST, gemini.SMART
 
 def call(contents, tier=SMART, config=None, timeout_ms=30000):
     settings = load_config()
-    if str(settings.get("llm_provider") or "gemini").strip().lower() == "gemini":
+    from core.model_profiles import enabled
+    if not enabled(settings) and str(settings.get("llm_provider") or "gemini").strip().lower() == "gemini":
         from core.response_language import language_instruction
         policy = language_instruction(config=settings)
         if policy:

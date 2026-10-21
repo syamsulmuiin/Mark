@@ -43,6 +43,16 @@ def interactive_language_setup() -> bool:
 
 def configured() -> bool:
     d = load_config()
+    from core.model_profiles import enabled, primary
+    if enabled(d):
+        try:
+            text_profile = primary('text', d)
+            live_profile = primary('live', d)
+            return bool(str(d.get('os_system') or '').strip() and live_profile.get('api_key', '').strip()
+                        and (text_profile['provider'] in {'openai_codex', 'google_oauth', 'ollama_local'}
+                             or text_profile.get('api_key', '').strip()))
+        except (ValueError, RuntimeError):
+            return False
     live = d.get("live_provider") or "gemini"
     key_field = "openai_api_key" if live == "openai_realtime" else "gemini_api_key"
     return (live in {"gemini", "openai_realtime"}

@@ -9,6 +9,8 @@ from core.setup_config import load_config
 
 def provider(config: dict | None = None) -> str:
     settings = load_config() if config is None else config
+    from core.model_profiles import enabled, primary
+    if enabled(settings):return primary('live',settings)['provider']
     selected = str(settings.get("live_provider") or "gemini").strip().lower()
     if selected not in {"gemini", "openai_realtime"}:
         raise NotImplementedError(f"Live provider {selected!r} is not implemented")
@@ -16,6 +18,9 @@ def provider(config: dict | None = None) -> str:
 
 
 def model(config: dict | None = None) -> str:
+    settings=load_config() if config is None else config
+    from core.model_profiles import enabled, primary
+    if enabled(settings):return primary('live',settings)['model']
     if provider(config) == "openai_realtime":
         settings = load_config() if config is None else config
         return str(settings.get("realtime_model") or "gpt-realtime-2.1").strip()
@@ -28,6 +33,15 @@ def client(config: dict | None = None, *, enhanced: bool = False):
 
     Preserve the existing v1alpha/v1beta selection for proactive audio.
     """
+    settings=load_config() if config is None else config
+    from core.model_profiles import enabled, primary
+    if enabled(settings):
+        p=primary('live',settings)
+        if p['provider']=='openai_realtime':
+            from core.llm_openai_realtime import RealtimeClient
+            return RealtimeClient({**settings,'openai_api_key':p.get('api_key',''),'realtime_model':p['model']})
+        from google import genai
+        return genai.Client(api_key=p.get('api_key',''),http_options={'api_version':'v1alpha' if enhanced else 'v1beta'})
     if provider(config) == "openai_realtime":
         from core.llm_openai_realtime import RealtimeClient
         return RealtimeClient(load_config() if config is None else config)

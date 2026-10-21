@@ -197,3 +197,9 @@ protocol tests do not substitute for them.
 
 Retain the actual new logs and record the device/OS and server commit when
 reporting results. A test without device access is pending, never passed.
+
+## Diagnostic execution budget
+
+Read-only self-repair diagnosis has a shared 45-second model-work budget. Each Text request receives the remaining timeout rather than a fresh full timeout. Late results, stalled source discovery, and exhausted discovery rounds cannot produce an actionable repair plan. An incomplete result is reported once with a reason; narrow the symptom or supply additional evidence instead of automatically repeating the same diagnosis. No provider/model fallback is used.
+
+Interaction events `repair_diagnostic_started`, `repair_diagnostic_returned`, and `repair_diagnostic_incomplete` distinguish entry, a returned response, and incomplete work. A returned response is not proof of a valid plan or a successful repair. The deadline is cooperative: provider timeout support and local filesystem responsiveness remain necessary; this is not forced thread termination.

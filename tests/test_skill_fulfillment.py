@@ -162,3 +162,18 @@ print(str(result.resolve()))
     assert second['skill_id']==first['skill_id'] and second['process_verified']
     assert (root/'counter.txt').read_text()=='2'
     assert json.loads((root/'result.json').read_text())=={'sum':30}
+
+
+def test_registration_failure_preserves_execution_evidence(monkeypatch,tmp_path):
+    from actions import code_helper
+    def build(description,language,path,args,timeout,**kw):
+        Path(path).write_text('print("done")')
+        return json.dumps({'status':'UNVERIFIED','verified':False,'process_verified':True,'executed':True,
+            'file_path':path,'source_sha256':hashlib.sha256(Path(path).read_bytes()).hexdigest()})
+    monkeypatch.setattr(code_helper,'_build',build)
+    class Store:
+        def create(self,*a,**kw):raise OSError('private=detail')
+    result=script_skills.build_script_skill(Store(),tmp_path,'task','purpose',{})
+    assert result['executed'] and result['process_verified'] and not result['skill_created']
+    assert 'Do not rebuild or rerun' in result['instruction']
+    assert 'private' not in json.dumps(result)

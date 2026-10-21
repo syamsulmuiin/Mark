@@ -11,8 +11,8 @@ import uuid
 import time
 from urllib.parse import urlsplit, urljoin
 
-MAX_BYTES = 8 * 1024 * 1024
-MAX_PIXELS = 20_000_000
+MAX_BYTES = 20 * 1024 * 1024
+MAX_PIXELS = 40_000_000
 
 
 def public_target(url):

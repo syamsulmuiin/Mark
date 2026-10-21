@@ -25,7 +25,7 @@ class SkillRegistry:
             if any(not isinstance(s,dict) or not s.get("capability") for s in steps):raise ValueError("skills are declarative capability compositions")
         elif steps and any(not isinstance(s,dict) for s in steps):
             raise ValueError("generated skill metadata steps must be mappings")
-        r={"skill_id":uuid.uuid4().hex,"name":name,"purpose":purpose,"steps":steps or [],"permissions":list(permissions),"risk_level":risk_level,
+        r={"skill_id":uuid.uuid4().hex,"name":name,"purpose":purpose,"steps":json.loads(json.dumps(steps or [])),"permissions":list(permissions),"risk_level":risk_level,
            "supported_platforms":list(platforms),"knowledge_reference":list(knowledge_reference),"status":"EXPERIMENTAL","operational_state":"DISABLED" if skill_type=="GENERATED" else "ACTIVE",
            "skill_type":skill_type,"output_capability":str(output_capability or name),"provenance":provenance or {},"history":[],
            "metrics":{"success_count":0,"failure_count":0,"consecutive_failures":0,"rollback_count":0,"failure_patterns":[],"execution_time":[],"environments_tested":[],"last_validation":None,"known_limitations":[],"last_failure":None},"created_at":_now()}
@@ -98,3 +98,29 @@ class SkillRegistry:
                 if r.get("operational_state","ACTIVE") not in {"ACTIVE","DEGRADED"}:continue
             out.append(r)
         return out
+
+
+IMAGE_SEARCH_STEPS = [{"capability": "web_search", "inputs": {"mode": "images"}}]
+
+
+def is_builtin_image_search(record):
+    """Only the fixed inert composition can use the read-only image-search policy."""
+    return (isinstance(record, dict)
+            and record.get("skill_type") == "COMPOSITE"
+            and record.get("operational_state") in {"ACTIVE", "DEGRADED"}
+            and record.get("steps") == IMAGE_SEARCH_STEPS
+            and isinstance(record.get("provenance"), dict)
+            and record["provenance"].get("template") == "builtin_image_search_v1")
+
+
+def saved_image_search_is_safe(skill_id):
+    """Read the host record without accepting model-supplied kind or paths."""
+    import re
+    if not isinstance(skill_id, str) or not re.fullmatch(r"[a-f0-9]{32}", skill_id):
+        return False
+    path = Path(__file__).resolve().parents[1] / "storage/autonomy/skills" / f"{skill_id}.json"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        return record.get("skill_id") == skill_id and is_builtin_image_search(record)
+    except (OSError, ValueError, AttributeError):
+        return False

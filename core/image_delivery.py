@@ -26,7 +26,7 @@ async def deliver_image_results(result, dashboard, origin_device):
         except Exception as exc:
             deliveries.append({'ok':False,'error_type':type(exc).__name__})
     count = sum(d.get('ok') is True for d in deliveries)
-    all_delivered = bool(deliveries) and count == len(deliveries)
+    all_delivered = bool(deliveries) and count == len(deliveries) and not payload.get("partial", False)
     payload.update(deliveries=deliveries, delivered_count=count,
                    status='VERIFIED' if all_delivered and not payload.get('download_failures') else
                           'WAITING' if payload['image_artifacts'] else 'FAILED',

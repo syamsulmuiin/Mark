@@ -73,6 +73,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var attachmentBadge: TextView
     private var deferredPickerRequest: JSONObject? = null
     @Volatile private var ws: WebSocket? = null
+    @Volatile private var authenticatedWs: WebSocket? = null
+
+    private fun readySocket(): WebSocket? = ws?.takeIf { it === authenticatedWs }
     private val attachmentItems = linkedMapOf<String,JSONObject>()
     private val sentAttachmentItems = linkedMapOf<String,JSONObject>()
     private var attachmentTab = "received"
@@ -387,7 +390,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         w.send(JSONObject().put("type","attachment.list").toString())
                     }
-                    "ready"->{ reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
+                    "ready"->{ authenticatedWs=w; reconnectScheduled=false; runOnUiThread { endConversation.visibility=View.VISIBLE; startConversation.visibility=View.GONE }; setVoiceState("LISTENING"); startMic() }
                     "status"->{ val st=m.optString("state").uppercase(); if(st=="SPEAKING"||st=="THINKING") assistantTurnComplete=false; setVoiceState(if(st=="ACTIVE") "LISTENING" else st) }
                     "audio.clear"->{ stopPlayback(); setVoiceState("LISTENING") }
                     "assistant.turn.complete"->{ assistantTurnComplete=true; if(deferredPickerRequest!=null) runOnUiThread { launchDeferredAttachmentPicker() } }
@@ -397,9 +400,11 @@ class MainActivity : AppCompatActivity() {
                     }
                     "approval.request"->runOnUiThread { showApproval(w,m) }
                     "approval.ack"->runOnUiThread {
+                        if(approvalRequestId==m.optString("request_id")) dismissApproval()
                         val label=when(m.optString("status")){
                             "accepted"->"Persetujuan diterima server"
                             "rejected"->"Penolakan diterima server"
+                            "expired"->"Waktu persetujuan habis; tindakan tidak dijalankan"
                             else->"Persetujuan kedaluwarsa atau tidak valid"
                         }
                         Toast.makeText(this@MainActivity,label,Toast.LENGTH_LONG).show()
@@ -427,7 +432,7 @@ class MainActivity : AppCompatActivity() {
                 handleSocketClosed(w,code,reason)
             }
             override fun onClosed(w:WebSocket,code:Int,reason:String){ handleSocketClosed(w,code,reason) }
-            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); ws=null; authenticationBlocked = r?.code==401 || r?.code==403
+            override fun onFailure(w:WebSocket,t:Throwable,r:Response?){ synchronized(this@MainActivity){ if(w !== ws)return; runOnUiThread { dismissApproval() }; stopMic(); stopPlayback(); authenticatedWs=null; ws=null; authenticationBlocked = r?.code==401 || r?.code==403
                 runOnUiThread { status.text=if(authenticationBlocked) "Server menolak koneksi. Pairing tersimpan; periksa identitas dan daftar perangkat server." else "Disconnected: ${t.message}"; orb.state="DISCONNECTED"; endConversation.visibility=View.GONE; startConversation.visibility=View.VISIBLE }; scheduleReconnect() }}
         })
     }
@@ -435,7 +440,7 @@ class MainActivity : AppCompatActivity() {
     @Synchronized private fun handleSocketClosed(socket:WebSocket,code:Int,reason:String){
         if(socket !== ws) return
         runOnUiThread { if(approvalOwner===socket) dismissApproval() }
-        stopMic(); stopPlayback(); ws=null
+        stopMic(); stopPlayback(); authenticatedWs=null; ws=null
         if(code==4003 && reason=="pairing_revoked"){
             prefs.edit().putBoolean("paired",false).apply()
             showPair("Pairing dicabut oleh server. Minta kode pairing baru.")
@@ -587,7 +592,7 @@ class MainActivity : AppCompatActivity() {
         fun finish(accepted:Boolean){
             if(completed || approvalRequestId!=requestId) return
             completed=true
-            if(ws === owner && SystemClock.elapsedRealtime()<approvalDeadlineMs){
+            if(readySocket() === owner && SystemClock.elapsedRealtime()<approvalDeadlineMs){
                 owner.send(JSONObject().put("type","approval.response")
                     .put("request_id",requestId).put("accepted",accepted).toString())
             }
@@ -648,7 +653,7 @@ class MainActivity : AppCompatActivity() {
 
 
     @Synchronized private fun startMic(){
-        val socket = ws ?: return
+        val socket = readySocket() ?: return
         if(intentionalVoiceEnd)return
         if(ActivityCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ ActivityCompat.requestPermissions(this,arrayOf(Manifest.permission.RECORD_AUDIO),42); return }
         if(micRunning)return
@@ -991,18 +996,18 @@ class MainActivity : AppCompatActivity() {
         intent.putExtra("assistant_attachment_request",req.optString("request_id"))
         pendingPickerRequestId=req.optString("request_id")
         try {
-            ws?.send(JSONObject().put("type","attachment.picker.opened").put("request_id",req.optString("request_id")).toString())
+            readySocket()?.send(JSONObject().put("type","attachment.picker.opened").put("request_id",req.optString("request_id")).toString())
             startActivityForResult(intent,93)
         } catch(e:Exception) {
             pendingPickerRequestId=null
-            ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",req.optString("request_id")).put("error",e.message).toString())
+            readySocket()?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",req.optString("request_id")).put("error",e.message).toString())
         }
     }
 
     private fun showAttachmentInbox(){ renderCompanionPage("attachments") }
 
     private fun renderAttachmentContent(panel:LinearLayout){
-        ws?.send(JSONObject().put("type","attachment.list").toString())
+        readySocket()?.send(JSONObject().put("type","attachment.list").toString())
         val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; setPadding(0,0,0,dp(12)) }
         fun tab(label:String,mode:String)=TextView(this).apply {
             text=label; textSize=14f; gravity=android.view.Gravity.CENTER
@@ -1064,7 +1069,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun manageAttachment(item:JSONObject,action:String){
-        val socket=ws
+        val socket=readySocket()
         if(socket==null || !socket.send(JSONObject().put("type","attachment.manage").put("id",item.getString("id")).put("action",action).toString())){
             Toast.makeText(this,"Connect to manage attachments",Toast.LENGTH_LONG).show()
         }
@@ -1132,7 +1137,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestAttachment(id:String,action:String){
         pendingAttachment=Pair(id,action)
-        ws?.send(JSONObject().put("type","attachment.download").put("id",id).toString())
+        readySocket()?.send(JSONObject().put("type","attachment.download").put("id",id).toString())
     }
 
     @Deprecated("Activity result used for native document picker compatibility")
@@ -1151,9 +1156,9 @@ class MainActivity : AppCompatActivity() {
                     if(clips!=null){
                         for(i in 0 until clips.itemCount) sources.put(clips.getItemAt(i).uri.toString())
                     }else data.data?.let { sources.put(it.toString()) }
-                    if(sources.length()>0) ws?.send(JSONObject().put("type","attachment.sources.selected").put("request_id",requestId).put("sources",sources).toString())
-                    else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
-                } else ws?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
+                    if(sources.length()>0) readySocket()?.send(JSONObject().put("type","attachment.sources.selected").put("request_id",requestId).put("sources",sources).toString())
+                    else readySocket()?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
+                } else readySocket()?.send(JSONObject().put("type","attachment.source.cancelled").put("request_id",requestId).toString())
             }
         }
         if(requestCode==94){
@@ -1206,7 +1211,7 @@ class MainActivity : AppCompatActivity() {
                     }?:error("Cannot verify saved attachment")
                     val savedHash=savedDigest.digest().joinToString(""){"%02x".format(it)}
                     if(savedHash!=digest||savedSize!=total)error("Saved attachment verification failed")
-                    ws?.send(JSONObject().put("type","attachment.saved").put("id",id).toString())
+                    readySocket()?.send(JSONObject().put("type","attachment.saved").put("id",id).toString())
                     ui("Attachment saved")
                 }else{
                     val uri=FileProvider.getUriForFile(this,"${packageName}.files",cached)

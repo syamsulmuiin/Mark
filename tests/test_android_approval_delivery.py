@@ -9,3 +9,13 @@ def test_android_approval_delivery_is_waited_on_and_errors_are_visible():
     assert "Android approval delivery failed:" in source
     assert "Android approval unavailable:" in source
     assert "Android approval was not delivered" in source
+
+
+def test_android_application_frames_require_authenticated_socket():
+    source = (Path(__file__).resolve().parents[1] / 'android-companion/app/src/main/java/com/jarvis/companion/MainActivity.kt').read_text()
+    assert 'private fun readySocket(): WebSocket? = ws?.takeIf { it === authenticatedWs }' in source
+    assert '"ready"->{ authenticatedWs=w;' in source
+    assert 'ws?.send(' not in source
+    assert 'val socket = readySocket() ?: return' in source
+    assert 'val socket=readySocket()' in source
+    assert '"expired"->"Waktu persetujuan habis; tindakan tidak dijalankan"' in source

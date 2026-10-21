@@ -119,3 +119,30 @@ def test_host_timeout_logs_without_device_reply(monkeypatch):
     server.discard_pending_approval('host-timeout', outcome='expired')
     server.discard_pending_approval('host-timeout', outcome='expired')
     assert len([e for e, _ in events if e == 'approval_resolved']) == 1
+
+
+def test_expiry_notifies_original_socket_once_without_execution():
+    server = make_server()
+    socket = Socket()
+    server._device_sockets = {'android': socket}
+    server._active_voice_device = 'android'
+    callbacks = []
+    server.set_approval_result_callback(lambda *args: callbacks.append(args))
+    asyncio.run(server.send_active_approval('silent-expiry', 'Restart', ''))
+    assert asyncio.run(server.expire_pending_approval('silent-expiry'))
+    assert socket.messages[-1] == {'type': 'approval.ack', 'request_id': 'silent-expiry', 'status': 'expired'}
+    assert not asyncio.run(server.expire_pending_approval('silent-expiry'))
+    assert not server.accept_approval_reply('android', socket, {'request_id': 'silent-expiry', 'accepted': True})
+    assert callbacks == []
+
+
+def test_expiry_does_not_notify_replacement_socket():
+    server = make_server()
+    old, new = Socket(), Socket()
+    server._device_sockets = {'android': old}
+    server._active_voice_device = 'android'
+    asyncio.run(server.send_active_approval('old-expiry', 'Restart', ''))
+    server._device_sockets['android'] = new
+    assert not asyncio.run(server.expire_pending_approval('old-expiry'))
+    assert new.messages == []
+    assert 'old-expiry' not in server._approval_pending

@@ -22,7 +22,7 @@ Android and desktop separate Received and Sent entries.
 
 Only the authenticated sender or recipient can manage an entry. Shared objects and other aliases are retained. Original server source documents and already-downloaded device copies are unchanged by server attachment deletion.
 
-File processing requires an actual `file_path` from a prior tool result or inspected file; missing paths are rejected before an approval can be requested. Text action proposals receive recent verified artifact paths scoped to the requesting device session, without file contents. These observations do not authorize another device or arbitrary server paths. Read-only inspection of supported inert files inside `storage/artifacts/` runs without a popup; code execution and broader filesystem operations retain approval.
+File processing requires an actual `file_path` from a prior tool result or inspected file; missing paths are rejected before an approval can be requested. Text action proposals receive recent verified artifact paths scoped to the requesting device session, without file contents. These observations do not authorize another device or arbitrary server paths. Read-only inspection of supported inert files inside `storage/artifacts/` runs without a popup; execution with unverified external effects and broader filesystem operations retain approval.
 
 CSV processing uses pandas UTF-8 decoding with replacement for invalid bytes. Read failures are reported as failures rather than successful inspection; inspect the actual generated file before treating its content as correct.
 
@@ -30,7 +30,7 @@ CSV processing uses pandas UTF-8 decoding with replacement for invalid bytes. Re
 
 `code_helper` and `dev_agent` provide general content/code workflows. A new extension does not inherently require a new tool, but installed libraries, runtime support, and execution approval still apply.
 
-New papers and DOCX can use the general creation workflow. Generated code execution retains host approval; verify the actual output file and send its returned path to the requesting companion Inbox. A dedicated format-specific tool is not required.
+New papers and DOCX can use the general creation workflow. Host assessment determines execution approval; verify the actual output file and send its returned path to the requesting companion Inbox. A dedicated format-specific tool is not required.
 
 As an optional structured route, `document_editor create` accepts a title and complete instruction. The configured Text model supplies structured content; the host creates a unique file without executing generated code. Complete `replacement_blocks` can also be supplied. Newly created documents are handed to the captured requesting companion Inbox; failed handoff retains the file for delivery retry.
 

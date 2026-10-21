@@ -33,15 +33,19 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
         return str(args.get("action", "")).lower() not in {"create", "list", "inspect", "revise", "append_section"}
     if tool in READ_ONLY or tool in SIMPLE or tool in NATIVE_GATES:
         return False
-    if tool == "code_helper" and str(args.get("action", "")).lower() == "write" and args.get("code"):
-        raw = str(args.get("output_path") or args.get("file_path") or "")
+    if tool == 'code_helper' and str(args.get('action') or '').lower() == 'run':
+        from core.computation_script import validated_source
+        return validated_source(args.get('file_path') or '') is None
+    if tool == "code_helper" and str(args.get("action", "")).lower() == "write":
+        raw = str(args.get("output_path") or args.get("file_path") or
+                  ('jarvis_code.py' if str(args.get('language') or 'python').lower() in {'python', 'py'} else ''))
         if raw:
             target = Path(raw)
             target = target if target.is_absolute() else ARTIFACT_ROOT / "code" / target
             try:
                 target.resolve().relative_to(ARTIFACT_ROOT.resolve())
                 # Text artifacts never execute; the writer creates a unique file on collision.
-                if target.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json"}:
+                if target.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".py"}:
                     return False
             except (ValueError, OSError):
                 pass
@@ -59,7 +63,8 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
             return False
         if operation == "run":
             from core.skill_registry import saved_image_template_is_safe, saved_pure_skill_is_safe
-            return not (saved_image_template_is_safe(args.get("skill_id")) or saved_pure_skill_is_safe(args.get("skill_id")))
+            from core.script_skills import saved_computation_script
+            return not (saved_image_template_is_safe(args.get("skill_id")) or saved_pure_skill_is_safe(args.get("skill_id")) or saved_computation_script(args.get("skill_id")))
         return True
     if tool == "send_server_file":
         # Export allowlist/hash checks still run; ordinary delivery uses the Inbox.

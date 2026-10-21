@@ -88,6 +88,9 @@ def _save_file(path: Path, content: str) -> str:
             return 'Could not save: ' + BINARY_GUIDANCE
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8", newline="")
+        if path.suffix.lower() == '.py':
+            from core.computation_script import source_assessment
+            source_assessment(path)
         return f"Saved to: {path}"
     except Exception as e:
         return f"Could not save: {e}"
@@ -201,9 +204,28 @@ Code:"""
     response = model.generate_content(prompt)
     code     = _clean_code(response.text)
     path     = _resolve_save_path(output_path, lang)
-    status = _save_file(path, code)
+    try:
+        path.resolve().relative_to(ARTIFACT_ROOT.resolve())
+        inert = path.suffix.lower() in {'.py', '.txt', '.md', '.log', '.csv', '.json'}
+    except (ValueError, OSError):
+        inert = False
+    if inert:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = path
+        while True:
+            try:
+                with path.open('x', encoding='utf-8', newline='') as output:output.write(code)
+                break
+            except FileExistsError:
+                path = original.with_name(original.stem + '-' + uuid.uuid4().hex[:12] + original.suffix)
+        status = 'Saved to: ' + str(path)
+    else:
+        status = _save_file(path, code)
     if not status.startswith("Saved to:"):
         raise OSError(status)
+    if path.suffix.lower() == '.py':
+        from core.computation_script import source_assessment
+        source_assessment(path)
     return code, path
 
 
@@ -328,7 +350,7 @@ def _write_action(description, language, output_path, player, literal_code="") -
         path = _resolve_save_path(output_path, language)
         try:
             path.resolve().relative_to(ARTIFACT_ROOT.resolve())
-            text_artifact = path.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json"}
+            text_artifact = path.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".py"}
         except (ValueError, OSError):
             text_artifact = False
         if text_artifact:
@@ -347,6 +369,9 @@ def _write_action(description, language, output_path, player, literal_code="") -
             status = _save_file(path, literal_code)
         if not status.startswith("Saved to:"):
             return json.dumps({"ok": False, "status": "FAILED", "error": status})
+        if path.suffix.lower() == '.py':
+            from core.computation_script import source_assessment
+            source_assessment(path)
         data = path.read_bytes()
         if data != literal_code.encode("utf-8"):
             return json.dumps({"ok": False, "status": "FAILED", "error": "File readback mismatch"})
@@ -445,6 +470,9 @@ def _run_action(file_path, args, timeout, player) -> str:
         return f"File not found: {file_path}"
     if player:
         player.write_log(f"[Code] Running {p.name}...")
+    from core.computation_script import validated_source, run_checked
+    if validated_source(p) is not None:
+        return json.dumps(run_checked(p, args, timeout), ensure_ascii=False)
     result = _run_file(p, args, timeout)
     if result.startswith('WAITING:'):
         return json.dumps({'ok': True, 'status': 'WAITING', 'verified': False,

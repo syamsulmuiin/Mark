@@ -21,6 +21,7 @@ SELECTION_BATCH = 8  # per discovery round only; there is no total file-count li
 MAX_DISCOVERY_ROUNDS = 32  # loop guard, not a file limit
 MAX_DIAGNOSTIC_SECONDS = 45.0
 _DIAGNOSTIC_DEADLINE = ContextVar("diagnostic_deadline", default=None)
+_DIAGNOSTIC_SCOPE = ContextVar("diagnostic_scope", default=None)
 MAX_FILE_CHARS = 24000
 PROTECTED = set(PROTECTED_EXACT) | {"core/self_healing.py", "actions/self_repair.py"}
 SKIP_PARTS = {".git", "__pycache__", ".venv", "venv", "node_modules", "build", "dist", "pytest-of-root"}
@@ -154,17 +155,30 @@ Remaining files:
             chosen.append(rel)
         if len(chosen) >= SELECTION_BATCH:
             break
-    return chosen, bool(obj.get("closure_complete", False))
+    return chosen, obj.get("closure_complete") is True
 
 
 def _discover_files(problem: str, files: list[str]) -> list[str]:
-    inspected=[]
+    from core.diagnostic_progress import DiagnosticProgress
+    from core.interaction_log import write_event
+    scope = _DIAGNOSTIC_SCOPE.get()
+    progress = DiagnosticProgress(BASE_DIR, scope, files) if scope is not None else None
+    inspected, complete = progress.load() if progress else ([], False)
+    if inspected:
+        write_event(BASE_DIR / "runtime/interaction.log", "repair_diagnostic_resumed",
+                    inspected_count=len(inspected), discovery_complete=complete)
+    if complete:
+        return inspected
     for _ in range(MAX_DISCOVERY_ROUNDS):
         _remaining_ms()
         batch, complete = _select_files(problem, files, inspected)
         for rel in batch:
             if rel not in inspected:
                 inspected.append(rel)
+        if progress:
+            progress.save(inspected, complete)
+        write_event(BASE_DIR / "runtime/interaction.log", "repair_diagnostic_progress",
+                    inspected_count=len(inspected), discovery_complete=complete)
         if complete:
             return inspected
         if not batch:
@@ -208,6 +222,11 @@ def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
     """Bound the whole read-only diagnosis, not each model request independently."""
     from core.interaction_log import write_event
     token = _DIAGNOSTIC_DEADLINE.set(time.monotonic() + MAX_DIAGNOSTIC_SECONDS)
+    # Runtime log tails grow during diagnosis; do not use them as checkpoint IDs.
+    scope_token = _DIAGNOSTIC_SCOPE.set(json.dumps({
+        "problem": str((parameters or {}).get("problem", "")).strip(),
+        "evidence": str((parameters or {}).get("evidence", "")).strip(),
+    }, sort_keys=True))
     path = BASE_DIR / "runtime" / "interaction.log"
     write_event(path, "repair_diagnostic_started", budget_seconds=MAX_DIAGNOSTIC_SECONDS)
     try:
@@ -225,9 +244,10 @@ def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
         return json.dumps({"status": "BLOCKED", "verified": False, "executed": False,
             "reason": str(exc), "diagnosis_complete": False,
             "instruction": "Diagnosis is incomplete. No actionable repair plan was produced and no source changes were made. "
-            "Report this limit once. Request a narrower symptom or additional evidence; do not automatically repeat diagnosis or apply repair."})
+            "Report this limit once. Discovery progress is checkpointed when available. On a new explicit user request with the same problem/evidence and unchanged source, continue that progress. Do not automatically repeat diagnosis or apply repair."})
     finally:
         _DIAGNOSTIC_DEADLINE.reset(token)
+        _DIAGNOSTIC_SCOPE.reset(scope_token)
 
 
 def _diagnose(parameters: dict, **_kwargs) -> str:

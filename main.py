@@ -566,7 +566,7 @@ class JarvisLive:
         _server_actions = {
             "browser_control", "code_helper", "dev_agent", "file_processor", "document_editor",
             "server_maintenance", "flight_finder", "scheduled_workflow", "self_repair_apply",
-            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "skill_manager", "weather_report", "web_search", "test_flash_approval",
+            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "skill_manager", "image_create", "weather_report", "web_search", "test_flash_approval",
         }
         self._action_registry = discover_actions(
             actions_dir=_base_dir / "actions",
@@ -1367,7 +1367,7 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
         _document_origin = (getattr(getattr(self, "_dashboard", None), "origin_device_id", None)
-                            if name in {"web_search", "skill_manager"} or
+                            if name in {"web_search", "skill_manager", "image_create"} or
                             (name == "document_editor" and args.get("action") == "create") else None)
 
         _trace_event("tool_requested", tool=name)
@@ -2029,7 +2029,7 @@ class JarvisLive:
                 # Android/Desktop UI operations merely because the request arrived
                 # through a companion; device work must use call_current_device or
                 # legacy.action explicitly.
-                _server_only_actions = {"skill_manager", "server_maintenance", "code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
+                _server_only_actions = {"skill_manager", "image_create", "server_maintenance", "code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
 
                 # Mixed actions can contain both backend-only operations and operations that
                 # manipulate a device/host UI.  Classify the requested operation instead of
@@ -2121,7 +2121,7 @@ class JarvisLive:
                                     source_sha256=artifact["source_sha256"])
                         except (ValueError, TypeError, KeyError):
                             pass
-                    if name in {"web_search", "skill_manager"}:
+                    if name in {"web_search", "skill_manager", "image_create"}:
                         from core.image_delivery import deliver_image_results
                         result = await deliver_image_results(result, self._dashboard, _document_origin)
                     if name == "self_repair_diagnostic":

@@ -14,11 +14,12 @@ The result distinguishes `delivery_verified` (Inbox handoffs) from `goal_verifie
 
 ## Saved skills
 
-`skill_manager` exposes `list`, `create`, and `run`. Fixed built-in image-search template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Generated Python creation and execution retain host approval; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart.
+`skill_manager` exposes `list`, `create`, and `run`. Fixed built-in image-search and image-create template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Generated Python creation and execution retain host approval; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart.
 
-Two creation kinds are supported:
+Three creation kinds are supported:
 
 - `image_search`: saves a fixed composition of the built-in image search. Registration does not prove network search succeeded. Run the saved ID with `inputs={"query":"...","count":10}` to obtain image attachments through the conversation executor. Direct internal calls without a companion executor return downloaded artifact metadata; they do not prove delivery.
+- `image_create`: saves the fixed local PNG creation workflow. Run with `inputs={"prompt":"Create a simple poster ..."}`. Registration stores a template; it does not generate an image until run.
 - `pure`: generates a deterministic Python transformation using the selected Text provider. The existing SkillCrucible policy and tests must pass before VERIFIED registration. Generated code is not imported into the server; subsequent runs use the existing restricted runner and integrity checks. Network, filesystem, process, and credential access remain prohibited. The restricted runner is not a general OS security sandbox.
 
 Example voice requests:
@@ -30,3 +31,11 @@ Example voice requests:
 For a pure skill: “Create a word-count skill named count_words. Test ‘Saya sedang menguji Mark’ with expected result 4.” Then list and run the saved skill after restart to verify persistence. A conversational answer alone is not evidence that a skill was created or executed.
 
 Arbitrary network-enabled generated Python is not supported by this interface. Network workflows must use built-in authorized capabilities or the existing autonomy composition path. Skill registration never modifies pairing, Repair Guard, approval rules, or provider selection.
+
+## Create an image rather than search
+
+Use `image_create(prompt=...)` for an original simple PNG poster, text layout, logo, diagram or geometric illustration. A complete natural-language request is sufficient; users do not need to provide code. The configured Text model returns a declarative layout, not executable Python. A fixed Pillow renderer accepts only text, rectangles, ellipses and lines; RGB colors, 256-2048 pixel dimensions, up to 80 elements and bounded text. Clipped text or invalid layouts fail instead of silently producing truncated text. Output is a unique PNG under the normal image artifact directory. The selected Text model reviews the result before companion Inbox handoff. A saved Python file is not an image and is not skill registration.
+
+This renderer does not provide diffusion-based/photorealistic generation, detailed character illustrations or image editing. Unsupported requests must be reported explicitly; do not substitute a simpler image or internet result without the user's direction. The primary Text model must support image input for the required visual review; unsupported providers remain blocked without fallback. Visual review is still probabilistic and can misclassify images. No additional provider, dependency or APK is installed.
+
+For reuse, say “Create an image-design skill named poster_maker.” `skill_manager` uses `kind=image_create`. Verify the returned ID with list, restart, then run with `inputs.prompt`. These fixed templates may run without approval only after host-side record validation. Generated Python skills retain their existing restrictions and approval requirements.

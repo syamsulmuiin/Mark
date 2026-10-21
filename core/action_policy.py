@@ -10,7 +10,7 @@ NATIVE_GATES = {"test_flash_approval", "self_repair_apply"}
 READ_ONLY = {"runtime_diagnostics", "self_repair_diagnostic", "web_search",
              "weather_report", "current_datetime", "system_status", "recall_memory", "list_paired_devices", "screen_process", "list_devices", "inspect_current_device", "get_current_device",
              "get_device_capabilities", "get_device_context", "get_devices", "list_connected_devices", "delegate_to_text_llm", "plan_with_text_llm"}
-SIMPLE = {"close_camera", "open_app", "save_memory", "task_continuity"}
+SIMPLE = {"close_camera", "open_app", "save_memory", "task_continuity", "image_create"}
 DEVICE_READ = {"inspect", "android.ui.inspect", "ui.inspect", "screen.inspect",
                "screen.capture", "audio.volume", "android.settings.open", "app.inspect", "app.list", "app.launch", "open_url", "browser.open",
                "browser.search", "system.info", "capabilities"}
@@ -47,11 +47,11 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
                 pass
     if tool == "skill_manager":
         operation = args.get("operation", "list")
-        if operation == "list" or (operation == "create" and args.get("kind") == "image_search"):
+        if operation == "list" or (operation == "create" and args.get("kind") in {"image_search", "image_create"}):
             return False
         if operation == "run":
-            from core.skill_registry import saved_image_search_is_safe
-            return not saved_image_search_is_safe(args.get("skill_id"))
+            from core.skill_registry import saved_image_template_is_safe
+            return not saved_image_template_is_safe(args.get("skill_id"))
         return True
     if tool == "send_server_file":
         # Export allowlist/hash checks still run; ordinary delivery uses the Inbox.

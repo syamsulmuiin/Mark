@@ -83,6 +83,6 @@ def test_runtime_captures_request_origin_for_images_and_saved_skills():
                     and any(isinstance(t,ast.Name) and t.id=='_document_origin' for t in n.targets))
     expression=compile(ast.Expression(assignment.value), 'origin_capture', 'eval')
     host=SimpleNamespace(_dashboard=SimpleNamespace(origin_device_id='requesting-phone'))
-    for name,args,expected in [('web_search',{},'requesting-phone'),('skill_manager',{},'requesting-phone'),
+    for name,args,expected in [('web_search',{},'requesting-phone'),('skill_manager',{},'requesting-phone'),('image_create',{},'requesting-phone'),
                                ('document_editor',{'action':'create'},'requesting-phone'),('save_memory',{},None)]:
         assert eval(expression,{'self':host,'name':name,'args':args}) == expected

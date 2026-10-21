@@ -72,3 +72,55 @@ def test_network_python_candidate_is_rejected(monkeypatch, tmp_path):
     result = json.loads(manager.skill_manager({'operation':'create','kind':'pure','name':'unsafe'}))
     assert result['status'] in {'REJECTED','FAILED'}
     assert json.loads(manager.skill_manager({'operation':'list'}))['skills'] == []
+
+
+def test_image_count_and_saved_skill_inputs(monkeypatch, tmp_path):
+    monkeypatch.setattr(manager, 'BASE_DIR', tmp_path)
+    created = json.loads(manager.skill_manager({'operation':'create','kind':'image_search','name':'images'}))
+    captured = []
+    monkeypatch.setattr(search, 'web_search', lambda args: captured.append(args) or '{}')
+    manager.skill_manager({'operation':'run','skill_id':created['skill_id'],
+                          'inputs':{'query':'poster','count':12,'delivery':'links'}})
+    assert captured == [{'mode':'images','query':'poster','count':12,'delivery':'links'}]
+
+
+def test_image_download_count_is_not_three(monkeypatch):
+    from core import image_download
+    class Engine:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def images(self, query, **kwargs):
+            assert kwargs['max_results'] == 12
+            return [{'image':f'https://example.org/{i}.png'} for i in range(12)]
+    monkeypatch.setattr(search, '_get_ddgs', lambda: Engine)
+    monkeypatch.setattr(search, '_ddg_available', lambda: True)
+    monkeypatch.setattr(image_download, 'save_verified_image', lambda url, base: {'file_path':url})
+    result = json.loads(search.web_search({'mode':'images','query':'poster','count':12}))
+    assert len(result['image_artifacts']) == 12
+    assert result['partial'] is False
+    for count in (0, 21, True, '12'):
+        assert json.loads(search.web_search({'mode':'images','query':'poster','count':count}))['reason'] == 'invalid_image_count'
+
+
+def test_only_fixed_host_image_record_bypasses_approval(monkeypatch, tmp_path):
+    from core import skill_registry
+    from core.skill_registry import SkillRegistry
+    # Redirect the host module root, not the model's claimed kind.
+    monkeypatch.setattr(skill_registry, '__file__', str(tmp_path / 'core/skill_registry.py'))
+    store = SkillRegistry(tmp_path / 'storage/autonomy')
+    record = store.create('images', 'Search', manager._IMAGE_STEPS,
+                          provenance={'template':'builtin_image_search_v1'})
+    args = {'operation':'run','skill_id':record['skill_id']}
+    assert not requires_confirmation('skill_manager', args)
+    assert not requires_confirmation('skill_manager', {'operation':'create','kind':'image_search'})
+    assert requires_confirmation('skill_manager', {'operation':'create','kind':'pure'})
+    assert requires_confirmation('skill_manager', {'operation':'run','kind':'image_search','skill_id':'a'*32})
+    assert requires_confirmation('skill_manager', {'operation':'run','skill_id':'../secret'})
+    record['skill_type'] = 'GENERATED'
+    store._save(record)
+    assert requires_confirmation('skill_manager', args)
+    record['skill_type'] = 'COMPOSITE'
+    record['steps'].append({'capability':'code_helper'})
+    store._save(record)
+    assert requires_confirmation('skill_manager', args)

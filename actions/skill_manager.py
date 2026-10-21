@@ -2,14 +2,14 @@
 import json
 from pathlib import Path
 import re
-from core.skill_registry import SkillRegistry
+from core.skill_registry import SkillRegistry, IMAGE_SEARCH_STEPS, is_builtin_image_search
 from core.dynamic_skill_registry import DynamicSkillRegistry
 from core.capability_registry import CapabilityRegistry
 from core.capability_evolution import CapabilityEvolutionEngine
 from core.skill_synthesizer import SkillSynthesizer
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-_IMAGE_STEPS = [{"capability": "web_search", "inputs": {"mode": "images"}}]
+_IMAGE_STEPS = IMAGE_SEARCH_STEPS
 
 
 def skill_manager(parameters, **kwargs):
@@ -55,20 +55,21 @@ def skill_manager(parameters, **kwargs):
             raise ValueError('Skill inputs must be an object')
         if record.get('skill_type') == 'GENERATED':
             return json.dumps(dynamic.execute(sid, inputs), ensure_ascii=False)
-        if record.get('steps') != _IMAGE_STEPS or record.get('provenance', {}).get('template') != 'builtin_image_search_v1':
+        if not is_builtin_image_search(record):
             raise ValueError('This composite requires the autonomy executor')
         from actions.web_search import web_search
         query = str(inputs.get('query') or '').strip()
         if not query:
             raise ValueError('A query is required')
-        return web_search({'mode':'images','query':query})
+        return web_search({'mode':'images','query':query, 'count':inputs.get('count', 6),
+                           'delivery':inputs.get('delivery', 'attachments')})
     except Exception as exc:
         return json.dumps({'status':'FAILED','verified':False,'error_type':type(exc).__name__,
                            'instruction':'Skill operation failed; do not claim creation or execution succeeded. Inspect saved skills before retrying.'})
 
 
 TOOL = {'name':'skill_manager',
-    'description':'Create, list, or run persisted reusable skills. Explicit creation uses host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Image runs download validated files for companion Inbox handoff; internal execution alone does not prove delivery.',
+    'description':'Create, list, or run persisted reusable skills. Fixed image-search template creation and execution need no approval; generated Python retains host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Image runs download validated files for companion Inbox handoff; internal execution alone does not prove delivery.',
     'parameters':{'type':'OBJECT','properties':{
         'operation':{'type':'STRING','enum':['list','create','run']},
         'kind':{'type':'STRING','enum':['pure','image_search']},

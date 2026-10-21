@@ -391,14 +391,17 @@ def _compare(items: list[str], aspect: str) -> str:
 
 # ── Public entry point ─────────────────────────────────────────────────────────
 
-def _images(query: str, delivery: str = "attachments") -> str:
+def _images(query: str, delivery: str = "attachments", count: int = 6) -> str:
     from urllib.parse import urlsplit
+    if type(count) is not int or not 1 <= count <= 20:
+        return json.dumps({"status":"FAILED", "reason":"invalid_image_count",
+                           "instruction":"Choose 1-20 images per request. Split larger requests explicitly; no images were searched or silently truncated."})
     if not _ddg_available():
         return json.dumps({"status": "FAILED", "reason": "image_search_transport_cooldown",
                            "results": [], "instruction": "Image search is unavailable temporarily; do not invent image links or claim delivery."})
     try:
         with _get_ddgs()(timeout=8) as engine:
-            rows = engine.images(query, max_results=6, safesearch="moderate")
+            rows = engine.images(query, max_results=count, safesearch="moderate")
         results = []
         for row in rows:
             image = str(row.get("image") or "")
@@ -407,13 +410,13 @@ def _images(query: str, delivery: str = "attachments") -> str:
                 continue
             results.append({"title": str(row.get("title") or "")[:500],
                             "image_url": image, "source_url": page if urlsplit(page).scheme in {"http", "https"} else ""})
-            if len(results) == 6:
+            if len(results) == count:
                 break
         if delivery != "links":
             from core.image_download import save_verified_image
             artifacts, failures = [], []
             # Limit network/memory and Inbox volume per request.
-            for result in results[:3]:
+            for result in results:
                 try:
                     artifact = save_verified_image(result['image_url'], BASE_DIR)
                     artifacts.append({**artifact, 'source_url':result['source_url']})
@@ -421,6 +424,7 @@ def _images(query: str, delivery: str = "attachments") -> str:
                     failures.append({'error_type':type(exc).__name__})
             return json.dumps({'status':'UNVERIFIED' if artifacts else 'FAILED',
                 'image_artifacts':artifacts, 'results':results, 'download_failures':failures,
+                'requested_count':count, 'found_count':len(results), 'partial':len(artifacts) < count,
                 'downloaded':bool(artifacts), 'verified':False,
                 'instruction':'Downloaded image files require Inbox handoff. Do not substitute a TXT list of links for requested images. Report partial download failures; image relevance, year and official status are not verified.'}, ensure_ascii=False)
         return json.dumps({"status": "SUCCESS" if results else "UNVERIFIED", "results": results,
@@ -456,7 +460,7 @@ def web_search(
 
     try:
         if mode == "images":
-            return _images(query, str(params.get("delivery") or "attachments"))
+            return _images(query, str(params.get("delivery") or "attachments"), params.get("count", 6))
         if mode == "compare" and items:
             return _compare(items, aspect)
         if mode == "news":
@@ -487,6 +491,7 @@ TOOL = {
                 "type": "STRING",
                 "description": "search | images | news | research | price | compare"
             },
+            "count": {"type":"INTEGER", "description":"Image count requested by user, default 6; 1-20 per request. Split larger requests explicitly, never silently truncate."},
             "delivery": {"type":"STRING", "enum":["attachments","links"], "description":"Image mode defaults to attachments; links only on explicit request."},
             "items": {
                 "type": "ARRAY",

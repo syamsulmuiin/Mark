@@ -2,17 +2,17 @@
 
 ## Image requests
 
-For a one-time picture or poster request, use `web_search` with `mode=images` and a query. The default `delivery=attachments` downloads up to three image results and hands validated files to the requesting companion Inbox. `delivery=links` returns image/source links only when explicitly requested. A TXT list of URLs is not a substitute for requested pictures. Downloaded files are limited to 8 MiB each and 20 million pixels; JPEG, PNG, WebP and GIF are supported, while HTML/SVG are rejected. Public addresses are checked and pinned for each HTTP request, including redirects. Pillow is required for format validation. Search results alone do not verify the image contents, event year, official status, or reuse rights. Transport failures return a failed result; never invent replacement links.
+For a one-time picture or poster request, use `web_search` with `mode=images` and a query. The default `delivery=attachments` downloads six image results by default; `count` selects 1-20 per request. Larger requests must be explicitly split rather than silently truncated. Fewer provider results or failed downloads are reported as partial. It hands validated files to the requesting companion Inbox. `delivery=links` returns image/source links only when explicitly requested. A TXT list of URLs is not a substitute for requested pictures. Downloaded files are limited to 20 MiB each and 40 million pixels; JPEG, PNG, WebP and GIF are supported, while HTML/SVG are rejected. Public addresses are checked and pinned for each HTTP request, including redirects. Pillow is required for format validation. Search results alone do not verify the image contents, event year, official status, or reuse rights. Transport failures return a failed result; never invent replacement links.
 
 Example voice request: “Find poster images for National Santri Day 2026 and send the images to this device.”
 
 ## Saved skills
 
-`skill_manager` exposes `list`, `create`, and `run`. Creation and execution use the existing host approval policy; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart.
+`skill_manager` exposes `list`, `create`, and `run`. Fixed built-in image-search template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Generated Python creation and execution retain host approval; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart.
 
 Two creation kinds are supported:
 
-- `image_search`: saves a fixed composition of the built-in image search. Registration does not prove network search succeeded. Run the saved ID with `inputs={"query":"..."}` to obtain image attachments through the conversation executor. Direct internal calls without a companion executor return downloaded artifact metadata; they do not prove delivery.
+- `image_search`: saves a fixed composition of the built-in image search. Registration does not prove network search succeeded. Run the saved ID with `inputs={"query":"...","count":10}` to obtain image attachments through the conversation executor. Direct internal calls without a companion executor return downloaded artifact metadata; they do not prove delivery.
 - `pure`: generates a deterministic Python transformation using the selected Text provider. The existing SkillCrucible policy and tests must pass before VERIFIED registration. Generated code is not imported into the server; subsequent runs use the existing restricted runner and integrity checks. Network, filesystem, process, and credential access remain prohibited. The restricted runner is not a general OS security sandbox.
 
 Example voice requests:

@@ -46,8 +46,13 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
             except (ValueError, OSError):
                 pass
     if tool == "skill_manager":
-        # Creation/run retain host approval; listing cannot execute code.
-        return args.get("operation", "list") != "list"
+        operation = args.get("operation", "list")
+        if operation == "list" or (operation == "create" and args.get("kind") == "image_search"):
+            return False
+        if operation == "run":
+            from core.skill_registry import saved_image_search_is_safe
+            return not saved_image_search_is_safe(args.get("skill_id"))
+        return True
     if tool == "send_server_file":
         # Export allowlist/hash checks still run; ordinary delivery uses the Inbox.
         return args.get("save_direct") is True

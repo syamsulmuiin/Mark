@@ -124,7 +124,7 @@ def test_ensure_cannot_relabel_script_or_overwrite_existing_purpose(monkeypatch,
     assert json.loads(manager.skill_manager(payload('image_create')))['status']=='FAILED'
     assert store.get(record['skill_id'])['purpose']=='Other purpose'
     assert requires_confirmation('skill_manager',payload('script'))
-    assert requires_confirmation('skill_manager',payload('pure'))
+    assert not requires_confirmation('skill_manager',payload('pure'))
     assert not requires_confirmation('skill_manager',payload('image_create'))
 
 

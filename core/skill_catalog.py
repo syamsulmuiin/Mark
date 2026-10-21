@@ -69,7 +69,7 @@ def catalog(store, dynamic, *, limit=100):
         "verification_scope": "readable skill registry metadata only; no skill executed",
         "skills": rows,
         "truncated": len(records) > limit,
-        "instruction": "Listing is inspection only. To execute an existing skill, use operation=run with its exact skill_id and inputs matching parameters. Do not recreate it or repeat listing as task completion. Generated skill execution still requires host approval.",
+        "instruction": "Listing is inspection only. To execute an existing skill, use operation=run with its exact skill_id and inputs matching parameters. Do not recreate it or repeat listing as task completion. Pure runs use host source/integrity validation without a popup; script execution requires host approval.",
     }
 
 

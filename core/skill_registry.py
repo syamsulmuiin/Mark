@@ -135,3 +135,29 @@ def is_builtin_image_create(record):
             and record.get('steps')==IMAGE_CREATE_STEPS
             and isinstance(record.get('provenance'),dict)
             and record['provenance'].get('template')=='builtin_image_create_v1')
+
+
+def saved_pure_skill_is_safe(skill_id):
+    """Grant the pure policy only after checking the actual host record and source."""
+    import re
+    import hashlib
+    from core.skill_crucible import SkillCrucible
+    if not isinstance(skill_id, str) or not re.fullmatch(r'[a-f0-9]{32}', skill_id):
+        return False
+    root = Path(__file__).resolve().parents[1] / 'storage/autonomy'
+    folder = root / 'evolved_skills' / skill_id
+    try:
+        paths = [root / 'skills' / (skill_id + '.json'), folder / 'manifest.json', folder / 'skill.py']
+        if any(path.is_symlink() or path.resolve() != path for path in paths):return False
+        record = json.loads(paths[0].read_text(encoding='utf-8'))
+        meta = json.loads(paths[1].read_text(encoding='utf-8'))
+        source = paths[2].read_text(encoding='utf-8')
+        return (record.get('skill_id') == skill_id and record.get('skill_type') == 'GENERATED'
+                and record.get('status') in {'VERIFIED', 'TRUSTED'}
+                and record.get('operational_state') in {'ACTIVE', 'DEGRADED'}
+                and not record.get('permissions') and record.get('risk_level') == 'LOW'
+                and meta.get('skill_id') == skill_id and (meta.get('validation') or {}).get('ok') is True
+                and hashlib.sha256(source.encode()).hexdigest() == meta.get('source_sha256')
+                and SkillCrucible.validate_source(source).get('ok') is True)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False

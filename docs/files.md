@@ -22,6 +22,8 @@ Android and desktop separate Received and Sent entries.
 
 Only the authenticated sender or recipient can manage an entry. Shared objects and other aliases are retained. Original server source documents and already-downloaded device copies are unchanged by server attachment deletion.
 
+File processing requires an actual `file_path` from a prior tool result or inspected file; missing paths are rejected before an approval can be requested. Text action proposals receive recent verified artifact paths scoped to the requesting device session, without file contents. These observations do not authorize another device or arbitrary server paths. Read-only inspection of supported inert files inside `storage/artifacts/` runs without a popup; code execution and broader filesystem operations retain approval.
+
 CSV processing uses pandas UTF-8 decoding with replacement for invalid bytes. Read failures are reported as failures rather than successful inspection; inspect the actual generated file before treating its content as correct.
 
 ## Creating files

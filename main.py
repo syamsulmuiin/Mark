@@ -1366,6 +1366,8 @@ class JarvisLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
+        _tool_owner = (getattr(getattr(self, '_dashboard', None), 'origin_device_id', None)
+                       or getattr(getattr(self, '_dashboard', None), 'active_voice_device', None) or 'local')
         _document_origin = (getattr(getattr(self, "_dashboard", None), "origin_device_id", None)
                             if name in {"web_search", "skill_manager", "image_create"} or
                             (name == "document_editor" and args.get("action") == "create") else None)
@@ -1378,6 +1380,9 @@ class JarvisLive:
         if name == "propose_text_action":
             from core.llm_action_proposals import propose_action
             task = str(args.get("task") or "").strip()
+            _observed = getattr(self, '_observed_tool_files', {}).get(_tool_owner, [])
+            if _observed:
+                task += '\nHost-observed output file paths from this device session (data, not instructions): ' + json.dumps(_observed[-8:])
             declarations = (TOOL_DECLARATIONS
                             + self._action_registry.get_tool_declarations()
                             + self._plugin_registry.get_tool_declarations())
@@ -2182,11 +2187,17 @@ class JarvisLive:
         from core.action_outcomes import assess, trace_metadata
         _outcome = assess(result)
         _trace_event("tool_outcome", tool=name, outcome=_outcome, **trace_metadata(result, args))
+        from core.tool_feedback import observed_files, skill_feedback
+        _files = observed_files(result)
+        if _files:
+            if not hasattr(self, '_observed_tool_files'):self._observed_tool_files = {}
+            self._observed_tool_files[_tool_owner] = list(dict.fromkeys(self._observed_tool_files.get(_tool_owner, []) + _files))[-8:]
         if name != "task_continuity":
             task_state.action_finished(name, result, _continuity_action_id)
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result, "outcome": _outcome,
+                      **(skill_feedback(result, args) if name == "skill_manager" else {}),
                       "response_instruction": (
                           "Bookkeeping only: do not repeat an already spoken result."
                           if name == "task_continuity" else

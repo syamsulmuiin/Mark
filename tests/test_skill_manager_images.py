@@ -118,7 +118,7 @@ def test_only_fixed_host_image_record_bypasses_approval(monkeypatch, tmp_path):
     args = {'operation':'run','skill_id':record['skill_id']}
     assert not requires_confirmation('skill_manager', args)
     assert not requires_confirmation('skill_manager', {'operation':'create','kind':'image_search'})
-    assert requires_confirmation('skill_manager', {'operation':'create','kind':'pure'})
+    assert not requires_confirmation('skill_manager', {'operation':'create','kind':'pure'})
     assert requires_confirmation('skill_manager', {'operation':'run','kind':'image_search','skill_id':'a'*32})
     assert requires_confirmation('skill_manager', {'operation':'run','skill_id':'../secret'})
     record['skill_type'] = 'GENERATED'

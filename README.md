@@ -47,7 +47,7 @@ Use short language codes such as `EN` (English), `ID` (Indonesian), or `JA` (Jap
 - Device actions default to the requesting companion. Another device or the server must be explicitly targeted.
 - File delivery defaults to the attachment Inbox. Direct saving requires an explicit request and a destination supported by the companion.
 - Specialized DOCX editing and general code/file tools coexist. Format support depends on installed libraries and verified execution.
-- Ordinary read-only operations run directly. Dangerous or unrestricted actions use host approval; a model cannot grant itself permission.
+- Ordinary read-only operations and validated pure skills run directly. Dangerous or unrestricted actions use host approval; a model cannot grant itself permission.
 - Self-repair separates diagnosis, guarded source changes, validation, and activation. Passing tests does not prove that a reported device symptom is fixed.
 - Ending a conversation leaves the server running. Schedules are created only on request.
 

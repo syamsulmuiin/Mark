@@ -23,11 +23,12 @@ REMOTE = frozenset({"openai", "deepseek", "openrouter", "ollama_cloud"})
 
 def generate_text(provider: str, model: str, prompt: str, *,
                   api_key: str = "", endpoint: str = "",
-                  timeout: float = 30.0) -> str:
+                  timeout: float = 30.0, images: list[str] | None = None) -> str:
     """Generate plain text; never send credentials to an arbitrary host.
 
-    Custom endpoints are allowed only for local Ollama. No tools, multimodal
-    input, or streaming are claimed here.
+    Custom endpoints are allowed only for local Ollama. Optional JPEG previews
+    use image_url content blocks; the selected model must support images. No
+    tools or streaming are claimed here.
     """
     if provider not in ENDPOINTS:
         raise ValueError("Unsupported OpenAI-compatible provider")
@@ -48,9 +49,11 @@ def generate_text(provider: str, model: str, prompt: str, *,
             local = False
         if not local:
             raise ValueError("Local Ollama endpoint must be loopback")
+    content = prompt if not images else [{"type":"text", "text":prompt}] + [
+        {"type":"image_url", "image_url":{"url":"data:image/jpeg;base64," + data}} for data in images]
     body = json.dumps({
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
         "stream": False,
     }).encode("utf-8")
     headers = {"Content-Type": "application/json"}

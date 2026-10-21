@@ -68,13 +68,14 @@ def credentials():
         return creds, record['project']
 
 
-def generate_text(model, prompt, *, timeout=30):
+def generate_text(model, prompt, *, timeout=30, images=None):
     name = model.removeprefix('models/')
     if not re.fullmatch(r'[A-Za-z0-9._-]+', name) or not prompt.strip():
         raise ValueError('Valid Google model and prompt are required')
     creds, project = credentials()
+    parts = [{'text':prompt}] + [{'inlineData':{'mimeType':'image/jpeg', 'data':data}} for data in (images or [])]
     request = Request('https://generativelanguage.googleapis.com/v1beta/models/' + name + ':generateContent',
-        data=json.dumps({'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}).encode(),
+        data=json.dumps({'contents': [{'role': 'user', 'parts': parts}]}).encode(),
         headers={'Authorization': 'Bearer ' + creds.token, 'x-goog-user-project': project,
                  'Content-Type': 'application/json'}, method='POST')
     try:

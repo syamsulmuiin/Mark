@@ -66,7 +66,7 @@ def test_handoff_uses_captured_origin_and_reports_failure():
         async def send_server_file(self, origin, path):
             calls.append((origin,path))
             return {'ok':True,'attachment_id':'image-attachment'}
-    payload={'image_artifacts':[{'file_path':'image.png','image_verified':True}],'download_failures':[]}
+    payload={'image_artifacts':[{'file_path':'image.png','image_verified':True,'content_verified':True}],'download_failures':[]}
     result=json.loads(asyncio.run(deliver_image_results(payload,Dashboard(),'requesting-phone')))
     assert result['verified'] is True and result['delivered_count'] == 1
     assert calls == [('requesting-phone','image.png')]

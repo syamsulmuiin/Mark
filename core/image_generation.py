@@ -17,6 +17,11 @@ from core.llm_http import urlopen
 from core.setup_config import load_config
 
 MAX_RESPONSE=32*1024*1024
+# Hosted NVIDIA endpoints have model-specific payloads, not OpenAI Image API schemas.
+NVIDIA_IMAGE_MODELS={
+    'black-forest-labs/flux.1-schnell':{'steps':4,'cfg_scale':0},
+    'black-forest-labs/flux.1-dev':{'steps':50,'cfg_scale':5},
+}
 
 
 class ImageGenerationError(RuntimeError):
@@ -30,11 +35,14 @@ class ImageGenerationPending(ImageGenerationError):
 def selection(config=None):
     settings=load_config() if config is None else config
     selected=settings.get('image_generation') or {}
-    if not isinstance(selected,dict) or selected.get('provider') not in {'gemini','openai'}:
+    if not isinstance(selected,dict) or selected.get('provider') not in {'gemini','openai','nvidia'}:
         raise ImageGenerationError('image_provider_not_configured')
     model=selected.get('model')
     key=selected.get('api_key')
-    if not isinstance(model,str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,150}',model):
+    if selected['provider']=='nvidia':
+        if not isinstance(model,str) or model not in NVIDIA_IMAGE_MODELS:
+            raise ImageGenerationError('unsupported_nvidia_image_model')
+    elif not isinstance(model,str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,150}',model):
         raise ImageGenerationError('image_model_not_configured')
     if not isinstance(key,str) or not key.strip():
         raise ImageGenerationError('image_api_key_missing')
@@ -42,7 +50,7 @@ def selection(config=None):
 
 
 def _request(provider,key,url,body=None,timeout=120):
-    headers={'Content-Type':'application/json'}
+    headers={'Content-Type':'application/json','Accept':'application/json'}
     headers['x-goog-api-key' if provider=='gemini' else 'Authorization']=key if provider=='gemini' else 'Bearer '+key
     if provider=='openai' and body is not None:
         headers['Idempotency-Key']=uuid.uuid4().hex
@@ -50,6 +58,8 @@ def _request(provider,key,url,body=None,timeout=120):
                 method='POST' if body is not None else 'GET')
     try:
         with urlopen(req,timeout=timeout) as response:
+            if getattr(response,'status',200)==202:
+                raise ImageGenerationPending('image_generation_accepted_result_pending')
             raw=response.read(MAX_RESPONSE+1)
         if len(raw)>MAX_RESPONSE:
             raise ImageGenerationError('image_response_too_large')
@@ -80,7 +90,17 @@ def generate_image(prompt,base_dir,*,config=None):
             'Preserve requested wording, language and year; do not invent official slogans or official status. '
             'User request: '+prompt)
     try:
-        if provider=='gemini':
+        if provider=='nvidia':
+            if len(prompt)>10000:
+                raise ImageGenerationError('nvidia_image_prompt_too_long')
+            data=_request(provider,key,'https://ai.api.nvidia.com/v1/genai/'+model,
+                {'prompt':prompt,'width':1024,'height':1024,'samples':1,'seed':0,'mode':'base',
+                 **NVIDIA_IMAGE_MODELS[model]})
+            artifacts=data.get('artifacts') or []
+            if not artifacts or artifacts[0].get('finishReason') not in {None,'SUCCESS'}:
+                raise ImageGenerationError('nvidia_image_blocked_or_incomplete')
+            encoded=artifacts[0].get('base64')
+        elif provider=='gemini':
             data=_request(provider,key,'https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',
                 {'contents':[{'parts':[{'text':prompt}]}],
                  'generationConfig':{'responseModalities':['TEXT','IMAGE']}})
@@ -112,6 +132,9 @@ def generate_image(prompt,base_dir,*,config=None):
 
 def list_image_models(provider,key):
     """Return catalog candidates, not proof of image-generation entitlement."""
+    if provider=='nvidia':
+        # This is the implemented-adapter list, not a claim of account entitlement.
+        return sorted(NVIDIA_IMAGE_MODELS)
     if provider=='openai':
         data=_request(provider,key,'https://api.openai.com/v1/models',timeout=20)
         return sorted({r['id'] for r in data.get('data',[]) if isinstance(r,dict)
@@ -159,18 +182,20 @@ def save_selection(provider,model,key):
 
 def configure():
     print('Image generation service (separate capability; Text/Live selections remain unchanged).')
-    print('1. Google Gemini image API  2. OpenAI Image API  3. Disable')
+    print('1. Google Gemini image API  2. OpenAI Image API  3. Disable  4. NVIDIA NIM hosted image API')
     print('Image generation may incur provider charges. Codex account login is not an Image API key.')
     choice=input('Provider: ').strip()
     if choice=='3':
         save_selection('disabled','','');return
-    provider={'1':'gemini','2':'openai'}.get(choice)
+    provider={'1':'gemini','2':'openai','4':'nvidia'}.get(choice)
     if not provider:raise ValueError('Choose a supported provider')
     current=load_config()
     previous=current.get('image_generation') or {}
     retained=previous.get('api_key','') if previous.get('provider')==provider else current.get(provider+'_api_key','')
     key=getpass.getpass('Image API key (blank reuses existing key for the selected provider): ').strip() or retained
     if not key:raise ValueError('An API key is required; account login is not used')
+    if provider=='nvidia':
+        print('NVIDIA list shows implemented hosted adapters, not verified account access. No local GPU is used.')
     try:
         models=list_image_models(provider,key)
     except Exception:

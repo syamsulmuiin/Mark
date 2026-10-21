@@ -154,3 +154,49 @@ def test_corrupt_server_configuration_is_not_overwritten(monkeypatch,tmp_path):
     with pytest.raises(ValueError,match='refusing to overwrite'):
         gen.save_selection('gemini','image-model','secret')
     assert path.read_text()=='{broken'
+
+
+@pytest.mark.parametrize('model,steps,guidance',[
+    ('black-forest-labs/flux.1-schnell',4,0),('black-forest-labs/flux.1-dev',50,5)])
+def test_nvidia_hosted_payload_and_artifact(monkeypatch,tmp_path,model,steps,guidance):
+    calls=[]
+    class Response:
+        def __enter__(self):return self
+        def __exit__(self,*a):pass
+        def read(self,*a):return json.dumps({'artifacts':[{'base64':encoded(),'finishReason':'SUCCESS'}]}).encode()
+    monkeypatch.setattr(gen,'urlopen',lambda req,**kw:calls.append(req) or Response())
+    settings={'image_generation':{'provider':'nvidia','model':model,'api_key':'nvidia-secret'}}
+    artifact,origin=gen.generate_image('Create a poster',tmp_path,config=settings)
+    assert origin=={'provider':'nvidia','model':model}
+    with Image.open(artifact['file_path']) as image:assert image.format=='PNG'
+    assert len(calls)==1 and calls[0].full_url=='https://ai.api.nvidia.com/v1/genai/'+model
+    assert calls[0].get_header('Authorization')=='Bearer nvidia-secret'
+    body=json.loads(calls[0].data)
+    assert body['steps']==steps and body['cfg_scale']==guidance and body['samples']==1
+    assert body['width']==body['height']==1024 and body['mode']=='base'
+    assert 'nvidia-secret' not in (tmp_path/'runtime/interaction.log').read_text()
+
+
+def test_nvidia_unknown_model_and_blocked_output_do_not_fallback(monkeypatch,tmp_path):
+    settings={'image_generation':{'provider':'nvidia','model':'https://example.org/steal','api_key':'key'}}
+    with pytest.raises(gen.ImageGenerationError,match='unsupported_nvidia_image_model'):gen.selection(settings)
+    settings['image_generation']['model']='black-forest-labs/flux.1-schnell'
+    calls=[]
+    monkeypatch.setattr(gen,'_request',lambda *a,**kw:calls.append(a) or {'artifacts':[{'base64':encoded(),'finishReason':'CONTENT_FILTERED'}]})
+    with pytest.raises(gen.ImageGenerationError,match='blocked_or_incomplete'):
+        gen.generate_image('poster',tmp_path,config=settings)
+    assert len(calls)==1 and not list(tmp_path.rglob('*.png'))
+    assert gen.list_image_models('nvidia','key')==sorted(gen.NVIDIA_IMAGE_MODELS)
+
+
+def test_async_response_stays_pending_without_resubmission(monkeypatch):
+    calls=[]
+    class Response:
+        status=202
+        def __enter__(self):return self
+        def __exit__(self,*a):pass
+        def read(self,*a):pytest.fail('pending response is not an image')
+    monkeypatch.setattr(gen,'urlopen',lambda req,**kw:calls.append(req) or Response())
+    with pytest.raises(gen.ImageGenerationPending,match='accepted_result_pending'):
+        gen._request('nvidia','secret','https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell',{})
+    assert len(calls)==1

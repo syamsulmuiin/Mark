@@ -662,6 +662,22 @@ class DashboardServer:
                                approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12],
                                outcome="expired")
 
+    async def expire_pending_approval(self, request_id: str) -> bool:
+        """Close the host gate once and notify only its original live socket."""
+        pending = self._approval_pending.get(request_id)
+        self.discard_pending_approval(request_id, outcome="expired")
+        if not pending or self._device_sockets.get(pending["device_id"]) is not pending["socket"]:
+            return False
+        try:
+            await pending["socket"].send_json({
+                "type": "approval.ack", "request_id": request_id, "status": "expired",
+            })
+            return True
+        except Exception as exc:
+            _interaction_event("approval_status_delivery_failed", outcome="expired",
+                               error_type=type(exc).__name__)
+            return False
+
     async def send_approval_completion(self, request_id: str, success: bool, *, outcome: str = "") -> bool:
         """Send sanitized execution outcome only to the original authenticated socket."""
         status = outcome if outcome in {"unverified", "waiting"} else ("succeeded" if success else "failed")

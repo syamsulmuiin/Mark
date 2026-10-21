@@ -265,3 +265,10 @@ a diagnosis, a repair, or attachment delivery. Missing sources remain unverified
 and read failures are reported as failures. Approval expiry records one
 `approval_resolved` event with outcome `expired`, including when no device reply
 arrives; late replies cannot authorize execution.
+
+The server also sends an explicit `approval.ack` with status `expired` to the
+original connected companion when its timer expires. This reports non-execution
+independently of Live speech. Android application messages wait for the signed
+handshake and server `ready` message; reconnecting sockets cannot send attachment
+or microphone frames before authentication. Install the updated Android companion
+for this client-side guard.

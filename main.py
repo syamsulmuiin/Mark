@@ -738,6 +738,10 @@ class JarvisLive:
                     done = self._turn_done_event
                     if done:
                         done.clear()
+                    # Host status is a new logical response, independent of the
+                    # earlier approval request and its replay fingerprints.
+                    self._recent_response_audio = set()
+                    self._last_out_logged = ""
                     async with asyncio.timeout(10):
                         await self.session.send_client_content(
                             turns={"role": "user", "parts": [{"text": speech_instruction(outcome)}]},
@@ -3066,7 +3070,10 @@ class JarvisLive:
             def _approval_completed(request_id, key, title, success, result):
                 # Completion is independent of Gemini Live availability.
                 async def _report():
-                    self._dashboard.discard_pending_approval(request_id, outcome=result)
+                    if result == "expired":
+                        await self._dashboard.expire_pending_approval(request_id)
+                    else:
+                        self._dashboard.discard_pending_approval(request_id, outcome=result)
                     await self._dashboard.send_approval_completion(request_id, success,
                         outcome=result if result in {"unverified", "waiting"} else "")
                 try:

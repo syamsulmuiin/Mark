@@ -60,3 +60,7 @@ Browser PKCE setup prints an authorization URL and accepts the full localhost ca
 ### Image search review
 
 Image attachment selection uses an explicit image-input path on the configured primary Text provider, without creating a separate model role or Live session. Adapters encode bounded JPEG previews using the provider's image content format. Gemini/Google OAuth, OpenAI API/Codex account, Claude, OpenRouter and Ollama can submit image inputs, but the selected model must support them. DeepSeek is unsupported by this path. Unsupported providers and rejected/incomplete responses fail closed; no other model is selected automatically. Existing plain-text calls keep their original payload format. Visual matches are model assessments; they do not certify provenance, official status or licensing.
+
+### Explicit image-generation service
+
+Text/Live model selection does not automatically grant image-generation access. Configure the optional image service separately with `python -m core.image_generation --configure`. Supported adapters are native Gemini image `generateContent` and the OpenAI Images generations API with base64 image responses. Service/model selection and API credentials are explicit; there is no image-provider fallback or implicit reuse of Codex account OAuth credentials. The configured Text model still reviews the result, and Live still handles conversation. An unavailable image service must not result in a local geometric substitute. See [skills](skills.md) for configuration, model discovery, limits and tests.

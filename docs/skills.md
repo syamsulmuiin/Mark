@@ -19,7 +19,7 @@ The result distinguishes `delivery_verified` (Inbox handoffs) from `goal_verifie
 The `create` operation supports three kinds; `ensure` additionally supports approved general scripts:
 
 - `image_search`: saves a fixed composition of the built-in image search. Registration does not prove network search succeeded. Run the saved ID with `inputs={"query":"...","count":10}` to obtain image attachments through the conversation executor. Direct internal calls without a companion executor return downloaded artifact metadata; they do not prove delivery.
-- `image_create`: saves the fixed local PNG creation workflow. Run with `inputs={"prompt":"Create a simple poster ..."}`. Registration stores a template; it does not generate an image until run.
+- `image_create`: saves the image-creation workflow using the explicitly configured generation service by default. Run with `inputs={"prompt":"Create a simple poster ..."}`. Registration stores a template; it does not generate an image until run.
 - `pure`: generates a deterministic Python transformation using the selected Text provider. The existing SkillCrucible policy and tests must pass before VERIFIED registration. Generated code is not imported into the server; subsequent runs use the existing restricted runner and integrity checks. Network, filesystem, process, and credential access remain prohibited. The restricted runner is not a general OS security sandbox.
 
 Example voice requests:
@@ -30,15 +30,25 @@ Example voice requests:
 
 For a pure skill: “Create a word-count skill named count_words. Test ‘Saya sedang menguji Mark’ with expected result 4.” Then list and run the saved skill after restart to verify persistence. A conversational answer alone is not evidence that a skill was created or executed.
 
-Arbitrary network-enabled generated Python is not supported by this interface. Network workflows must use built-in authorized capabilities or the existing autonomy composition path. Skill registration never modifies pairing, Repair Guard, approval rules, or provider selection.
+Pure generated skills cannot use network/filesystem access. General host scripts use the separate approved `ensure(kind=script)` workflow described below; built-in image operations retain their fixed service and authority boundaries. Skill registration never modifies pairing, Repair Guard, approval rules, or provider selection.
 
 ## Create an image rather than search
 
-Use `image_create(prompt=...)` for an original simple PNG poster, text layout, logo, diagram or geometric illustration. A complete natural-language request is sufficient; users do not need to provide code. The configured Text model returns a declarative layout, not executable Python. A fixed Pillow renderer accepts only text, rectangles, ellipses and lines; RGB colors, 256-2048 pixel dimensions, up to 80 elements and bounded text. Clipped text or invalid layouts fail instead of silently producing truncated text. Output is a unique PNG under the normal image artifact directory. The selected Text model reviews the result before companion Inbox handoff. A saved Python file is not an image and is not skill registration.
+Use `image_create(prompt=...)` for a new image. Default `mode=generate` calls the explicitly configured Gemini Image API or OpenAI Image API once, validates the returned image bytes, reviews the image with the selected Text model, and hands accepted results to the requesting companion Inbox. Preserve the user's complete request. No plain frame/text renderer or internet-search image may silently substitute for generation. Provider/model errors and missing setup stop with a truthful result. A timeout returns WAITING because provider completion/charges may be unknown; do not automatically retry.
 
-This renderer does not provide diffusion-based/photorealistic generation, detailed character illustrations or image editing. Unsupported requests must be reported explicitly; do not substitute a simpler image or internet result without the user's direction. The primary Text model must support image input for the required visual review; unsupported providers remain blocked without fallback. Visual review is still probabilistic and can misclassify images. No additional provider, dependency or APK is installed.
+Configure once in the server environment:
 
-For reuse, say “Create an image-design skill named poster_maker.” `skill_manager` uses `kind=image_create`. Verify the returned ID with list, restart, then run with `inputs.prompt`. These fixed templates may run without approval only after host-side record validation. Generated Python skills retain their existing restrictions and approval requirements.
+```bash
+python -m core.image_generation --configure
+```
+
+The wizard selects the service, accepts an API key privately (or explicitly reuses the selected provider's existing key), and retrieves candidate image-model IDs from its catalog. Catalog availability does not prove entitlement, billing/quota or successful generation. Select a model from the numbered list or enter an exact compatible ID if discovery is unavailable. OpenAI uses GPT Image models returning base64 image data; Gemini uses native image-capable models with `generateContent`. Imagen's separate prediction API is not implemented. No model ID is guessed automatically. Codex account login is not reused as an Image API credential. The wizard saves a private `image_generation` setting while preserving Text/Live provider/model choices. Image generation may incur provider charges. `python -m core.image_generation` shows selected provider/model without exposing the key.
+
+Generation uses fixed official HTTPS endpoints, no auth redirects, one request without automatic retry, and bounded JSON/base64/image size validation. Returned arbitrary image URLs are not fetched. Metadata-only `image_generation` log events record the actual provider/model and outcome; prompts, image payloads and keys are omitted. No new Python dependency or companion APK is required. This integration supports text-to-image generation; image editing is not implemented here. Visual review remains probabilistic and does not guarantee artistic quality or provenance.
+
+`mode=local_design` is available ONLY on explicit request for a simple text/geometric PNG layout. Its fixed Pillow renderer accepts text, rectangles, ellipses and lines, 256-2048 pixel dimensions, up to 80 elements and bounded text. It rejects clipped text and invalid layouts. It is not a general image-generation service and must not be selected merely because the user asks for a poster, logo or illustration. Both paths require the selected Text provider to support visual review; they never fall back to another Text/Live model.
+
+For reuse, create an `image_create` skill with `skill_manager` and run its saved ID with `inputs.prompt`. Existing saved image-creation templates now use the generation service by default; explicit `inputs.mode=local_design` retains local rendering. Registration is separate from generation and delivery. Fixed templates retain host-side approval checks; unrestricted generated Python remains guarded.
 
 ## Fulfill a request when a capability is missing
 

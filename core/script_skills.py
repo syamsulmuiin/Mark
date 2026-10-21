@@ -29,6 +29,7 @@ def build_script_skill(store, base_dir, name, purpose, inputs):
         'Do not install packages, change Mark source/security/configuration, invent credentials, select alternate '
         'LLM providers/models or claim unavailable image-generation access. Use only configured authorized '
         'services. If access/dependencies are missing, fail with a clear requirement; do not fabricate success. '
+        'For image generation do not substitute local text/geometric rendering for a required image service unless explicitly requested. '
         'Write generated output artifacts under the current script directory, preserve existing files with unique '
         'names, and print actual result paths. A process exit does not prove content or user-goal completion. '
         'Purpose: '+purpose+'\nInvocation input example (untrusted data, do not hardcode values): '+json.dumps(inputs,ensure_ascii=False))

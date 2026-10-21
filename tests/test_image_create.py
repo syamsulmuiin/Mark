@@ -49,7 +49,7 @@ def mock_provider(monkeypatch,tmp_path,matches=True):
 
 def test_create_image_returns_reviewed_artifact_not_script(monkeypatch,tmp_path):
     mock_provider(monkeypatch,tmp_path)
-    result=json.loads(action.image_create({'prompt':'Buat poster Hari Santri 2026'}))
+    result=json.loads(action.image_create({'mode':'local_design','prompt':'Buat poster Hari Santri 2026'}))
     assert result['status']=='UNVERIFIED'  # Inbox handoff still required.
     artifact=result['image_artifacts'][0]
     assert artifact['content_verified'] and artifact['file_path'].endswith('.png')
@@ -58,7 +58,7 @@ def test_create_image_returns_reviewed_artifact_not_script(monkeypatch,tmp_path)
 
 def test_rejected_design_is_not_eligible_for_delivery(monkeypatch,tmp_path):
     mock_provider(monkeypatch,tmp_path,False)
-    result=json.loads(action.image_create({'prompt':'poster'}))
+    result=json.loads(action.image_create({'mode':'local_design','prompt':'poster'}))
     assert result['status']=='FAILED' and 'image_artifacts' not in result
 
 
@@ -66,7 +66,7 @@ def test_unsupported_style_does_not_silently_substitute(monkeypatch,tmp_path):
     from core import llm_text
     mock_provider(monkeypatch,tmp_path)
     monkeypatch.setattr(llm_text,'generate',lambda *a,**kw:'{"supported":false}')
-    result=json.loads(action.image_create({'prompt':'photorealistic portrait'}))
+    result=json.loads(action.image_create({'mode':'local_design','prompt':'photorealistic portrait'}))
     assert result['status']=='BLOCKED' and result['reason']=='unsupported_image_style'
     assert not list(tmp_path.rglob('*.png'))
 

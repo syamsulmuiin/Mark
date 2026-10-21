@@ -87,8 +87,13 @@ def fetch_image_bytes(url):
 
 
 def save_verified_image(url, base_dir):
+    return save_image_bytes(fetch_image_bytes(url), base_dir)
+
+
+def save_image_bytes(data, base_dir):
     from PIL import Image
-    data = fetch_image_bytes(url)
+    if not isinstance(data, bytes) or not 0 < len(data) <= MAX_BYTES:
+        raise ValueError('image_too_large_or_empty')
     with Image.open(io.BytesIO(data)) as image:
         formats = {'JPEG':'.jpg', 'PNG':'.png', 'WEBP':'.webp', 'GIF':'.gif'}
         if image.format not in formats or image.width * image.height > MAX_PIXELS:

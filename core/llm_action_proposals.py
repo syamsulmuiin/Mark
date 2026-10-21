@@ -60,7 +60,7 @@ def propose_action(task: str, declarations: list[dict], *, config: dict | None =
         "Propose exactly ONE next action for the user request. Return ONLY JSON "
         "with keys tool (one of the available names), args (object), reason (string). "
         "Do not invent approvals, permissions or results. Do not execute the action. "
-        "Choose an operational step for the request, not bookkeeping or task tracking. "
+        "Choose an operational step for the request, not bookkeeping or task tracking. If a missing capability is required, propose skill_manager operation=ensure with name, kind, purpose and the original inputs, reusing a saved skill when available. kind=pure builds/tests pure transformations; kind=script builds and executes a general host script through the existing approval gate. Script build executes the task once already, so do not schedule an extra run merely for registration. Missing credentials/services are real blockers, not permission to change provider or fabricate output. "
         "For new files of any format, including papers and DOCX, existing code_helper/dev_agent can provide a general content/code generation workflow when runtime dependencies support it. "
         "Do not require document_editor create or a dedicated new tool for each extension, or claim work was executed. "
         "Never write plain text/code to a binary document extension. Generate a source file such as .py, execute it through the host gate, then verify the actual document before delivery; a saved script is not the completed document. "

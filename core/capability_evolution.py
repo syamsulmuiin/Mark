@@ -34,6 +34,9 @@ class CapabilityEvolutionEngine:
 
     def _create_verified(self,name,purpose,parameters,candidate,*,provenance=None):
         source=str(candidate['code']);tests=list(candidate.get('tests') or [{"input":{}}])
+        if getattr(self,'require_expected_tests',False) and (not candidate.get('tests') or len(tests)>8
+                or any(not isinstance(t,dict) or 'expected' not in t or not isinstance(t.get('input'),dict) for t in tests)):
+            return {'status':'REJECTED','reason':'explicit_expected_tests_required'}
         validation=SkillCrucible.run_tests(source,tests)
         if not validation.get('ok'):
             self._remember("failure",f"Generated capability {name} failed Crucible",validation); return {"status":"REJECTED","reason":"crucible_failed","validation":validation}

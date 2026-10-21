@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from contextvars import ContextVar
 from pathlib import Path
 
 from core import reasoning as gemini
@@ -17,6 +19,8 @@ from actions.runtime_diagnostics import collect_runtime_evidence
 BASE_DIR = Path(__file__).resolve().parent.parent
 SELECTION_BATCH = 8  # per discovery round only; there is no total file-count limit
 MAX_DISCOVERY_ROUNDS = 32  # loop guard, not a file limit
+MAX_DIAGNOSTIC_SECONDS = 45.0
+_DIAGNOSTIC_DEADLINE = ContextVar("diagnostic_deadline", default=None)
 MAX_FILE_CHARS = 24000
 PROTECTED = set(PROTECTED_EXACT) | {"core/self_healing.py", "actions/self_repair.py"}
 SKIP_PARTS = {".git", "__pycache__", ".venv", "venv", "node_modules", "build", "dist", "pytest-of-root"}
@@ -43,13 +47,31 @@ class DiagnosticModelUnavailable(RuntimeError):
     pass
 
 
+class DiagnosticIncomplete(RuntimeError):
+    """No complete diagnosis or actionable repair plan is available."""
+
+
+def _remaining_ms() -> int | None:
+    deadline = _DIAGNOSTIC_DEADLINE.get()
+    if deadline is None:
+        return None
+    remaining = int((deadline - time.monotonic()) * 1000)
+    if remaining <= 0:
+        raise DiagnosticIncomplete("diagnostic_time_budget_exhausted")
+    return remaining
+
+
 def _diagnostic_json(prompt: str, timeout_ms: int) -> dict:
     """Use the selected text provider; never consume voice quota as fallback."""
+    remaining = _remaining_ms()
+    if remaining is not None:
+        timeout_ms = min(timeout_ms, remaining)
     try:
         obj = gemini.as_json(prompt, tier=gemini.SMART, timeout_ms=timeout_ms, default={})
     except Exception as exc:
         # Provider exception strings may contain request data or credentials.
         raise DiagnosticModelUnavailable(type(exc).__name__) from None
+    _remaining_ms()  # Never publish a late provider result as a completed diagnosis.
     return obj if isinstance(obj, dict) else {}
 
 
@@ -119,13 +141,16 @@ Remaining files:
 def _discover_files(problem: str, files: list[str]) -> list[str]:
     inspected=[]
     for _ in range(MAX_DISCOVERY_ROUNDS):
+        _remaining_ms()
         batch, complete = _select_files(problem, files, inspected)
         for rel in batch:
             if rel not in inspected:
                 inspected.append(rel)
-        if complete or not batch:
-            break
-    return inspected
+        if complete:
+            return inspected
+        if not batch:
+            raise DiagnosticIncomplete("source_discovery_stalled")
+    raise DiagnosticIncomplete("source_discovery_round_limit")
 
 
 def _read_context(files: list[str]) -> str:
@@ -148,6 +173,7 @@ def _plan_dir() -> Path:
 
 
 def _save_plan(plan: dict) -> str:
+    _remaining_ms()
     import hashlib, time
     seed = json.dumps(plan, sort_keys=True, ensure_ascii=False) + str(time.time_ns())
     plan_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
@@ -160,6 +186,26 @@ def _save_plan(plan: dict) -> str:
     return plan_id
 
 def self_repair_diagnostic(parameters: dict, **_kwargs) -> str:
+    """Bound the whole read-only diagnosis, not each model request independently."""
+    from core.interaction_log import write_event
+    token = _DIAGNOSTIC_DEADLINE.set(time.monotonic() + MAX_DIAGNOSTIC_SECONDS)
+    path = BASE_DIR / "runtime" / "interaction.log"
+    write_event(path, "repair_diagnostic_started", budget_seconds=MAX_DIAGNOSTIC_SECONDS)
+    try:
+        result = _diagnose(parameters, **_kwargs)
+        write_event(path, "repair_diagnostic_returned")
+        return result
+    except DiagnosticIncomplete as exc:
+        write_event(path, "repair_diagnostic_incomplete", reason=str(exc))
+        return json.dumps({"status": "BLOCKED", "verified": False, "executed": False,
+            "reason": str(exc), "diagnosis_complete": False,
+            "instruction": "Diagnosis is incomplete. No actionable repair plan was produced and no source changes were made. "
+            "Report this limit once. Request a narrower symptom or additional evidence; do not automatically repeat diagnosis or apply repair."})
+    finally:
+        _DIAGNOSTIC_DEADLINE.reset(token)
+
+
+def _diagnose(parameters: dict, **_kwargs) -> str:
     problem = str((parameters or {}).get("problem", "")).strip()
     evidence = str((parameters or {}).get("evidence", "")).strip()
     if not problem:

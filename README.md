@@ -21,7 +21,7 @@ Setup installs server dependencies and configures Text and Live providers separa
 
 ## Model configuration
 
-Text handles typed chat, reasoning, authoring, and repair diagnosis. Live handles voice sessions. Only the configured primary model for each role is used; there is no automatic provider or model fallback.
+Text handles typed chat, reasoning, authoring, and repair diagnosis. Live handles voice sessions. Legacy setup uses one primary model per role. Optional [model profiles](docs/model-profiles.md) provide capability routes and explicitly approved alternatives; Live keeps one model.
 
 Text adapters include Gemini, OpenAI API, OpenAI/Codex account login, Anthropic Claude API, DeepSeek, Ollama, OpenRouter, and Google OAuth. Live supports Gemini Live and OpenAI Realtime. Authentication and model availability depend on the selected provider.
 

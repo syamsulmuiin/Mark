@@ -15,6 +15,14 @@ from core.llm_codex import generate_text as generate_codex_text
 def generate_chat_text(prompt: str, *, config: dict | None = None, timeout: float | None = None) -> str:
     """Route a plain text request to the explicitly configured provider."""
     settings = load_config() if config is None else config
+    from core.model_profiles import enabled, run
+    if enabled(settings):
+        from core.profile_execution import infer
+        def invoke(profile,remaining):
+            projected={**settings,'llm_provider':profile['provider'],'provider_models':{profile['provider']:profile['model']}}
+            request=identity_instruction(projected,text_model=profile['model'],role='Text')+'\n'+prompt
+            return infer(profile,request,timeout=remaining,settings=settings)
+        return run('text',invoke,settings=settings,timeout=timeout if timeout is not None else 120)
     provider = str(settings.get("llm_provider") or "gemini").strip().lower()
     if provider == "gemini":
         from core.gemini import text, SMART, _LADDERS

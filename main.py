@@ -3163,11 +3163,15 @@ class JarvisLive:
                     from core.setup_config import load_config as load_routing_config
                     _routing = load_routing_config()
                     from core.response_language import preferred_language
+                    from core.model_profiles import enabled as profiles_enabled, primary as profile_primary, snapshot as profile_snapshot
+                    _profiles = profile_snapshot(_routing)
+                    _text_profile = profile_primary('text', _routing) if profiles_enabled(_routing) else {}
+                    _trace_event("model_routing_policy", policy=_profiles)
                     _trace_event("llm_routing", live_provider=llm_live.provider(_routing),
-                                 live_model=live_model, text_provider=_routing.get("llm_provider", "gemini"),
-                                 text_models=(_routing.get("provider_models") or {}).get(_routing.get("llm_provider"))
+                                 live_model=live_model, text_provider=_text_profile.get("provider") or _routing.get("llm_provider", "gemini"),
+                                 text_models=_text_profile.get("model") or (_routing.get("provider_models") or {}).get(_routing.get("llm_provider"))
                                              or _routing.get("chat_models") or _routing.get("text_models") or "default",
-                                 text_provider_fallback=False, model_fallback=False, interruption_provider=llm_live.provider(_routing),
+                                 text_provider_fallback="text" in _profiles.get("failover", []), model_fallback=bool(_profiles.get("failover")), interruption_provider=llm_live.provider(_routing),
                                  response_language=preferred_language(config=_routing) or "auto",
                                  input_transcription_language_codes=config.input_audio_transcription.language_codes or [])
                     if self._recovery_context_pending:

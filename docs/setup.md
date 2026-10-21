@@ -43,3 +43,7 @@ Install Android updates over the existing app using the same signing identity. U
 ## Local operator authentication
 
 Local health and pairing administration require both loopback access and the owner-readable credential in `devices/local_api.token`. The server creates it at startup and the local CLI reads it automatically. A proxy's loopback connection or the fixed `X-Jarvis-Local` header alone grants no operator authority. Keep this file private and outside Git; do not send it to companions. Restart the server after updating so the new endpoint and CLI contracts are active together.
+
+## Optional unified model profiles
+
+Run `python -m core.model_profiles --configure` to import current selections, add described models, and assign capability routes from one pool. See [model profiles](model-profiles.md) for precedence, safe alternatives, catalogs and unsupported capabilities. Restart Mark after saving.

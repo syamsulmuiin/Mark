@@ -34,6 +34,12 @@ class ImageGenerationPending(ImageGenerationError):
 
 def selection(config=None):
     settings=load_config() if config is None else config
+    from core.model_profiles import enabled, primary
+    if enabled(settings):
+        from core.model_profiles import RouteUnavailable
+        try:p=primary('image',settings)
+        except RouteUnavailable:raise ImageGenerationError('image_route_not_configured') from None
+        return selection({'image_generation':{'provider':p['provider'],'model':p['model'],'api_key':p.get('api_key','')}})
     selected=settings.get('image_generation') or {}
     if not isinstance(selected,dict) or selected.get('provider') not in {'gemini','openai','nvidia'}:
         raise ImageGenerationError('image_provider_not_configured')
@@ -79,6 +85,17 @@ def _request(provider,key,url,body=None,timeout=120):
 
 
 def generate_image(prompt,base_dir,*,config=None):
+    settings=load_config() if config is None else config
+    from core.model_profiles import enabled, run
+    if enabled(settings):
+        def invoke(p,remaining):
+            return _generate_image(prompt,base_dir,config={'image_generation':{
+                'provider':p['provider'],'model':p['model'],'api_key':p.get('api_key','')}},timeout=remaining)
+        return run('image',invoke,settings=settings,timeout=120)
+    return _generate_image(prompt,base_dir,config=settings)
+
+
+def _generate_image(prompt,base_dir,*,config=None,timeout=120):
     from core.image_download import save_image_bytes, MAX_BYTES
     from core.interaction_log import write_event
     provider,model,key=selection(config)
@@ -95,7 +112,7 @@ def generate_image(prompt,base_dir,*,config=None):
                 raise ImageGenerationError('nvidia_image_prompt_too_long')
             data=_request(provider,key,'https://ai.api.nvidia.com/v1/genai/'+model,
                 {'prompt':prompt,'width':1024,'height':1024,'samples':1,'seed':0,'mode':'base',
-                 **NVIDIA_IMAGE_MODELS[model]})
+                 **NVIDIA_IMAGE_MODELS[model]},timeout=timeout)
             artifacts=data.get('artifacts') or []
             if not artifacts or artifacts[0].get('finishReason') not in {None,'SUCCESS'}:
                 raise ImageGenerationError('nvidia_image_blocked_or_incomplete')
@@ -103,7 +120,7 @@ def generate_image(prompt,base_dir,*,config=None):
         elif provider=='gemini':
             data=_request(provider,key,'https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',
                 {'contents':[{'parts':[{'text':prompt}]}],
-                 'generationConfig':{'responseModalities':['TEXT','IMAGE']}})
+                 'generationConfig':{'responseModalities':['TEXT','IMAGE']}},timeout=timeout)
             candidates=data.get('candidates') or []
             if not candidates or candidates[0].get('finishReason') not in {None,'STOP'}:
                 raise ImageGenerationError('image_generation_blocked_or_incomplete')
@@ -113,7 +130,7 @@ def generate_image(prompt,base_dir,*,config=None):
                 and str(p['inlineData'].get('mimeType','')).startswith('image/')),None)
         else:
             data=_request(provider,key,'https://api.openai.com/v1/images/generations',
-                {'model':model,'prompt':prompt,'n':1})
+                {'model':model,'prompt':prompt,'n':1},timeout=timeout)
             images=data.get('data') or []
             encoded=images[0].get('b64_json') if images else None
         if not isinstance(encoded,str) or not encoded or len(encoded)>4*((MAX_BYTES+2)//3):

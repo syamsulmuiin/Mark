@@ -12,6 +12,12 @@ class VisualReviewUnavailable(RuntimeError):
 
 def visual_provider(config=None):
     settings = load_config() if config is None else config
+    from core.model_profiles import enabled, primary
+    if enabled(settings):
+        from core.model_profiles import RouteUnavailable
+        try:p=primary('vision',settings)
+        except RouteUnavailable as exc:raise VisualReviewUnavailable(str(exc)) from None
+        return settings,p['provider']
     provider = str(settings.get('llm_provider') or 'gemini').strip().lower()
     if provider not in {'gemini','openai','openai_codex','anthropic','google_oauth',
                          'openrouter','ollama_local','ollama_cloud'}:
@@ -24,6 +30,10 @@ def generate_visual(prompt, images, *, timeout=30, config=None):
     settings, provider = visual_provider(config)
     if not 1 <= len(images) <= 6 or any(not isinstance(i,str) or len(i)>2_000_000 for i in images):
         raise ValueError('Invalid image review batch')
+    from core.model_profiles import enabled, run
+    if enabled(settings):
+        from core.profile_execution import infer
+        return run('vision',lambda p,remaining:infer(p,prompt,images=images,timeout=remaining),settings=settings,timeout=timeout)
     if provider == 'gemini':
         from core.gemini import text, SMART, _LADDERS
         from google.genai import types

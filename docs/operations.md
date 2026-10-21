@@ -35,7 +35,7 @@ Root runtime state and local credentials are ignored by Git. Already-tracked sou
 
 Dependency-file changes retain a manual-install requirement and prevent automatic restart, including repeated update-and-restart requests. Use the server environment to install required dependencies before explicitly restarting. Maintenance does not update companion APKs.
 
-A detached helper schedules restart after ten seconds. Scheduled/restarting means `WAITING`; completion requires replacement-worker health/PID verification. After reconnecting, check maintenance status. A stuck job requires inspection of `runtime/maintenance.json` and `runtime/maintenance.log`.
+A detached helper schedules restart after ten seconds. Scheduled/restarting means `WAITING`; completion requires replacement-worker health/PID verification. After reconnecting, check maintenance status. A `completed` restart means replacement-server readiness was verified; report it as completed, not queued. Status instructions distinguish completed, active, failed, and dependency-blocked operations. API readiness does not by itself prove that companion audio has reconnected. A stuck job requires inspection of `runtime/maintenance.json` and `runtime/maintenance.log`.
 
 ## Logs
 

@@ -3066,7 +3066,7 @@ class JarvisLive:
             def _approval_completed(request_id, key, title, success, result):
                 # Completion is independent of Gemini Live availability.
                 async def _report():
-                    self._dashboard.discard_pending_approval(request_id)
+                    self._dashboard.discard_pending_approval(request_id, outcome=result)
                     await self._dashboard.send_approval_completion(request_id, success,
                         outcome=result if result in {"unverified", "waiting"} else "")
                 try:

@@ -86,3 +86,36 @@ def test_unverified_completion_is_not_reported_as_failed_or_success():
     assert server.accept_approval_reply('android', socket, {'request_id': 'request-unverified', 'accepted': True})
     assert asyncio.run(server.send_approval_completion('request-unverified', False, outcome='unverified'))
     assert socket.messages[-1]['status'] == 'unverified'
+
+
+def test_expiry_logs_one_terminal_resolution_and_rejects_late_reply(monkeypatch):
+    import dashboard.server as mod
+    events = []
+    monkeypatch.setattr(mod, '_interaction_event', lambda event, **fields: events.append((event, fields)))
+    server = make_server()
+    socket = Socket()
+    server._device_sockets = {'android': socket}
+    server._active_voice_device = 'android'
+    asyncio.run(server.send_active_approval('expiry-test', 'Test', 'Details'))
+    server._approval_pending['expiry-test']['expires'] = 0
+    assert not server.accept_approval_reply('android', socket, {'request_id': 'expiry-test', 'accepted': True})
+    server.discard_pending_approval('expiry-test', outcome='expired')
+    resolved = [fields for event, fields in events if event == 'approval_resolved']
+    assert len(resolved) == 1
+    assert resolved[0]['outcome'] == 'expired'
+    assert resolved[0]['approval_id'] != 'expiry-test'
+    assert not server._approval_completion_targets
+
+
+def test_host_timeout_logs_without_device_reply(monkeypatch):
+    import dashboard.server as mod
+    events = []
+    monkeypatch.setattr(mod, '_interaction_event', lambda event, **fields: events.append((event, fields)))
+    server = make_server()
+    socket = Socket()
+    server._device_sockets = {'android': socket}
+    server._active_voice_device = 'android'
+    asyncio.run(server.send_active_approval('host-timeout', 'Test', 'Details'))
+    server.discard_pending_approval('host-timeout', outcome='expired')
+    server.discard_pending_approval('host-timeout', outcome='expired')
+    assert len([e for e, _ in events if e == 'approval_resolved']) == 1

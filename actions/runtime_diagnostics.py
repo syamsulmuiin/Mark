@@ -29,16 +29,20 @@ def _redact(text: str) -> str:
     return out
 
 
-def _tail(path: Path, lines: int, *, interaction: bool = False) -> str:
-    if not path.is_file():
-        return ""
+def _tail(path: Path, lines: int, *, interaction: bool = False, reads=None) -> str:
     try:
+        if not path.is_file():
+            if reads is not None:
+                reads.append({"source": path.name, "state": "missing"})
+            return ""
         with path.open("rb") as fh:
             fh.seek(0, 2)
             size = fh.tell()
             limit = _MAX_INTERACTION_SCAN if interaction else _MAX_BYTES
             fh.seek(max(0, size - limit))
             raw = fh.read(limit)
+        if reads is not None:
+            reads.append({"source": path.name, "state": "read", "bytes_read": len(raw)})
         text = raw.decode("utf-8", errors="replace")
         if size > limit and "\n" in text:
             text = text.split("\n", 1)[1]
@@ -63,6 +67,8 @@ def _tail(path: Path, lines: int, *, interaction: bool = False) -> str:
                 bounded = bounded.split("\n", 1)[1]
         return _redact(bounded).strip()
     except Exception as exc:
+        if reads is not None:
+            reads.append({"source": path.name, "state": "failed", "error_type": type(exc).__name__})
         return f"<read failed: {type(exc).__name__}>"
 
 
@@ -84,7 +90,7 @@ def _log_state(path: Path) -> str:
         return f"{path.name}: inaccessible ({type(exc).__name__})."
 
 
-def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
+def collect_runtime_evidence(scope: str = "all", lines: int = 120, *, reads=None) -> str:
     """Return bounded server diagnostics from fixed runtime paths only.
 
     No caller-supplied filesystem path is accepted. Rotated error logs are read
@@ -102,18 +108,18 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
         chunks.append(_log_state(RUNTIME_DIR / "interaction.log"))
 
     if scope in {"all", "error"}:
-        current = _tail(RUNTIME_DIR / "error.log", lines)
+        current = _tail(RUNTIME_DIR / "error.log", lines, reads=reads)
         if current:
             chunks.append("===== runtime/error.log =====\n" + _metadata(RUNTIME_DIR / "error.log") + "\n" + current)
         else:
             for idx in range(1, 6):
-                rotated = _tail(RUNTIME_DIR / f"error.log.{idx}", lines)
+                rotated = _tail(RUNTIME_DIR / f"error.log.{idx}", lines, reads=reads)
                 if rotated:
                     chunks.append(f"===== runtime/error.log.{idx} =====\n" + rotated)
                     break
 
     if scope in {"all", "interaction"}:
-        interaction = _tail(RUNTIME_DIR / "interaction.log", lines, interaction=True)
+        interaction = _tail(RUNTIME_DIR / "interaction.log", lines, interaction=True, reads=reads)
         if interaction:
             chunks.append("===== runtime/interaction.log (relevant events; audio/VAD omitted) =====\n" + _metadata(RUNTIME_DIR / "interaction.log") + "\n" + interaction)
         else:
@@ -148,10 +154,26 @@ def collect_runtime_evidence(scope: str = "all", lines: int = 120) -> str:
 
 def runtime_diagnostics(parameters: dict, **_kwargs) -> str:
     params = parameters or {}
-    return collect_runtime_evidence(
+    reads = []
+    report = collect_runtime_evidence(
         scope=str(params.get("scope", "all")),
         lines=int(params.get("lines", 120) or 120),
+        reads=reads,
     )
+    successful = [r for r in reads if r["state"] == "read"]
+    failed = any(r["state"] == "failed" for r in reads)
+    scope = str(params.get("scope", "all")).lower().strip()
+    required = {"error", "interaction"} if scope not in {"error", "interaction"} else {scope}
+    covered = {"error" if r["source"].startswith("error.log") else "interaction" for r in successful}
+    verified = not failed and required <= covered
+    return json.dumps({
+        "status": "SUCCESS" if verified else "FAILED" if failed else "UNVERIFIED",
+        "verified": verified,
+        "reason": "log_collection_verified" if verified else "log_read_failed" if failed else "log_sources_missing",
+        "verification_scope": "bounded_server_log_collection_only",
+        "reads": reads, "report": report,
+        "limitations": "Collection does not verify diagnosis, server health, repair, or attachment delivery.",
+    })
 
 
 TOOL = {

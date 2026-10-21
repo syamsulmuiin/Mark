@@ -147,3 +147,27 @@ def test_only_existing_verified_artifacts_are_grounded(tmp_path, monkeypatch):
     assert not tool_feedback.observed_files(
         {"verified": True, "file_path": str(outside)}
     )
+
+
+def test_creation_certificate_is_reused_and_old_policy_refreshes_once(
+    pure, monkeypatch
+):
+    from core.skill_crucible import SkillCrucible, PURE_POLICY_VERSION
+
+    store, dynamic, record = pure
+    meta_path = dynamic.root / record["skill_id"] / "manifest.json"
+    meta = json.loads(meta_path.read_text())
+    meta["policy"]["policy"] = "old-policy"
+    meta_path.write_text(json.dumps(meta))
+    original = SkillCrucible.validate_source
+    calls = []
+
+    def track(source):
+        calls.append(source)
+        return original(source)
+
+    monkeypatch.setattr(SkillCrucible, "validate_source", track)
+    assert skill_registry.saved_pure_skill_is_safe(record["skill_id"])
+    assert skill_registry.saved_pure_skill_is_safe(record["skill_id"])
+    assert len(calls) == 1
+    assert json.loads(meta_path.read_text())["policy"]["policy"] == PURE_POLICY_VERSION

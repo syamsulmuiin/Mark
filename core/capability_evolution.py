@@ -1,7 +1,7 @@
 """Authority-bounded capability evolution for low-risk pure generated skills."""
 from __future__ import annotations
 from core.capability_registry import Capability
-from core.skill_crucible import SkillCrucible
+from core.skill_crucible import SkillCrucible, PURE_POLICY_VERSION
 from core.memory_scope import current_scope
 import inspect
 
@@ -40,7 +40,7 @@ class CapabilityEvolutionEngine:
         validation=SkillCrucible.run_tests(source,tests)
         if not validation.get('ok'):
             self._remember("failure",f"Generated capability {name} failed Crucible",validation); return {"status":"REJECTED","reason":"crucible_failed","validation":validation}
-        prov={"generator":"Mark SkillSynthesizer","policy":"pure-v1"}
+        prov={"generator":"Mark SkillSynthesizer","policy":PURE_POLICY_VERSION}
         prov.update(provenance or {})
         record=self.skills.create(candidate.get('name') or name,candidate.get('description') or purpose,[],permissions=(),risk_level='LOW',
                                   output_capability=name,skill_type='GENERATED',provenance=prov)

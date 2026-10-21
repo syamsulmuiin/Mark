@@ -43,10 +43,13 @@ def build_script_skill(store, base_dir, name, purpose, inputs):
     if result.get('source_sha256')!=digest:
         raise ValueError('Built script integrity mismatch')
     from core.skill_catalog import input_schema
+    from core.computation_script import source_assessment
+    checked = source_assessment(path)
+    low_risk = bool(checked and checked[1]['computation_only'])
     try:
         record=store.create(name,purpose,[{'capability':'code_helper','inputs':{'action':'run','file_path':str(path)}}],
-            permissions=('server.script.execute',),risk_level='HIGH',
-            provenance={'template':'approved_script_v1','source_sha256':digest,'parameters':input_schema(inputs)})
+            permissions=() if low_risk else ('server.script.execute',),risk_level='LOW' if low_risk else 'HIGH',
+            provenance={'template':'approved_script_v1','source_sha256':digest,'parameters':input_schema(inputs),'risk_assessment':checked[1] if checked else None})
     except Exception as exc:
         result.update(skill_created=False,registration_error_type=type(exc).__name__,
             instruction='The script already executed once successfully, but skill registration failed. Do not rebuild or rerun the task merely to retry registration. Inspect and deliver the existing output; report the persistence failure separately.')
@@ -61,7 +64,7 @@ def run_script_skill(record,base_dir,inputs):
     from actions.code_helper import _run_file
     if record.get('operational_state') not in {'ACTIVE','DEGRADED'} or record.get('skill_type')!='COMPOSITE':
         raise ValueError('Script skill is not active')
-    if record.get('permissions')!=['server.script.execute'] or record.get('risk_level')!='HIGH':
+    if (record.get('permissions'),record.get('risk_level')) not in [(['server.script.execute'],'HIGH'),([], 'LOW')]:
         raise ValueError('Script authority metadata invalid')
     steps=record.get('steps')
     if not isinstance(steps,list) or len(steps)!=1:
@@ -76,6 +79,11 @@ def run_script_skill(record,base_dir,inputs):
     prov=record.get('provenance') or {}
     if prov.get('template')!='approved_script_v1' or hashlib.sha256(path.read_bytes()).hexdigest()!=prov.get('source_sha256'):
         raise ValueError('Saved script changed; refusing execution')
+    from core.computation_script import run_checked
+    if record.get('risk_level') == 'LOW':
+        result = run_checked(path,[json.dumps(inputs,ensure_ascii=False)],expected_sha256=prov.get('source_sha256'))
+        result['skill_id'] = record['skill_id']
+        return result
     output=_run_file(path,[json.dumps(inputs,ensure_ascii=False)],30)
     waiting=output.startswith('WAITING:')
     success=output.startswith('Execution finished (exit_code=0)')
@@ -83,3 +91,26 @@ def run_script_skill(record,base_dir,inputs):
         'verified':False,'process_verified':success,'executed':True,'skill_id':record['skill_id'],
         'file_path':str(path),'output':output,
         'instruction':'Verify the actual requested result before completion. A timeout may have partial side effects; inspect them before retrying.'}
+
+
+def saved_computation_script(skill_id):
+    """Classify the pinned host script, never a model risk label."""
+    import re
+    from core.computation_script import validated_source
+    if not isinstance(skill_id, str) or not re.fullmatch(r'[a-f0-9]{32}', skill_id):return None
+    base = Path(__file__).resolve().parents[1]
+    try:
+        record = json.loads((base / 'storage/autonomy/skills' / (skill_id + '.json')).read_text())
+        steps = record.get('steps') or []
+        path = Path(steps[0]['inputs']['file_path'])
+        provenance = record.get('provenance') or {}
+        if (record.get('skill_id') != skill_id or record.get('skill_type') != 'COMPOSITE'
+                or record.get('operational_state') not in {'ACTIVE', 'DEGRADED'}
+                or (record.get('permissions'),record.get('risk_level')) not in [(['server.script.execute'],'HIGH'),([], 'LOW')]
+                or provenance.get('template') != 'approved_script_v1' or path.parent != _script_root(base)
+                or steps != [{'capability':'code_helper','inputs':{'action':'run','file_path':str(path)}}]):return None
+        source = validated_source(path)
+        digest = hashlib.sha256(source.encode()).hexdigest() if source is not None else None
+        if digest is None or digest != provenance.get('source_sha256'):return None
+        return str(path), digest
+    except (OSError, ValueError, KeyError, IndexError, TypeError):return None

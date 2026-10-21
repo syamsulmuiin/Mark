@@ -1524,7 +1524,20 @@ class JarvisLive:
             return types.FunctionResponse(id=fc.id, name=name, response=answer)
 
         from core.action_policy import requires_confirmation
-        if requires_confirmation(name, args):
+        _needs_approval = requires_confirmation(name, args)
+        _computation_call = None
+        if not _needs_approval and name == 'code_helper' and args.get('action') == 'run':
+            _computation_call = (args.get('file_path'), args.get('args') or [], None)
+        elif not _needs_approval and name == 'skill_manager' and args.get('operation') == 'run':
+            from core.script_skills import saved_computation_script
+            _pinned = saved_computation_script(args.get('skill_id'))
+            if _pinned:
+                _computation_call = (_pinned[0], [json.dumps(args.get('inputs') or {})], _pinned[1])
+            else:
+                from core.skill_registry import saved_pure_skill_is_safe, saved_image_template_is_safe
+                if not (saved_pure_skill_is_safe(args.get('skill_id')) or saved_image_template_is_safe(args.get('skill_id'))):
+                    return types.FunctionResponse(id=fc.id, name=name, response={'status':'BLOCKED', 'executed':False, 'reason':'skill_changed_before_execution'})
+        if _needs_approval:
             _approval_ctx = getattr(self, "_approved_text_action_context", None)
             _expected = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
             if _approval_ctx is None or _approval_ctx.get() != _expected:
@@ -2110,7 +2123,13 @@ class JarvisLive:
                         args["file_path"] = self.ui.current_file
                     _ctx = {"player": self.ui, "speak": self.speak,
                             "response": None, "session_memory": None}
-                    r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
+                    if _computation_call is not None:
+                        from core.computation_script import run_checked
+                        r = await asyncio.to_thread(run_checked, _computation_call[0], _computation_call[1],
+                                                    expected_sha256=_computation_call[2])
+                        if name == 'skill_manager':r['skill_id'] = args.get('skill_id')
+                    else:
+                        r = await loop.run_in_executor(None, lambda: self._action_registry.run(name, args, _ctx))
                     result = r if r is not None else {"ok": False, "status": "UNVERIFIED", "verified": False, "reason": "Tool returned no execution evidence"}
                     if name in {"document_editor", "file_processor"}:
                         try:

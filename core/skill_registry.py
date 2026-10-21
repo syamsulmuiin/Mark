@@ -138,12 +138,12 @@ def is_builtin_image_create(record):
 
 
 def saved_pure_skill_is_safe(skill_id):
-    """Grant the pure policy only after checking the actual host record and source."""
+    """Reuse the creation certificate; refresh once when host policy changes."""
     import re
     import hashlib
-    from core.skill_crucible import SkillCrucible
-    if not isinstance(skill_id, str) or not re.fullmatch(r'[a-f0-9]{32}', skill_id):
-        return False
+    import tempfile
+    from core.skill_crucible import SkillCrucible, PURE_POLICY_VERSION
+    if not isinstance(skill_id, str) or not re.fullmatch(r'[a-f0-9]{32}', skill_id):return False
     root = Path(__file__).resolve().parents[1] / 'storage/autonomy'
     folder = root / 'evolved_skills' / skill_id
     try:
@@ -152,12 +152,21 @@ def saved_pure_skill_is_safe(skill_id):
         record = json.loads(paths[0].read_text(encoding='utf-8'))
         meta = json.loads(paths[1].read_text(encoding='utf-8'))
         source = paths[2].read_text(encoding='utf-8')
-        return (record.get('skill_id') == skill_id and record.get('skill_type') == 'GENERATED'
-                and record.get('status') in {'VERIFIED', 'TRUSTED'}
-                and record.get('operational_state') in {'ACTIVE', 'DEGRADED'}
-                and not record.get('permissions') and record.get('risk_level') == 'LOW'
-                and meta.get('skill_id') == skill_id and (meta.get('validation') or {}).get('ok') is True
-                and hashlib.sha256(source.encode()).hexdigest() == meta.get('source_sha256')
-                and SkillCrucible.validate_source(source).get('ok') is True)
-    except (OSError, ValueError, TypeError, AttributeError):
-        return False
+        digest = hashlib.sha256(source.encode()).hexdigest()
+        if (record.get('skill_id') != skill_id or record.get('skill_type') != 'GENERATED'
+                or record.get('status') not in {'VERIFIED', 'TRUSTED'}
+                or record.get('operational_state') not in {'ACTIVE', 'DEGRADED'}
+                or record.get('permissions') or record.get('risk_level') != 'LOW'
+                or meta.get('skill_id') != skill_id or (meta.get('validation') or {}).get('ok') is not True
+                or digest != meta.get('source_sha256')):return False
+        policy = meta.get('policy') or {}
+        if policy.get('policy') != PURE_POLICY_VERSION:
+            policy = SkillCrucible.validate_source(source)
+            meta['policy'] = policy
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=folder, delete=False) as output:
+                temporary = output.name; json.dump(meta, output)
+            try:os.replace(temporary, paths[1])
+            finally:
+                if os.path.exists(temporary):os.unlink(temporary)
+        return policy.get('ok') is True and policy.get('sha256') == digest
+    except (OSError, ValueError, TypeError, AttributeError):return False

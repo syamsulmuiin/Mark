@@ -9,10 +9,12 @@ from __future__ import annotations
 import ast, hashlib, json, os, subprocess, sys, tempfile, textwrap, time
 from pathlib import Path
 
+PURE_POLICY_VERSION = 'pure-v2'
+
 SAFE_IMPORTS={"json","math","re","statistics","datetime","collections","itertools","functools","decimal","fractions","string","typing"}
-BANNED_NAMES={"open","eval","exec","compile","__import__","input","breakpoint","globals","locals","vars","getattr","setattr","delattr"}
-BANNED_ROOTS={"os","sys","subprocess","socket","ssl","pathlib","shutil","ctypes","pickle","marshal","importlib","requests","urllib","http","asyncio","multiprocessing","threading"}
-BANNED_ATTRS={"system","popen","spawn","fork","remove","unlink","rmdir","rename","replace","chmod","chown","write_text","write_bytes","read_text","read_bytes"}
+BANNED_NAMES={"open","eval","exec","compile","__import__","input","breakpoint","globals","locals","vars","getattr","setattr","delattr","help","license","credits","copyright"}
+BANNED_ROOTS={"os","sys","subprocess","socket","ssl","pathlib","shutil","ctypes","pickle","marshal","importlib","requests","urllib","http","asyncio","multiprocessing","threading","io","builtins","codecs","types"}
+BANNED_ATTRS={"system","popen","spawn","fork","remove","unlink","rmdir","rename","replace","chmod","chown","write_text","write_bytes","read_text","read_bytes","open","read","write","readline","readlines","writelines"}
 
 class SkillPolicyError(ValueError): pass
 
@@ -31,19 +33,21 @@ class SkillCrucible:
                 elif node.module:mods=[node.module.split('.')[0]]
                 bad=[m for m in mods if m not in SAFE_IMPORTS]
                 if bad:raise SkillPolicyError("forbidden_import:"+','.join(sorted(set(bad))))
+            if isinstance(node,ast.Name) and node.id.startswith('__') and node.id != '__name__':
+                raise SkillPolicyError('dunder_global_forbidden:'+node.id)
             if isinstance(node,ast.Name) and node.id in BANNED_NAMES|BANNED_ROOTS:
                 raise SkillPolicyError("forbidden_name:"+node.id)
             if isinstance(node,ast.Attribute):
-                if node.attr in BANNED_ATTRS:
+                if node.attr in BANNED_ATTRS|BANNED_ROOTS:
                     raise SkillPolicyError("forbidden_attribute:"+node.attr)
-                if node.attr.startswith("__"):
+                if node.attr.startswith("_"):
                     raise SkillPolicyError("dunder_introspection_forbidden:"+node.attr)
             if isinstance(node,ast.Call):
                 fn=node.func
                 if isinstance(fn,ast.Name) and fn.id in BANNED_NAMES:raise SkillPolicyError("forbidden_call:"+fn.id)
             if isinstance(node,(ast.Global,ast.Nonlocal)):raise SkillPolicyError("mutable_global_state_forbidden")
         digest=hashlib.sha256(source.encode()).hexdigest()
-        return {"ok":True,"sha256":digest,"policy":"pure-v1","imports":sorted({
+        return {"ok":True,"sha256":digest,"policy":PURE_POLICY_VERSION,"imports":sorted({
             (a.name.split('.')[0] if isinstance(n,ast.Import) else n.module.split('.')[0])
             for n in ast.walk(tree) for a in (n.names if isinstance(n,ast.Import) else [None])
             if isinstance(n,(ast.Import,ast.ImportFrom)) and ((isinstance(n,ast.Import) and a) or (isinstance(n,ast.ImportFrom) and n.module))

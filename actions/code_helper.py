@@ -266,7 +266,7 @@ def _run_file(path: Path, args: list, timeout: int) -> str:
         return f"ERROR: Execution error: {e}"
 
 
-def _build(description, language, output_path, args, timeout, speak=None, player=None) -> str:
+def _build(description, language, output_path, args, timeout, speak=None, player=None, *, structured=False) -> str:
     if not description:
         return "Please describe what you want me to build, sir."
 
@@ -298,6 +298,11 @@ def _build(description, language, output_path, args, timeout, speak=None, player
                 f"Script process exited successfully after {attempt} attempt{'s' if attempt > 1 else ''}. "
                 f"Source saved to {path}. Verify the requested output before claiming completion."
             )
+            if structured:
+                return json.dumps({'status':'UNVERIFIED','verified':False,'process_verified':True,
+                    'executed':True,'file_path':str(path.resolve()),
+                    'source_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                    'output':last_output,'instruction':msg})
             return f"{msg}\n\nOutput:\n{last_output}"
 
         print(f"[Code] ⚠️ Error on attempt {attempt}, fixing...")

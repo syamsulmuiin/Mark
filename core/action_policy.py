@@ -47,7 +47,7 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
                 pass
     if tool == "skill_manager":
         operation = args.get("operation", "list")
-        if operation == "list" or (operation == "create" and args.get("kind") in {"image_search", "image_create"}):
+        if operation == "list" or (operation in {"create", "ensure"} and args.get("kind") in {"image_search", "image_create"}):
             return False
         if operation == "run":
             from core.skill_registry import saved_image_template_is_safe

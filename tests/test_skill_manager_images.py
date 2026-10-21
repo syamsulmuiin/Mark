@@ -85,13 +85,17 @@ def test_image_count_and_saved_skill_inputs(monkeypatch, tmp_path):
 
 
 def test_image_download_count_is_not_three(monkeypatch):
-    from core import image_download
+    from core import image_download, image_review, llm_visual
+    monkeypatch.setattr(llm_visual, 'visual_provider', lambda: ({}, 'openai_codex'))
+    monkeypatch.setattr(image_review, 'preview', lambda artifact: artifact['file_path'])
+    monkeypatch.setattr(image_review, 'review_images', lambda query, artifacts, **kw: [
+        {'matches':True,'reason':'matches','visible_text':''} for a in artifacts])
     class Engine:
         def __init__(self, **kw): pass
         def __enter__(self): return self
         def __exit__(self, *a): pass
         def images(self, query, **kwargs):
-            assert kwargs['max_results'] == 12
+            assert kwargs['max_results'] == 36
             return [{'image':f'https://example.org/{i}.png'} for i in range(12)]
     monkeypatch.setattr(search, '_get_ddgs', lambda: Engine)
     monkeypatch.setattr(search, '_ddg_available', lambda: True)

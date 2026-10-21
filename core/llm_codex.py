@@ -190,12 +190,14 @@ def list_models(*, timeout=20.0):
         raise RuntimeError('OpenAI account model catalog connection or format failed') from None
 
 
-def generate_text(model, prompt, *, timeout=120.0):
+def generate_text(model, prompt, *, timeout=120.0, images=None):
     if not model.strip() or not prompt.strip():
         raise ValueError('Model and prompt are required')
     record = check_login()
+    content = [{'type':'input_text', 'text':prompt}] + [
+        {'type':'input_image', 'image_url':'data:image/jpeg;base64,' + data} for data in (images or [])]
     request = Request(ENDPOINT, data=json.dumps({'model': model, 'instructions': 'Answer the user request. Return text only; do not execute tools.',
-        'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': prompt}]}],
+        'input': [{'role': 'user', 'content': content}],
         'store': False, 'stream': True, 'tools': []}).encode(), headers={
             'Authorization': 'Bearer ' + record['access_token'], 'ChatGPT-Account-ID': record['account_id'],
             'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'OpenAI-Beta': 'responses=experimental', 'originator': 'mark'}, method='POST')

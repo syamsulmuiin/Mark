@@ -56,3 +56,7 @@ Browser PKCE setup prints an authorization URL and accepts the full localhost ca
 - `llm_routing` records configured routes. `text_provider_request` records the provider/model actually called, with started/succeeded/failed stages.
 - `live_connected` identifies the Live model that connected. Model identity in conversation comes from host metadata rather than training identity.
 - Provider access, native account protocols, model availability, and real audio behavior need deployment testing. Mocked protocol tests do not establish account access.
+
+### Image search review
+
+Image attachment selection uses an explicit image-input path on the configured primary Text provider, without creating a separate model role or Live session. Adapters encode bounded JPEG previews using the provider's image content format. Gemini/Google OAuth, OpenAI API/Codex account, Claude, OpenRouter and Ollama can submit image inputs, but the selected model must support them. DeepSeek is unsupported by this path. Unsupported providers and rejected/incomplete responses fail closed; no other model is selected automatically. Existing plain-text calls keep their original payload format. Visual matches are model assessments; they do not certify provenance, official status or licensing.

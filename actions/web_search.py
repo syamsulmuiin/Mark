@@ -393,46 +393,93 @@ def _compare(items: list[str], aspect: str) -> str:
 
 def _images(query: str, delivery: str = "attachments", count: int = 6) -> str:
     from urllib.parse import urlsplit
+    import hashlib
+    import time
+    from core.image_review import review_images, preview, log_review
+    from core.llm_visual import visual_provider, VisualReviewUnavailable
     if type(count) is not int or not 1 <= count <= 20:
         return json.dumps({"status":"FAILED", "reason":"invalid_image_count",
                            "instruction":"Choose 1-20 images per request. Split larger requests explicitly; no images were searched or silently truncated."})
+    if delivery != "links":
+        try:
+            visual_provider()
+        except VisualReviewUnavailable:
+            return json.dumps({'status':'BLOCKED','verified':False,'reason':'visual_review_unavailable',
+                'instruction':'The configured Text provider has no image-input adapter. No model fallback or unreviewed image delivery was performed. Explain the limitation; do not claim the image request was completed.'})
     if not _ddg_available():
-        return json.dumps({"status": "FAILED", "reason": "image_search_transport_cooldown",
-                           "results": [], "instruction": "Image search is unavailable temporarily; do not invent image links or claim delivery."})
+        return json.dumps({"status":"FAILED", "reason":"image_search_transport_cooldown", "results":[]})
+    deadline = time.monotonic() + 90
+    limit = count if delivery == "links" else min(60, max(12, count * 3))
     try:
         with _get_ddgs()(timeout=8) as engine:
-            rows = engine.images(query, max_results=count, safesearch="moderate")
-        results = []
+            rows = engine.images(query, max_results=limit, safesearch="moderate")
+        results, seen_urls = [], set()
         for row in rows:
-            image = str(row.get("image") or "")
-            page = str(row.get("url") or "")
-            if urlsplit(image).scheme not in {"http", "https"}:
+            image, page = str(row.get("image") or ""), str(row.get("url") or "")
+            if urlsplit(image).scheme not in {"http","https"} or image in seen_urls:
                 continue
-            results.append({"title": str(row.get("title") or "")[:500],
-                            "image_url": image, "source_url": page if urlsplit(page).scheme in {"http", "https"} else ""})
-            if len(results) == count:
+            seen_urls.add(image)
+            results.append({'title':str(row.get('title') or '')[:500], 'image_url':image,
+                            'source_url':page if urlsplit(page).scheme in {'http','https'} else ''})
+            if len(results) == limit:
                 break
-        if delivery != "links":
-            from core.image_download import save_verified_image
-            artifacts, failures = [], []
-            # Limit network/memory and Inbox volume per request.
-            for result in results:
-                try:
-                    artifact = save_verified_image(result['image_url'], BASE_DIR)
-                    artifacts.append({**artifact, 'source_url':result['source_url']})
-                except Exception as exc:
-                    failures.append({'error_type':type(exc).__name__})
-            return json.dumps({'status':'UNVERIFIED' if artifacts else 'FAILED',
-                'image_artifacts':artifacts, 'results':results, 'download_failures':failures,
-                'requested_count':count, 'found_count':len(results), 'partial':len(artifacts) < count,
-                'downloaded':bool(artifacts), 'verified':False,
-                'instruction':'Downloaded image files require Inbox handoff. Do not substitute a TXT list of links for requested images. Report partial download failures; image relevance, year and official status are not verified.'}, ensure_ascii=False)
-        return json.dumps({"status": "SUCCESS" if results else "UNVERIFIED", "results": results,
-            "downloaded": False, "instruction": "These are search-result links, not downloaded attachments. Show source and image links; do not claim an official poster, year, license, or image contents were verified."}, ensure_ascii=False)
     except Exception as exc:
         _note_ddg_failure(exc)
-        return json.dumps({"status": "FAILED", "reason": "image_search_transport_failed",
-                           "error_type": type(exc).__name__, "results": []})
+        return json.dumps({'status':'FAILED','reason':'image_search_transport_failed',
+                           'error_type':type(exc).__name__,'results':[]})
+    if delivery == 'links':
+        return json.dumps({'status':'SUCCESS' if results else 'UNVERIFIED','results':results,
+            'downloaded':False,'content_verified':False,
+            'instruction':'Unreviewed search links only. Do not claim image contents, official status or usage rights were verified.'})
+    from core.image_download import save_verified_image
+    artifacts, failures, rejected, seen_images = [], [], [], set()
+    stop_reason = 'candidates_exhausted'
+    for offset in range(0,len(results),6):
+        batch = []
+        for result in results[offset:offset+6]:
+            if time.monotonic() >= deadline - 10:
+                stop_reason = 'review_budget_exhausted'
+                break
+            try:
+                artifact = save_verified_image(result['image_url'],BASE_DIR)
+                fingerprint = hashlib.sha256(preview(artifact).encode()).hexdigest()
+                if fingerprint in seen_images:
+                    rejected.append({'reason':'duplicate_image'})
+                    continue
+                seen_images.add(fingerprint)
+                batch.append({**artifact,'source_url':result['source_url']})
+            except Exception as exc:
+                failures.append({'error_type':type(exc).__name__})
+        if batch:
+            remaining = deadline - time.monotonic()
+            if remaining < 10:
+                stop_reason = 'review_budget_exhausted'
+                break
+            try:
+                verdicts = review_images(query,batch,timeout=min(30,remaining))
+            except Exception as exc:
+                stop_reason = 'visual_review_failed'
+                failures.append({'stage':'visual_review','error_type':type(exc).__name__})
+                break
+            for artifact, verdict in zip(batch,verdicts):
+                if verdict['matches']:
+                    if len(artifacts) < count:
+                        artifacts.append({**artifact,'content_verified':True,'review':verdict})
+                else:
+                    rejected.append({'reason':verdict['reason']})
+        if len(artifacts) == count:
+            stop_reason = 'requested_count_met'
+            break
+        if stop_reason == 'review_budget_exhausted':
+            break
+    log_review(BASE_DIR, requested_count=count, accepted_count=len(artifacts),
+               rejected_count=len(rejected), failure_count=len(failures), stop_reason=stop_reason)
+    return json.dumps({'status':'UNVERIFIED' if artifacts else 'FAILED','verified':False,
+        'image_artifacts':artifacts,'download_failures':failures,'rejected_candidates':rejected,
+        'requested_count':count,'candidate_count':len(results),'matched_count':len(artifacts),
+        'partial':len(artifacts)<count,'downloaded':bool(artifacts),'content_review':'configured_text_model',
+        'stop_reason':stop_reason,
+        'instruction':'Only visually matched images are eligible for Inbox delivery. Report matched/delivered counts against the requested count, including shortages. Never replace rejected candidates with unreviewed files. Visual assessment can err and does not certify official status, source facts, exact original text or copyright.'},ensure_ascii=False)
 
 
 def web_search(
@@ -479,7 +526,7 @@ def web_search(
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "web_search",
-    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. For pictures, posters or image requests use mode='images' to download real images for companion Inbox delivery. Use delivery=links only when links were requested. Do not substitute a TXT list of links for images. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
+    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. For pictures, posters or image requests use mode='images' to visually review actual candidates against the complete query and deliver matching images to companion Inbox. Preserve requested image type, subject, text/year and completeness in query; report shortages. Unsupported visual input returns BLOCKED without fallback. Use delivery=links only when links were requested. Do not substitute a TXT list of links for images. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
     "parameters": {
         "type": "OBJECT",
         "properties": {

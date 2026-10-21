@@ -11,6 +11,7 @@ is not already inside one. This avoids Debian/Ubuntu/Armbian PEP 668
 """
 from __future__ import annotations
 
+import argparse
 import os
 import platform
 import subprocess
@@ -97,11 +98,15 @@ def _ensure_linux_venv() -> None:
     env = os.environ.copy()
     env["ASSISTANT_SETUP_IN_VENV"] = "1"
     print(f"[Setup] Continuing inside {python}")
-    result = subprocess.run([str(python), str(HERE / "setup.py")], cwd=HERE, env=env)
+    result = subprocess.run([str(python), str(HERE / "setup.py"), *sys.argv[1:]], cwd=HERE, env=env)
     raise SystemExit(result.returncode)
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description='Install and configure the Mark server.')
+    parser.add_argument('--configure-models', action='store_true',
+                        help='Configure model providers and task assignments without installing dependencies')
+    args = parser.parse_args(argv)
     print(
         f"[Setup] Mark headless server | OS={OS or 'unknown'} | "
         f"architecture={_normalized_arch()} | "
@@ -109,6 +114,11 @@ def main() -> None:
     )
     _check_python()
     _ensure_linux_venv()
+    if args.configure_models:
+        from core.setup_config import interactive_model_setup
+        if not interactive_model_setup():
+            raise SystemExit('Model configuration cancelled or incomplete.')
+        return
 
     _run("Upgrading packaging tools", [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
     _run("Installing headless server dependencies", [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
@@ -118,7 +128,7 @@ def main() -> None:
     # and the isolated Chromium runtime are installed by the first-time setup.
     print("[Setup] Playwright Python and Chromium runtime setup completed (or was explicitly skipped).")
 
-    from core.setup_config import configured, interactive_setup, interactive_llm_setup, interactive_language_setup, _safe_input
+    from core.setup_config import configured, interactive_setup, interactive_model_setup, interactive_language_setup, _safe_input
     if not configured():
         if not interactive_setup(force=True):
             raise SystemExit("JARVIS configuration was not completed.")
@@ -126,10 +136,10 @@ def main() -> None:
         print("[Setup] Existing Mark provider configuration found; saved keys are retained.")
         if sys.stdin.isatty():
             try:
-                choice = _safe_input("[Setup] Configure LLM provider/mode now? [y/N]: ").strip().lower()
+                choice = _safe_input("[Setup] Configure models and task assignments now? [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 choice = ""
-            if choice in ("y", "yes") and not interactive_llm_setup():
+            if choice in ("y", "yes") and not interactive_model_setup():
                 raise SystemExit("LLM selection was not completed.")
             if not interactive_language_setup():
                 raise SystemExit("Language selection was not completed.")

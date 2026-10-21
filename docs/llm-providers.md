@@ -2,7 +2,7 @@
 
 ## Routing
 
-Mark has two configured model roles:
+Mark requires two core model roles:
 
 | Role | Use |
 | --- | --- |
@@ -10,6 +10,8 @@ Mark has two configured model roles:
 | Live | Voice input/output, live interaction, and calls to the host executor |
 
 Legacy setup uses only the selected primary model for each role. Optional [unified model profiles](model-profiles.md) take precedence and permit bounded, explicitly approved alternatives for Text, vision and image generation. Live remains a single model. Voice delegation is guided by instructions and tool calls; it is not a deterministic speech-to-text, agent, and text-to-speech pipeline. Typed chat remains text-only.
+
+Configure models through `python setup.py --configure-models` without reinstalling dependencies. Setup shows current task assignments and numbered choices; image generation and visual review are optional profile tasks.
 
 ## Text adapters
 

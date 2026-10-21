@@ -47,3 +47,5 @@ playwright>=1.40,<2
 
 # Guarded self-repair validates candidates using the same server interpreter.
 pytest>=8,<10
+
+Pillow>=10,<13  # Validate downloaded image bytes before Inbox delivery

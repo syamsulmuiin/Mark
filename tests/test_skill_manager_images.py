@@ -15,7 +15,7 @@ def test_image_results_are_real_links_not_claimed_downloads(monkeypatch):
                     {'image':'javascript:bad'}]
     monkeypatch.setattr(search, '_get_ddgs', lambda: Engine)
     monkeypatch.setattr(search, '_ddg_available', lambda: True)
-    result = json.loads(search.web_search({'mode':'images','query':'poster santri 2026'}))
+    result = json.loads(search.web_search({'mode':'images','query':'poster santri 2026','delivery':'links'}))
     assert len(result['results']) == 1
     assert result['downloaded'] is False
     assert result['results'][0]['source_url'] == 'https://example.org/page'

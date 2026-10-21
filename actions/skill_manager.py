@@ -68,7 +68,7 @@ def skill_manager(parameters, **kwargs):
 
 
 TOOL = {'name':'skill_manager',
-    'description':'Create, list, or run persisted reusable skills. Explicit creation uses host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Search results are links, not downloaded attachments.',
+    'description':'Create, list, or run persisted reusable skills. Explicit creation uses host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Image runs download validated files for companion Inbox handoff; internal execution alone does not prove delivery.',
     'parameters':{'type':'OBJECT','properties':{
         'operation':{'type':'STRING','enum':['list','create','run']},
         'kind':{'type':'STRING','enum':['pure','image_search']},

@@ -391,7 +391,7 @@ def _compare(items: list[str], aspect: str) -> str:
 
 # ── Public entry point ─────────────────────────────────────────────────────────
 
-def _images(query: str) -> str:
+def _images(query: str, delivery: str = "attachments") -> str:
     from urllib.parse import urlsplit
     if not _ddg_available():
         return json.dumps({"status": "FAILED", "reason": "image_search_transport_cooldown",
@@ -409,6 +409,20 @@ def _images(query: str) -> str:
                             "image_url": image, "source_url": page if urlsplit(page).scheme in {"http", "https"} else ""})
             if len(results) == 6:
                 break
+        if delivery != "links":
+            from core.image_download import save_verified_image
+            artifacts, failures = [], []
+            # Limit network/memory and Inbox volume per request.
+            for result in results[:3]:
+                try:
+                    artifact = save_verified_image(result['image_url'], BASE_DIR)
+                    artifacts.append({**artifact, 'source_url':result['source_url']})
+                except Exception as exc:
+                    failures.append({'error_type':type(exc).__name__})
+            return json.dumps({'status':'UNVERIFIED' if artifacts else 'FAILED',
+                'image_artifacts':artifacts, 'results':results, 'download_failures':failures,
+                'downloaded':bool(artifacts), 'verified':False,
+                'instruction':'Downloaded image files require Inbox handoff. Do not substitute a TXT list of links for requested images. Report partial download failures; image relevance, year and official status are not verified.'}, ensure_ascii=False)
         return json.dumps({"status": "SUCCESS" if results else "UNVERIFIED", "results": results,
             "downloaded": False, "instruction": "These are search-result links, not downloaded attachments. Show source and image links; do not claim an official poster, year, license, or image contents were verified."}, ensure_ascii=False)
     except Exception as exc:
@@ -442,7 +456,7 @@ def web_search(
 
     try:
         if mode == "images":
-            return _images(query)
+            return _images(query, str(params.get("delivery") or "attachments"))
         if mode == "compare" and items:
             return _compare(items, aspect)
         if mode == "news":
@@ -461,7 +475,7 @@ def web_search(
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "web_search",
-    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. For pictures, posters or image requests use mode='images' to return real image/source links; do not substitute text search or claim attachments were delivered. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
+    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. For pictures, posters or image requests use mode='images' to download real images for companion Inbox delivery. Use delivery=links only when links were requested. Do not substitute a TXT list of links for images. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -473,6 +487,7 @@ TOOL = {
                 "type": "STRING",
                 "description": "search | images | news | research | price | compare"
             },
+            "delivery": {"type":"STRING", "enum":["attachments","links"], "description":"Image mode defaults to attachments; links only on explicit request."},
             "items": {
                 "type": "ARRAY",
                 "items": {

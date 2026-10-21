@@ -1367,7 +1367,8 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
         _document_origin = (getattr(getattr(self, "_dashboard", None), "origin_device_id", None)
-                            if name == "document_editor" and args.get("action") == "create" else None)
+                            if name in {"web_search", "skill_manager"} or
+                            (name == "document_editor" and args.get("action") == "create") else None)
 
         _trace_event("tool_requested", tool=name)
         print(f"[JARVIS] 🔧 {name} argument_names={sorted(args)}")
@@ -2120,6 +2121,9 @@ class JarvisLive:
                                     source_sha256=artifact["source_sha256"])
                         except (ValueError, TypeError, KeyError):
                             pass
+                    if name in {"web_search", "skill_manager"}:
+                        from core.image_delivery import deliver_image_results
+                        result = await deliver_image_results(result, self._dashboard, _document_origin)
                     if name == "self_repair_diagnostic":
                         _plan_match = re.search(r"^Repair plan:\s*([A-Za-z0-9-]+)\s*$", str(result), re.MULTILINE)
                         self._last_repair_plan_id = _plan_match.group(1) if _plan_match else ""

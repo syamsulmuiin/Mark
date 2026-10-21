@@ -26,7 +26,7 @@ def live_delegation_instruction(config: dict | None = None, *, live_model: str |
         "When the user explicitly asks to create a reusable skill, use skill_manager through propose_text_action. "
         "Use kind=image_search for a saved composition of the built-in image search; network access is not permitted in generated pure Python skills. "
         "Use kind=pure for deterministic text/math transformations. List and run saved skills using skill_manager; never claim registration based on a conversational answer. "
-        "For one-off picture/poster requests use web_search mode=images, and distinguish returned links from actual file attachments. "
+        "For one-off picture/poster requests use web_search mode=images, which defaults to downloaded image attachments. Use delivery=links only for explicit link requests. Never substitute a TXT link list for requested images. "
         "Read-only diagnostics and simple reversible actions run immediately. Dangerous "
         "or unknown actions require a single confirmation; never request another approval "
         "for an action already pending or completed. Use runtime_diagnostics directly "

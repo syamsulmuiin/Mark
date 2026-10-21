@@ -2,9 +2,9 @@
 
 ## Image requests
 
-For a one-time picture or poster request, use `web_search` with `mode=images` and a query. Results contain an image URL and a source-page URL when available. They are search links, not downloaded files or companion attachments. Search results alone do not verify the image contents, event year, official status, or reuse rights. Transport failures return a failed result; never invent replacement links.
+For a one-time picture or poster request, use `web_search` with `mode=images` and a query. The default `delivery=attachments` downloads up to three image results and hands validated files to the requesting companion Inbox. `delivery=links` returns image/source links only when explicitly requested. A TXT list of URLs is not a substitute for requested pictures. Downloaded files are limited to 8 MiB each and 20 million pixels; JPEG, PNG, WebP and GIF are supported, while HTML/SVG are rejected. Public addresses are checked and pinned for each HTTP request, including redirects. Pillow is required for format validation. Search results alone do not verify the image contents, event year, official status, or reuse rights. Transport failures return a failed result; never invent replacement links.
 
-Example voice request: “Find poster images for National Santri Day 2026 and show their source links.”
+Example voice request: “Find poster images for National Santri Day 2026 and send the images to this device.”
 
 ## Saved skills
 
@@ -12,7 +12,7 @@ Example voice request: “Find poster images for National Santri Day 2026 and sh
 
 Two creation kinds are supported:
 
-- `image_search`: saves a fixed composition of the built-in image search. Registration does not prove network search succeeded. Run the saved ID with `inputs={"query":"..."}` to obtain results.
+- `image_search`: saves a fixed composition of the built-in image search. Registration does not prove network search succeeded. Run the saved ID with `inputs={"query":"..."}` to obtain image attachments through the conversation executor. Direct internal calls without a companion executor return downloaded artifact metadata; they do not prove delivery.
 - `pure`: generates a deterministic Python transformation using the selected Text provider. The existing SkillCrucible policy and tests must pass before VERIFIED registration. Generated code is not imported into the server; subsequent runs use the existing restricted runner and integrity checks. Network, filesystem, process, and credential access remain prohibited. The restricted runner is not a general OS security sandbox.
 
 Example voice requests:

@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependency
-        run: python -m pip install --upgrade pip pytest 'ruff<1' 'cryptography>=42,<50' 'numpy>=1.24,<3' 'websockets>=14,<17' 'webrtcvad-wheels>=2.0.14,<3' 'google-genai>=2.31.0,<3' 'python-docx>=1.1,<2' 'psutil>=5.9,<8' 'google-auth-oauthlib>=1.2,<2'
+        run: python -m pip install --upgrade pip pytest 'ruff<1' 'cryptography>=42,<50' 'numpy>=1.24,<3' 'websockets>=14,<17' 'webrtcvad-wheels>=2.0.14,<3' 'google-genai>=2.31.0,<3' 'python-docx>=1.1,<2' 'Pillow>=10,<13' 'psutil>=5.9,<8' 'google-auth-oauthlib>=1.2,<2'
       - name: Check undefined names and redefinitions
         run: ruff check --select F821,F822,F823,F811 --exclude pytest-of-root .
       - name: Compile Python sources

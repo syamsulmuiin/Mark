@@ -272,3 +272,10 @@ independently of Live speech. Android application messages wait for the signed
 handshake and server `ready` message; reconnecting sockets cannot send attachment
 or microphone frames before authentication. Install the updated Android companion
 for this client-side guard.
+
+Live transcript control annotations such as `<no speech>{pause}` are removed
+before display and conversation storage. Speech onset keeps clear speech at the
+normal debounce window but requires 320 ms for low-energy VAD candidates, reducing
+brief ambient-noise activations while retaining buffered quiet speech. This is a
+noise filter, not a guarantee of transcription accuracy; ordinary words are not
+blacklisted.

@@ -347,6 +347,8 @@ def _is_repeat_chunk(txt: str, buf: list) -> bool:
 
 def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
+    # Live transcript annotations are control metadata, not spoken words.
+    text = re.sub(r"<\s*(?:no[ _]speech|silence)\s*>|\{\s*pause\s*\}", "", text, flags=re.IGNORECASE)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
 

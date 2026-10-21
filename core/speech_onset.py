@@ -11,6 +11,7 @@ class SpeechOnset:
     def reset(self):
         self.frames = []
         self.size = 0
+        self.peak_rms = 0.0
 
     def feed(self, chunk, rms, *, playback=False):
         # Platform AEC may be enabled yet leave low-level speaker residuals.
@@ -23,6 +24,11 @@ class SpeechOnset:
             self.reset()
             return []
         self.frames.append(chunk)
+        self.peak_rms = max(self.peak_rms, rms)
+        # Brief low-energy VAD positives are often room noise. Keep the
+        # original onset for clear speech, but require longer quiet speech.
+        if not playback and self.peak_rms < self.threshold * 2:
+            required = max(required, self.playback_minimum_bytes)
         self.size += len(chunk.get("data", b""))
         if self.size < required:
             return []

@@ -75,6 +75,7 @@ See [operations and troubleshooting](docs/operations.md) for update blockers, lo
 | [Providers](docs/llm-providers.md) | Text/Live selection, authentication, and model identity |
 | [Operations](docs/operations.md) | Lifecycle, updates, diagnostics, and repair |
 | [Emergency stop](docs/emergency-stop.md) | Worker isolation, global hotkey, and stopping limits |
+| [Skills](docs/skills.md) | Saved pure skills, image-search compositions, and limits |
 | [Files](docs/files.md) | Attachments, deletion, creation, and revisions |
 | [Contributing](CONTRIBUTING.md) | Development and documentation standards |
 

@@ -391,6 +391,32 @@ def _compare(items: list[str], aspect: str) -> str:
 
 # ── Public entry point ─────────────────────────────────────────────────────────
 
+def _images(query: str) -> str:
+    from urllib.parse import urlsplit
+    if not _ddg_available():
+        return json.dumps({"status": "FAILED", "reason": "image_search_transport_cooldown",
+                           "results": [], "instruction": "Image search is unavailable temporarily; do not invent image links or claim delivery."})
+    try:
+        with _get_ddgs()(timeout=8) as engine:
+            rows = engine.images(query, max_results=6, safesearch="moderate")
+        results = []
+        for row in rows:
+            image = str(row.get("image") or "")
+            page = str(row.get("url") or "")
+            if urlsplit(image).scheme not in {"http", "https"}:
+                continue
+            results.append({"title": str(row.get("title") or "")[:500],
+                            "image_url": image, "source_url": page if urlsplit(page).scheme in {"http", "https"} else ""})
+            if len(results) == 6:
+                break
+        return json.dumps({"status": "SUCCESS" if results else "UNVERIFIED", "results": results,
+            "downloaded": False, "instruction": "These are search-result links, not downloaded attachments. Show source and image links; do not claim an official poster, year, license, or image contents were verified."}, ensure_ascii=False)
+    except Exception as exc:
+        _note_ddg_failure(exc)
+        return json.dumps({"status": "FAILED", "reason": "image_search_transport_failed",
+                           "error_type": type(exc).__name__, "results": []})
+
+
 def web_search(
     parameters:     dict,
     response=None,
@@ -415,6 +441,8 @@ def web_search(
     print(f"[WebSearch] 🔍 mode={mode!r}  query={query!r}")
 
     try:
+        if mode == "images":
+            return _images(query)
         if mode == "compare" and items:
             return _compare(items, aspect)
         if mode == "news":
@@ -433,7 +461,7 @@ def web_search(
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "web_search",
-    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
+    "description": "Searches the web. Use for ANY question about current facts, events, prices, or topics — always prefer this over guessing. For pictures, posters or image requests use mode='images' to return real image/source links; do not substitute text search or claim attachments were delivered. Modes: 'search' (default), 'news' (latest headlines on a topic), 'research' (deep comprehensive answer), 'price' (product cost lookup), 'compare' (side-by-side comparison of items).",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -443,7 +471,7 @@ TOOL = {
             },
             "mode": {
                 "type": "STRING",
-                "description": "search | news | research | price | compare"
+                "description": "search | images | news | research | price | compare"
             },
             "items": {
                 "type": "ARRAY",

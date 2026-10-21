@@ -883,7 +883,7 @@ TOOL = {
         "properties": {
             "file_path": {
                 "type": "STRING",
-                "description": "Full path to the uploaded file. Leave empty to use the currently uploaded file."
+                "description": "Required actual full path from a prior tool result or host-observed artifact. Do not leave blank or invent a path."
             },
             "action": {
                 "type": "STRING",
@@ -950,7 +950,7 @@ TOOL = {
                 "description": "Output folder for archive extract"
             }
         },
-        "required": []
+        "required": ["file_path"]
     },
     "handler": file_processor,
 }

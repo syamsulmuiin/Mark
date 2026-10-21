@@ -14,7 +14,7 @@ The result distinguishes `delivery_verified` (Inbox handoffs) from `goal_verifie
 
 ## Saved skills
 
-`skill_manager` exposes `list`, `create`, `run`, and `ensure`. Fixed built-in image-search and image-create template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Generated Python creation and execution retain host approval; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart. Listing returns callable input names/types for generated skills and new script records, with verification scoped to registry inspection rather than execution. Text action proposals receive a bounded saved-skill catalog so they can select the exact ID and inputs after restart. Use `run` after inspection, not repeated listing or re-creation. Existing script records without a stored input schema retain their original execution behavior; no schema is invented. Popup smoke tests never authorize a different tool.
+`skill_manager` exposes `list`, `create`, `run`, and `ensure`. Fixed built-in image-search and image-create template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Bounded pure skill creation and verified pure execution run without a popup. The host checks the real saved record, LOW risk, empty permissions, active/verified state, source hash and Crucible policy before allowing a pure run. General script skills retain host approval. Listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart. Listing returns callable input names/types for generated skills and new script records, with verification scoped to registry inspection rather than execution. Text action proposals receive a bounded saved-skill catalog so they can select the exact ID and inputs after restart. Use `run` after inspection, not repeated listing or re-creation. Existing script records without a stored input schema retain their original execution behavior; no schema is invented. Popup smoke tests never authorize a different tool.
 
 The `create` operation supports three kinds; `ensure` additionally supports approved general scripts:
 
@@ -28,7 +28,7 @@ Example voice requests:
 2. “List my saved skills.”
 3. “Run poster_search using its saved ID to find National Santri Day 2026 posters.”
 
-For a pure skill: “Create a word-count skill named count_words. Test ‘Saya sedang menguji Mark’ with expected result 4.” Then list and run the saved skill after restart to verify persistence. A conversational answer alone is not evidence that a skill was created or executed.
+For a pure skill: “Create a word-count skill named count_words. Test ‘Saya sedang menguji Mark’ with expected result 4.” Then list and run the saved skill after restart to verify persistence. A conversational answer alone is not evidence that a skill was created or executed. A verified pure execution returns an explicit task_result to Live; report that value in the same answer, including zero, false or an empty result, without asking the user to calculate or ask again.
 
 Pure generated skills cannot use network/filesystem access. General host scripts use the separate approved `ensure(kind=script)` workflow described below; built-in image operations retain their fixed service and authority boundaries. Skill registration never modifies pairing, Repair Guard, approval rules, or provider selection.
 
@@ -60,7 +60,7 @@ Use `skill_manager(operation=ensure, name=..., kind=..., purpose=..., inputs={..
 
 Script workflows are not an OS sandbox. They retain the existing host execution authority and confirmation gate. Build uses the existing bounded repair attempts and stops on timeout; inspect partial effects before retrying. Process success is UNVERIFIED for the user goal until its actual output is checked. Missing credentials, unavailable services or required dependencies must be reported explicitly. Do not invent access, install packages automatically, or select a fallback provider/model. A missing dedicated tool alone is not a reason to ask for a manual Mark code patch.
 
-Events `skill_fulfillment` record creation, tests, reuse and execution stages, IDs and status without logging invocation contents. Fixed image templates retain their existing approval exemption; pure generation/execution and general scripts retain host approval. `create(kind=script)` is intentionally unsupported: use `ensure` so a script must build/run successfully before registration.
+Events `skill_fulfillment` record creation, tests, reuse and execution stages, IDs and status without logging invocation contents. Fixed image templates and bounded pure skills run without approval; general scripts retain host approval. `create(kind=script)` is intentionally unsupported: use `ensure` so a script must build/run successfully before registration.
 
 ### NVIDIA hosted image generation
 

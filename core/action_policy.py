@@ -45,13 +45,21 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
                     return False
             except (ValueError, OSError):
                 pass
+    if tool == 'file_processor' and str(args.get('action') or '').lower() in {'info', 'inspect', 'summarize', 'extract_text', 'analyze', 'stats', 'validate', 'word_count'}:
+        try:
+            path = Path(str(args.get('file_path') or ''))
+            path.resolve().relative_to(ARTIFACT_ROOT.resolve())
+            if path.is_file() and path.suffix.lower() in {'.csv', '.txt', '.md', '.json', '.xlsx', '.pdf', '.docx'}:
+                return False
+        except (ValueError, OSError):
+            pass
     if tool == "skill_manager":
         operation = args.get("operation", "list")
-        if operation == "list" or (operation in {"create", "ensure"} and args.get("kind") in {"image_search", "image_create"}):
+        if operation == "list" or (operation in {"create", "ensure"} and args.get("kind") in {"pure", "image_search", "image_create"}):
             return False
         if operation == "run":
-            from core.skill_registry import saved_image_template_is_safe
-            return not saved_image_template_is_safe(args.get("skill_id"))
+            from core.skill_registry import saved_image_template_is_safe, saved_pure_skill_is_safe
+            return not (saved_image_template_is_safe(args.get("skill_id")) or saved_pure_skill_is_safe(args.get("skill_id")))
         return True
     if tool == "send_server_file":
         # Export allowlist/hash checks still run; ordinary delivery uses the Inbox.

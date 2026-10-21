@@ -1,4 +1,4 @@
-"""Create original local PNG designs with the configured Text model."""
+"""Generate images using an explicitly selected service; local design is opt-in."""
 import json
 from pathlib import Path
 
@@ -10,11 +10,35 @@ def image_create(parameters, **kwargs):
     from core.image_design import render_design
     from core.image_review import review_images
     from core.llm_visual import visual_provider, VisualReviewUnavailable
-    prompt = str((parameters or {}).get('prompt') or '').strip()
+    from core.image_generation import generate_image, selection, ImageGenerationError, ImageGenerationPending
+    params=parameters or {}
+    mode=params.get('mode','generate')
+    prompt = str(params.get('prompt') or '').strip()
     if not prompt or len(prompt)>12000:
         return json.dumps({'status':'FAILED','verified':False,'reason':'invalid_image_request'})
+    stage='selection'
+    def failed(error_type,reason=None):
+        from core.interaction_log import write_event
+        write_event(BASE_DIR/'runtime/interaction.log','image_create_failed',stage=stage,error_type=error_type,reason=reason)
     try:
+        if mode not in {'generate','local_design'}:
+            raise ValueError('Invalid image creation mode')
+        if mode=='generate':
+            selection()  # Never implicitly reuse a Live key or choose an image model.
+            visual_provider()
+            stage='generation'
+            artifact,origin=generate_image(prompt,BASE_DIR)
+            stage='review'
+            assessment=review_images(prompt,[artifact],timeout=30)[0]
+            if not assessment['matches']:
+                return json.dumps({'status':'FAILED','verified':False,'reason':'generated_image_mismatch',
+                    'instruction':'An image was generated but rejected by content review. Do not automatically generate again or substitute a local design.'})
+            return json.dumps({'status':'UNVERIFIED','verified':False,'requested_count':1,'matched_count':1,
+                'partial':False,'download_failures':[],'generation':origin,
+                'image_artifacts':[{**artifact,'content_verified':True,'review':assessment}],
+                'instruction':'A real image-generation service returned this image. Inbox handoff is still required; do not certify artistic quality merely because delivery succeeds.'})
         visual_provider()
+        stage='local_planning'
         raw = generate(
             'Design an original simple PNG using ONLY text and geometric shapes. No external images, code, '
             'URLs, fonts, scripts or filesystem paths. Preserve the requested language, wording and date; '
@@ -34,7 +58,9 @@ def image_create(parameters, **kwargs):
         if isinstance(plan,dict) and plan.get('supported') is False:
             return json.dumps({'status':'BLOCKED','verified':False,'reason':'unsupported_image_style',
                 'instruction':'Local creation supports text/geometric designs only. Explain this limitation; do not silently substitute a simple design or search image for photorealistic or detailed image generation. No alternate model was called.'})
+        stage='local_rendering'
         artifact = render_design(plan,BASE_DIR)
+        stage='review'
         assessment = review_images(prompt,[artifact],timeout=30)[0]
         if not assessment['matches']:
             return json.dumps({'status':'FAILED','verified':False,'reason':'generated_design_mismatch',
@@ -43,15 +69,25 @@ def image_create(parameters, **kwargs):
             'partial':False,'download_failures':[],
             'image_artifacts':[{**artifact,'content_verified':True,'review':assessment}],
             'instruction':'An original local PNG design was rendered and reviewed. Inbox handoff is still required. This is a geometric/text design, not diffusion-generated artwork. Do not send code instead of the image.'})
+    except ImageGenerationPending as exc:
+        failed(type(exc).__name__,str(exc))
+        return json.dumps({'status':'WAITING','verified':False,'reason':str(exc),
+            'instruction':'Generation timed out; provider completion/charges may be unknown. Do not automatically retry or substitute a local design. Inspect provider status first.'})
+    except ImageGenerationError as exc:
+        failed(type(exc).__name__,str(exc))
+        return json.dumps({'status':'BLOCKED','verified':False,'reason':str(exc),
+            'instruction':'Configure or check the explicitly selected image service with python -m core.image_generation --configure. No local renderer, search-image substitute, alternate model or Codex login credential was used.'})
     except VisualReviewUnavailable:
+        failed('VisualReviewUnavailable','visual_review_unavailable')
         return json.dumps({'status':'BLOCKED','verified':False,'reason':'visual_review_unavailable',
             'instruction':'Selected Text provider cannot review the image; no model fallback or unverified delivery occurred.'})
     except Exception as exc:
+        failed(type(exc).__name__)
         return json.dumps({'status':'FAILED','verified':False,'error_type':type(exc).__name__,
             'instruction':'Image creation failed. Do not claim an image or skill was created. No model-supplied code was executed.'})
 
 
 TOOL = {'name':'image_create',
-    'description':'Create ONE original PNG text/geometric design (poster, simple logo, diagram or geometric illustration), not an internet search. Uses the selected Text model, a fixed local renderer and visual review. Unsupported photorealistic/detailed artwork fails explicitly. Produces an image attachment through companion handoff, never a Python script. No arbitrary code executes. For a reusable creation skill use skill_manager kind=image_create.',
-    'parameters':{'type':'OBJECT','properties':{'prompt':{'type':'STRING','description':'Complete user design request including any requested text, style and date.'}},'required':['prompt']},
+    'description':'Create ONE original image using the explicitly configured image-generation service (default mode=generate), not an internet search. Missing service access is BLOCKED, never substituted with geometric art. Use mode=local_design ONLY when the user explicitly requests a simple text/geometric layout. Both paths use selected Text visual review; artistic quality is not guaranteed. Produces an image attachment through companion handoff, never a Python script. No arbitrary code executes. For a reusable creation skill use skill_manager kind=image_create.',
+    'parameters':{'type':'OBJECT','properties':{'mode':{'type':'STRING','enum':['generate','local_design'],'description':'Default generate. local_design only on explicit request for text/geometric rendering.'},'prompt':{'type':'STRING','description':'Complete user design request including any requested text, style and date.'}},'required':['prompt']},
     'handler':image_create}

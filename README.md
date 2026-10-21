@@ -25,7 +25,7 @@ Text handles typed chat, reasoning, authoring, and repair diagnosis. Live handle
 
 Text adapters include Gemini, OpenAI API, OpenAI/Codex account login, Anthropic Claude API, DeepSeek, Ollama, OpenRouter, and Google OAuth. Live supports Gemini Live and OpenAI Realtime. Authentication and model availability depend on the selected provider.
 
-See [providers and authentication](docs/llm-providers.md). Typed chat currently returns text and does not execute tools; voice actions use the host executor and its approval rules.
+Run `python setup.py --configure-models` to choose models and task assignments without reinstalling dependencies. See [providers and authentication](docs/llm-providers.md). Typed chat currently returns text and does not execute tools; voice actions use the host executor and its approval rules.
 
 ## Server commands
 

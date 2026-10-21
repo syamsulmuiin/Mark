@@ -3,9 +3,13 @@
 Model profiles are an opt-in pool of explicitly configured models. Existing setup remains unchanged until profiles are saved. A profile has an ID, provider, model ID, capabilities, private credential and short description. The same profile can serve multiple tasks when its model supports them.
 
 ```bash
-python -m core.model_profiles --configure
+python setup.py --configure-models
 python main.py --restart
 ```
+
+The same menu is offered by normal `python setup.py`; the configuration-only flag skips package and browser installation. First-time setup retains the required Text-then-Live sequence before offering optional tasks. The module command `python -m core.model_profiles --configure` remains a compatible shortcut.
+
+The menu summarizes Text, Live, image reading and image generation assignments. Add models using numbered provider/capability choices and a catalog number or manual model ID. Assign models with numbers in priority order; internal IDs remain private configuration details. Unconfigured optional tasks are clearly labeled. Required Text/Live assignments must remain present before saving. Invalid choices keep the menu open, and failed edits do not change the draft. API keys are hidden; saved credentials are reused only when explicitly accepted. Native Codex/Google account setup shares the existing login flow. Authentication can persist account credentials independently of saving model assignments.
 
 The wizard imports current primary selections without authorizing historical fallback lists. Add profiles, assign ordered profile IDs to tasks, and explicitly enable safe failover where wanted. Saving is atomic; cancelling preserves the existing file. The menu can restore legacy selections without deleting profiles. Credentials remain private in the server configuration; do not share that file.
 
@@ -32,7 +36,7 @@ Attempts share a cooperative total time budget: Text defaults to 120 seconds, vi
 
 ## Configuration and diagnostics
 
-The private `model_routing` object contains `enabled`, `profiles`, `routes` and `failover`. Profile mode takes precedence over legacy Text/Live/image settings. Changing those older menus does not change active profiles; use this wizard or restore legacy selections. Restart after changing Live credentials or models.
+The private `model_routing` object contains `enabled`, `profiles`, `routes` and `failover`. Profile mode takes precedence over legacy Text/Live/image settings. Setup provider changes open the active profile menu when profiles are enabled. The standalone legacy image wizard does not change active profiles; use setup model settings or restore standard Text + Live settings. Restart after changing Live credentials or models.
 
 `python -m core.model_profiles` prints a credential-free routing snapshot. `model_route` events record task, profile ID, provider, model, attempt and status, with error types rather than raw provider responses. Host model identity includes the selected routes; inference traces identify the model actually called. Selection is not proof that a past request succeeded.
 

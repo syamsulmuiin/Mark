@@ -206,10 +206,37 @@ def _choose_codex_model(saved_model):
     return value
 
 
+def authenticate_account(provider: str, *, force: bool = False) -> None:
+    """Reuse native account login from both setup entry points."""
+    if provider == "openai_codex":
+        from core.llm_codex import check_login, login, login_browser
+        from core import provider_credentials
+        record = provider_credentials.load("openai_codex")
+        if force or not record.get("access_token") or record.get("invalid"):
+            method = _safe_input("OpenAI account login: 1. Device code  2. Browser PKCE [1]: ").strip() or "1"
+            if method == "1":
+                login()
+            elif method == "2":
+                login_browser(getpass.getpass)
+            else:
+                raise ValueError("Invalid OpenAI login method; configuration unchanged")
+        check_login()
+    if provider == "google_oauth":
+        from core.llm_google_oauth import login, credentials
+        from core import provider_credentials
+        record = provider_credentials.load("google_oauth")
+        if force or not record.get("credentials") or record.get("invalid"):
+            login(_safe_input, getpass.getpass)
+        credentials()
+
+
 def interactive_llm_setup(*, force_keys: bool = False) -> bool:
     """Finish Text setup before displaying Live choices; save both atomically."""
     from core.model_config import DEFAULT_LIVE_MODEL, DEFAULT_TEXT_MODEL
     current = load_config()
+    from core.model_profiles import enabled
+    if enabled(current):
+        return interactive_model_setup()
     print("Only the primary configured Text and Live models are used; no automatic fallback.")
     print("\nSTEP 1/2 — TEXT / REASONING PROVIDER")
     for index, (key, label, ready) in enumerate(CHAT_PROVIDER_CATALOG, 1):
@@ -220,26 +247,8 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
         provider_choice = _safe_input(f"Chat / reasoning provider [{provider_default}]: ").strip().lower()
         provider = _resolve_provider_choice(provider_choice, provider_default, CHAT_PROVIDER_CATALOG)
         api_key = None
-        if provider == "openai_codex":
-            from core.llm_codex import check_login, login, login_browser
-            from core import provider_credentials
-            record = provider_credentials.load("openai_codex")
-            if force_keys or not record.get("access_token") or record.get("invalid"):
-                method = _safe_input("OpenAI account login: 1. Device code  2. Browser PKCE [1]: ").strip() or "1"
-                if method == "1":
-                    login()
-                elif method == "2":
-                    login_browser(getpass.getpass)
-                else:
-                    raise ValueError("Invalid OpenAI login method; configuration unchanged")
-            check_login()
-        if provider == "google_oauth":
-            from core.llm_google_oauth import login, credentials
-            from core import provider_credentials
-            record = provider_credentials.load("google_oauth")
-            if force_keys or not record.get("credentials") or record.get("invalid"):
-                login(_safe_input, getpass.getpass)
-            credentials()
+        if provider in {"openai_codex", "google_oauth"}:
+            authenticate_account(provider, force=force_keys)
         if provider == "openrouter" and (force_keys or not current.get("openrouter_api_key")):
             method = _safe_input("OpenRouter authentication: 1. API key  2. Browser login [1]: ").strip() or "1"
             if method == "2":
@@ -304,12 +313,34 @@ def interactive_llm_setup(*, force_keys: bool = False) -> bool:
     return True
 
 
+def interactive_model_setup() -> bool:
+    """Open unified model settings, bootstrapping standard credentials if absent."""
+    from core.model_profiles import configure, enabled
+    try:
+        if not configured() and not enabled(load_config()):
+            print('First configure the required Text and Live providers.')
+            if not interactive_llm_setup():
+                return False
+        return configure()
+    except (ValueError, RuntimeError, EOFError, KeyboardInterrupt, UnicodeDecodeError):
+        print('Model setup could not finish. Saved model settings were preserved.')
+        return False
+
+
 def interactive_setup(force: bool=False) -> bool:
     if configured() and not force: return True
-    print("\nMARK FIRST-RUN SETUP")
+    print("\nMARK SERVER SETUP")
     print("Select text and voice providers. Keys are stored in git-ignored config/api_keys.json.")
     if not interactive_llm_setup(force_keys=force):
         return False
+    from core.model_profiles import enabled
+    if not enabled(load_config()):
+        try:
+            advanced = _safe_input('Configure image models, visual review or approved alternatives? [y/N]: ').strip().lower()
+        except (EOFError, KeyboardInterrupt, UnicodeDecodeError):
+            advanced = ''
+        if advanced in {'y', 'yes'} and not interactive_model_setup():
+            return False
     if not interactive_language_setup():
         return False
     print("\nRemote access lets paired devices reach JARVIS outside your home/LAN.")

@@ -6,7 +6,7 @@ Run `python setup.py` from the repository root. The supported server environment
 
 The server does not need a display, local microphone, speaker, or desktop automation stack. Companion dependencies are installed separately. Setup also installs Playwright Chromium on supported x86_64/ARM64 hosts. `SKIP_BROWSER_INSTALL=1` skips that browser installation; server browser automation then requires a compatible runtime before use.
 
-Configure Text first, then Live. Both selections are saved only after the complete setup flow succeeds. See [provider configuration](llm-providers.md).
+On first run, configure Text first, then Live; both required selections are saved together. Setup then offers optional image models, visual review and approved alternatives. On an existing installation, the model configuration prompt opens the same menu as `python setup.py --configure-models`; this flag skips dependency and Chromium installation. See [provider configuration](llm-providers.md).
 
 ## Emergency stop availability
 
@@ -46,4 +46,4 @@ Local health and pairing administration require both loopback access and the own
 
 ## Optional unified model profiles
 
-Run `python -m core.model_profiles --configure` to import current selections, add described models, and assign capability routes from one pool. See [model profiles](model-profiles.md) for precedence, safe alternatives, catalogs and unsupported capabilities. Restart Mark after saving.
+Run `python setup.py --configure-models` to import current selections, add described models, and assign task models from one pool. Providers, capabilities and saved models use numbered choices; internal profile IDs are not required. See [model profiles](model-profiles.md) for precedence, safe alternatives, catalogs and unsupported capabilities. Restart Mark after saving.

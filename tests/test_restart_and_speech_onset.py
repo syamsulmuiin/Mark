@@ -53,3 +53,20 @@ def test_restart_stopped_server(monkeypatch):
     monkeypatch.setattr(lifecycle, '_server_pid', lambda: None)
     monkeypatch.setattr(lifecycle, '_spawn_server', lambda: 456)
     assert lifecycle._restart_server() == 456
+
+
+def test_brief_low_energy_vad_positive_does_not_open_live_turn():
+    gate = SpeechOnset()
+    frame = {'data': b'\0' * 640}
+    for _ in range(8):
+        assert gate.feed(frame, 345) == []
+    assert gate.feed(frame, 0) == []
+    assert gate.frames == []
+
+
+def test_sustained_quiet_speech_preserves_all_initial_frames():
+    gate = SpeechOnset()
+    frames = [{'data': bytes([i]) * 640} for i in range(16)]
+    for frame in frames[:-1]:
+        assert gate.feed(frame, 345) == []
+    assert gate.feed(frames[-1], 345) == frames

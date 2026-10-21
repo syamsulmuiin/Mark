@@ -25,9 +25,10 @@ def test_low_level_playback_residual_does_not_open_a_user_turn():
 def test_quiet_speech_still_works_when_assistant_is_idle():
     gate = SpeechOnset()
     frame = {'data': b'\0' * 1024}
-    for _ in range(4):
+    # Quiet speech remains available with the longer noise debounce.
+    for _ in range(9):
         assert gate.feed(frame, 405) == []
-    assert len(gate.feed(frame, 405)) == 5
+    assert len(gate.feed(frame, 405)) == 10
 
 
 @pytest.mark.parametrize('message', [

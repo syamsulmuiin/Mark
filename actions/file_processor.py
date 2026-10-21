@@ -337,7 +337,7 @@ def _process_data(path: Path, file_type: str, action: str,
 
     try:
         if file_type == "csv":
-            df = pd.read_csv(path, encoding="utf-8", errors="replace")
+            df = pd.read_csv(path, encoding="utf-8", encoding_errors="replace")
         else:
             df = pd.read_excel(path)
     except Exception as e:
@@ -795,13 +795,13 @@ def _process_pptx(path: Path, action: str, params: dict, speak=None) -> str:
 def file_processor(parameters: dict, player=None, speak=None) -> str:
     file_path_str = parameters.get("file_path", "").strip()
     if not file_path_str:
-        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": "No file path provided. List/inspect actual documents first."})
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "reason": "file_path_missing", "error": "No file path provided. List/inspect actual documents first."})
 
     path = Path(file_path_str)
     if not path.exists():
-        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": f"File not found: {file_path_str}"})
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "reason": "source_file_missing", "error": f"File not found: {file_path_str}"})
     if not path.is_file():
-        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "error": f"Path is not a file: {file_path_str}"})
+        return json.dumps({"ok": False, "status": "FAILED", "executed": False, "reason": "source_not_file", "error": f"Path is not a file: {file_path_str}"})
 
     file_type   = _detect_type(path)
     action      = (parameters.get("action") or "").lower().strip()
@@ -869,7 +869,7 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
                 "instruction": "Use only these actual artifact paths. Send as attachments by default; do not claim delivery yet."})
         return result or json.dumps({"ok": False, "status": "UNVERIFIED", "verified": False})
     except Exception as e:
-        return json.dumps({"ok": False, "status": "FAILED", "verified": False, "error": str(e)})
+        return json.dumps({"ok": False, "status": "FAILED", "verified": False, "reason": "file_processing_failed", "error_type": type(e).__name__, "error": str(e)})
     finally:
         _generated_paths.reset(token)
 

@@ -437,6 +437,8 @@ def _show_settings(policy, active):
         uses = ", ".join(TASK_NAMES[c] for c in p["capabilities"])
         print(f"  {number}. {_profile_label(p)}")
         print(f"     Tasks: {uses}")
+        if not any(p['id'] in ids for ids in policy['routes'].values()):
+            print('     Not assigned. Choose option 2 to use this model for a task.')
         description = p.get("description", "")
         if description and not description.startswith("Imported current selection;"):
             print("     " + description)
@@ -534,7 +536,11 @@ def _add_profile(policy, settings, ask):
         }
     )
     validate(policy)
-    print("Model added to the draft. Choose models for tasks to start using it.")
+    for role in selected:
+        if not policy['routes'].get(role):
+            if ask(f'Assign this model to {TASK_NAMES[role]} now? [Y/n]: ').strip().lower() not in {'n', 'no'}:
+                policy['routes'][role] = [identifier]
+    print('Model added to the draft. Review task assignments before saving.')
 
 
 def _assign_tasks(policy, ask):

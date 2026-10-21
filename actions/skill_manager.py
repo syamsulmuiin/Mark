@@ -19,9 +19,8 @@ def skill_manager(parameters, **kwargs):
     operation = params.get('operation', 'list')
     try:
         if operation == 'list':
-            return json.dumps({'status':'SUCCESS', 'skills':[
-                {k:r.get(k) for k in ('skill_id','name','purpose','skill_type','status','operational_state')}
-                for r in store.all()]})
+            from core.skill_catalog import catalog
+            return json.dumps(catalog(store,dynamic),ensure_ascii=False)
         if operation == 'ensure':
             from core.skill_fulfillment import fulfill
             def engine_factory():
@@ -47,6 +46,8 @@ def skill_manager(parameters, **kwargs):
             result = engine.ensure_capability(name, str(params.get('purpose') or ''), params.get('parameters'))
             record = result.get('skill') or {}
             return json.dumps({'status':result['status'], 'skill_id':record.get('skill_id'),
+                               'verified':result['status']=='VERIFIED',
+                               'verification_scope':'skill registration validation only; original inputs not executed',
                                'reason':result.get('reason'), 'validation':result.get('validation'),
                                'instruction':'Only VERIFIED skills passed registration. No unrestricted network/filesystem skill was installed.'})
         if operation != 'run':
@@ -77,12 +78,12 @@ def skill_manager(parameters, **kwargs):
         return web_search({'mode':'images','query':query, 'count':inputs.get('count', 6),
                            'delivery':inputs.get('delivery', 'attachments')})
     except Exception as exc:
-        return json.dumps({'status':'FAILED','verified':False,'error_type':type(exc).__name__,
+        return json.dumps({'status':'FAILED','verified':False,'error_type':type(exc).__name__,'reason':'skill_operation_failed',
                            'instruction':'Skill operation failed; do not claim creation or execution succeeded. Inspect saved skills before retrying.'})
 
 
 TOOL = {'name':'skill_manager',
-    'description':'Create, list, run or ensure persisted reusable skills. operation=ensure reuses a matching saved skill or builds/tests/registers one, then immediately executes the original inputs. Requires name, kind, purpose and inputs. Use this when a missing capability is needed to fulfill the user request; do not stop at registration or ask the user to request a Mark code patch. kind=pure supports bounded pure Python; kind=script uses the existing approved code_helper build/run path with filesystem/network access and is NOT sandboxed. script is supported only by ensure, not create. Script builds already execute once; do not execute again after registration. A successful process still requires verification of the real requested output. Fixed image-search/image-create templates need no approval; generated Python retains host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_create saves the configured image-generation workflow; run with inputs.prompt. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List before run; do not invent IDs. Image runs produce reviewed generated images or download reviewed search results for companion Inbox handoff; internal execution alone does not prove delivery.',
+    'description':'Create, list, run or ensure persisted reusable skills. operation=ensure reuses a matching saved skill or builds/tests/registers one, then immediately executes the original inputs. Requires name, kind, purpose and inputs. Use this when a missing capability is needed to fulfill the user request; do not stop at registration or ask the user to request a Mark code patch. kind=pure supports bounded pure Python; kind=script uses the existing approved code_helper build/run path with filesystem/network access and is NOT sandboxed. script is supported only by ensure, not create. Script builds already execute once; do not execute again after registration. A successful process still requires verification of the real requested output. Fixed image-search/image-create templates need no approval; generated Python retains host approval. kind=pure generates deterministic Python transformations through the existing Crucible checks; filesystem/network/process access is prohibited. kind=image_create saves the configured image-generation workflow; run with inputs.prompt. kind=image_search saves a composition of built-in web_search images. Saved skills are callable by ID after restart. List returns callable input names/types and exact IDs. After inspecting list, use operation=run with the selected ID and inputs; do not repeat list or create to fulfill a run request. Use ensure for first-time creation plus execution. A Flash Approval test cannot authorize this tool. Do not invent IDs. Image runs produce reviewed generated images or download reviewed search results for companion Inbox handoff; internal execution alone does not prove delivery.',
     'parameters':{'type':'OBJECT','properties':{
         'operation':{'type':'STRING','enum':['list','create','run','ensure']},
         'kind':{'type':'STRING','enum':['pure','script','image_search','image_create']},

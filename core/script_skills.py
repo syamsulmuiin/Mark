@@ -42,10 +42,11 @@ def build_script_skill(store, base_dir, name, purpose, inputs):
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     if result.get('source_sha256')!=digest:
         raise ValueError('Built script integrity mismatch')
+    from core.skill_catalog import input_schema
     try:
         record=store.create(name,purpose,[{'capability':'code_helper','inputs':{'action':'run','file_path':str(path)}}],
             permissions=('server.script.execute',),risk_level='HIGH',
-            provenance={'template':'approved_script_v1','source_sha256':digest})
+            provenance={'template':'approved_script_v1','source_sha256':digest,'parameters':input_schema(inputs)})
     except Exception as exc:
         result.update(skill_created=False,registration_error_type=type(exc).__name__,
             instruction='The script already executed once successfully, but skill registration failed. Do not rebuild or rerun the task merely to retry registration. Inspect and deliver the existing output; report the persistence failure separately.')

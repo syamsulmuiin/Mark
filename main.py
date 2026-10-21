@@ -2179,9 +2179,9 @@ class JarvisLive:
         _sched = (self._action_registry.scheduling(name)
                   or self._plugin_registry.scheduling(name))
         _extra = {"scheduling": _sched} if _sched else {}
-        from core.action_outcomes import assess
+        from core.action_outcomes import assess, trace_metadata
         _outcome = assess(result)
-        _trace_event("tool_outcome", tool=name, outcome=_outcome)
+        _trace_event("tool_outcome", tool=name, outcome=_outcome, **trace_metadata(result, args))
         if name != "task_continuity":
             task_state.action_finished(name, result, _continuity_action_id)
         return types.FunctionResponse(

@@ -14,7 +14,7 @@ The result distinguishes `delivery_verified` (Inbox handoffs) from `goal_verifie
 
 ## Saved skills
 
-`skill_manager` exposes `list`, `create`, `run`, and `ensure`. Fixed built-in image-search and image-create template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Generated Python creation and execution retain host approval; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart.
+`skill_manager` exposes `list`, `create`, `run`, and `ensure`. Fixed built-in image-search and image-create template creation and execution need no approval or Text proposal round trip. The host checks the saved composition before allowing a run without approval. Generated Python creation and execution retain host approval; listing does not execute code. Use the returned skill ID instead of inventing an identifier. Stored records live under `storage/autonomy/` and survive server restart. Listing returns callable input names/types for generated skills and new script records, with verification scoped to registry inspection rather than execution. Text action proposals receive a bounded saved-skill catalog so they can select the exact ID and inputs after restart. Use `run` after inspection, not repeated listing or re-creation. Existing script records without a stored input schema retain their original execution behavior; no schema is invented. Popup smoke tests never authorize a different tool.
 
 The `create` operation supports three kinds; `ensure` additionally supports approved general scripts:
 

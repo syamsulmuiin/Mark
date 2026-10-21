@@ -566,7 +566,7 @@ class JarvisLive:
         _server_actions = {
             "browser_control", "code_helper", "dev_agent", "file_processor", "document_editor",
             "server_maintenance", "flight_finder", "scheduled_workflow", "self_repair_apply",
-            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "weather_report", "web_search", "test_flash_approval",
+            "self_repair_diagnostic", "runtime_diagnostics", "autonomous_goal", "skill_manager", "weather_report", "web_search", "test_flash_approval",
         }
         self._action_registry = discover_actions(
             actions_dir=_base_dir / "actions",
@@ -2028,7 +2028,7 @@ class JarvisLive:
                 # Android/Desktop UI operations merely because the request arrived
                 # through a companion; device work must use call_current_device or
                 # legacy.action explicitly.
-                _server_only_actions = {"server_maintenance", "code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
+                _server_only_actions = {"skill_manager", "server_maintenance", "code_helper", "dev_agent", "document_editor", "web_search", "runtime_diagnostics", "self_repair_diagnostic", "self_repair_apply"}
 
                 # Mixed actions can contain both backend-only operations and operations that
                 # manipulate a device/host UI.  Classify the requested operation instead of

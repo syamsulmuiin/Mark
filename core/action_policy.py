@@ -45,6 +45,9 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
                     return False
             except (ValueError, OSError):
                 pass
+    if tool == "skill_manager":
+        # Creation/run retain host approval; listing cannot execute code.
+        return args.get("operation", "list") != "list"
     if tool == "send_server_file":
         # Export allowlist/hash checks still run; ordinary delivery uses the Inbox.
         return args.get("save_direct") is True

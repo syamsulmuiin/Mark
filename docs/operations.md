@@ -258,3 +258,10 @@ Ask for a new reusable pure transformation and its result in one request. Confir
 Image-generation deployment: update/restart the server, configure an image profile and vision route with permitted credentials, then request an image normally through the companion. Check `image_generation` started/succeeded/failed events for actual service/model use, visual-review traces and the received image. No live provider generation was validated by CI; API transports are mocked. A generation success plus Inbox handoff proves those operations, not that the user accepts the visual quality. Previously observed search-review false positives remain a separate limitation.
 
 NVIDIA image regression: add a NVIDIA image-generation model in setup and assign it to the image task; select a supported hosted FLUX adapter. Verify `image_generation` identifies provider=nvidia and the exact selected model, one image is generated and reviewed, and the companion receives the real image. Verify unauthorized/quota errors follow the explicit image-route policy; standard mode never changes provider. HTTP 202 is pending, not an image or completed goal; no second generation should be submitted automatically. No NVIDIA GPU/driver package or companion rebuild is needed for this hosted integration. Real account entitlement and output quality are not established by mocked CI tests.
+
+Runtime diagnostics return read evidence for each inspected server log. A verified
+collection confirms bounded log access only; it does not certify server health,
+a diagnosis, a repair, or attachment delivery. Missing sources remain unverified,
+and read failures are reported as failures. Approval expiry records one
+`approval_resolved` event with outcome `expired`, including when no device reply
+arrives; late replies cannot authorize execution.

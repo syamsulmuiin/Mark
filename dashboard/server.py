@@ -635,7 +635,7 @@ class DashboardServer:
         if pending["socket"] is not websocket or self._device_sockets.get(device_id) is not websocket:
             return False
         if time.monotonic() >= pending["expires"]:
-            self._approval_pending.pop(request_id, None)
+            self.discard_pending_approval(request_id, outcome="expired")
             return False
         if type(msg.get("accepted")) is not bool:
             return False
@@ -654,9 +654,13 @@ class DashboardServer:
                            outcome="accepted" if msg["accepted"] else "rejected")
         return True
 
-    def discard_pending_approval(self, request_id: str) -> None:
+    def discard_pending_approval(self, request_id: str, *, outcome: str = "") -> None:
         """The host gate has reached a terminal decision; reject late replies."""
-        self._approval_pending.pop(request_id, None)
+        pending = self._approval_pending.pop(request_id, None)
+        if pending and outcome == "expired":
+            _interaction_event("approval_resolved", device_id=pending["device_id"],
+                               approval_id=hashlib.sha256(request_id.encode()).hexdigest()[:12],
+                               outcome="expired")
 
     async def send_approval_completion(self, request_id: str, success: bool, *, outcome: str = "") -> bool:
         """Send sanitized execution outcome only to the original authenticated socket."""

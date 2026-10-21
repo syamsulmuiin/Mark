@@ -143,3 +143,61 @@ def test_status_instruction_matches_recorded_operation(monkeypatch, state, statu
     assert result['status'] == status
     assert phrase in result['instruction']
     assert result['maintenance'] == state
+
+
+@pytest.mark.parametrize('restart',[False,True])
+def test_dependency_helper_fixed_command_success(checkout,monkeypatch,restart):
+    _, working = checkout
+    (working/'requirements.txt').write_text('pytest\n')
+    git(working,'add','.'); git(working,'commit','-m','requirements')
+    maintenance._save_state({'status':'dependencies_scheduled','checkout_commit':git(working,'rev-parse','HEAD'),
+                             'restart_after_install':restart,'dependencies_required':True})
+    original = maintenance.subprocess.run
+    calls, restarts = [], []
+    def run(command, **kwargs):
+        if command[0] == 'git': return original(command, **kwargs)
+        calls.append((command,kwargs))
+        return subprocess.CompletedProcess(command,0)
+    monkeypatch.setattr(maintenance.subprocess,'run',run)
+    monkeypatch.setattr(maintenance,'_schedule_restart',lambda:restarts.append(True))
+    maintenance._dependencies_helper()
+    state=maintenance._read_state()
+    assert state['status']=='dependencies_installed' and not state['dependencies_required']
+    assert calls[0][0]==[maintenance.sys.executable,'-m','pip','--isolated','install',
+        '--disable-pip-version-check','--no-input','-r',str(working/'requirements.txt')]
+    assert calls[1][0][-1]=='check'
+    assert calls[0][1]['timeout']==600
+    assert not any('KEY' in key or key.startswith('PIP_') for key in calls[0][1]['env'])
+    assert bool(restarts) is restart
+
+
+@pytest.mark.parametrize('failure',['install','check','timeout'])
+def test_dependency_failure_never_restarts(checkout,monkeypatch,failure):
+    _,working=checkout
+    maintenance._save_state({'status':'dependencies_scheduled','checkout_commit':git(working,'rev-parse','HEAD'),
+                             'restart_after_install':True})
+    original=maintenance.subprocess.run
+    def run(command,**kwargs):
+        if command[0]=='git':return original(command,**kwargs)
+        if failure=='timeout':raise subprocess.TimeoutExpired(command,600)
+        return subprocess.CompletedProcess(command,1 if failure in command else 0)
+    monkeypatch.setattr(maintenance.subprocess,'run',run)
+    monkeypatch.setattr(maintenance,'_schedule_restart',lambda:pytest.fail('restart on failure'))
+    maintenance._dependencies_helper()
+    assert maintenance._read_state()['status']=='failed'
+    assert maintenance._read_state()['dependencies_required']
+
+
+def test_dependency_scheduling_and_gate(checkout,monkeypatch):
+    _,working=checkout
+    (working/'requirements.txt').write_text('pytest\n')
+    git(working,'add','.');git(working,'commit','-m','requirements')
+    calls=[]
+    original = maintenance.subprocess.Popen
+    monkeypatch.setattr(maintenance.subprocess,'Popen',lambda command,**kw: original(command,**kw) if command[0]=='git' else calls.append(command))
+    result=maintenance.maintain('install_dependencies_restart')
+    assert result['status']=='WAITING'
+    assert calls==[[maintenance.sys.executable,'-m','core.server_maintenance','--dependencies-helper']]
+    assert maintenance.maintain('install_dependencies_restart')['status']=='WAITING'
+    assert len(calls)==1
+    assert requires_confirmation('server_maintenance',{'operation':'install_dependencies_restart'})

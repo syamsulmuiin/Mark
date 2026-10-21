@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 _LOCK = threading.RLock()
 _ALLOWED_REMOTES = {'https://github.com/syamsulmuiin/Mark', 'https://github.com/syamsulmuiin/Mark.git',
                     'git@github.com:syamsulmuiin/Mark.git', 'ssh://git@github.com/syamsulmuiin/Mark.git'}
-_ACTIVE = {'scheduled', 'restarting'}
+_ACTIVE = {'scheduled', 'restarting', 'dependencies_scheduled', 'installing_dependencies'}
 
 
 def _state_path():
@@ -129,18 +129,77 @@ def _schedule_restart():
     return {'ok': True, 'status': 'WAITING', 'verified': False, 'executed': False, **{'restart': state}}
 
 
+def _schedule_dependencies(restart=False):
+    _checkout()
+    if not (BASE_DIR / 'requirements.txt').is_file():
+        raise RuntimeError('Server requirements.txt is missing')
+    state = {'status':'dependencies_scheduled', 'verified':False,
+             'dependencies_required':True, 'restart_after_install':restart,
+             'checkout_commit':_text('rev-parse', 'HEAD'), 'scheduled_at':time.time()}
+    _save_state(state)
+    try:
+        options = {'start_new_session':True} if os.name != 'nt' else {
+            'creationflags':subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+        with (BASE_DIR / 'runtime/maintenance.log').open('ab') as output:
+            subprocess.Popen([sys.executable, '-m', 'core.server_maintenance', '--dependencies-helper'],
+                cwd=BASE_DIR, stdin=subprocess.DEVNULL, stdout=output, stderr=output, **options)
+    except Exception:
+        _save_state({**state, 'status':'failed', 'message':'Dependency helper could not start'})
+        raise
+    return {'ok':True, 'status':'WAITING', 'verified':False, 'maintenance':state,
+            'instruction':'Dependency installation was scheduled, not completed. Check status; do not repeat the request.'}
+
+
+def _dependencies_helper():
+    state = _read_state()
+    if state.get('status') != 'dependencies_scheduled':
+        return
+    try:
+        _checkout()
+        if _text('rev-parse', 'HEAD') != state.get('checkout_commit'):
+            raise RuntimeError('Checkout changed before dependency installation')
+        state.update(status='installing_dependencies')
+        _save_state(state)
+        # Fixed repository requirements only. Isolated pip ignores user config and
+        # PIP_* overrides; never accept a package name, URL or shell from the model.
+        env = {k:v for k,v in os.environ.items() if k.upper() in {
+            'PATH','HOME','USERPROFILE','SYSTEMROOT','WINDIR','TEMP','TMP','TMPDIR',
+            'LANG','LC_ALL','SSL_CERT_FILE','SSL_CERT_DIR'}}
+        result = subprocess.run([sys.executable, '-m', 'pip', '--isolated', 'install',
+            '--disable-pip-version-check', '--no-input', '-r', str(BASE_DIR / 'requirements.txt')],
+            cwd=BASE_DIR, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=600)
+        if result.returncode:
+            raise RuntimeError('Dependency installation failed; environment may be partially changed. Run pip manually for details')
+        check = subprocess.run([sys.executable, '-m', 'pip', '--isolated', 'check'],
+            cwd=BASE_DIR, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=60)
+        if check.returncode:
+            raise RuntimeError('Dependency consistency check failed; no restart was scheduled')
+        _save_state({**state, 'status':'dependencies_installed', 'verified':True,
+                     'dependencies_required':False, 'restart_required':True,
+                     'message':'Dependency installation and pip check passed; restart required to activate.'})
+        if state.get('restart_after_install'):
+            _schedule_restart()
+    except Exception as exc:
+        _save_state({**state, 'status':'failed', 'verified':False, 'dependencies_required':True,
+                     'error_type':type(exc).__name__,
+                     'message':str(exc) if isinstance(exc, RuntimeError) else
+                     'Dependency installation timed out or failed; environment may be partially changed. No restart scheduled.'})
+
+
 def maintain(operation='status'):
     with _LOCK:
         if operation == 'status':
             state = _read_state()
             outcome = 'WAITING' if state.get('status') in _ACTIVE | {'dependencies_required'} else 'FAILED' if state.get('status') == 'failed' else 'VERIFIED'
             return {'ok': outcome != 'FAILED', 'status': outcome, 'verified': outcome == 'VERIFIED', 'maintenance': state,
-                    'operations': ['check', 'update', 'restart', 'update_restart'],
+                    'operations': ['check', 'update', 'restart', 'update_restart', 'install_dependencies', 'install_dependencies_restart'],
                     'instruction': (
                         'Restart completed and replacement server readiness was verified. '
                         'Report completion; do not describe this restart as queued or pending.'
                         if state.get('status') == 'completed' else
-                        'Restart is scheduled or in progress, not completed. Report the recorded state; do not schedule it again.'
+                        'Maintenance is scheduled or in progress, not completed. Report the recorded state; do not schedule it again.'
                         if state.get('status') in _ACTIVE else
                         'Dependency installation is required before activation; do not claim restart completion.'
                         if state.get('status') == 'dependencies_required' else
@@ -148,13 +207,17 @@ def maintain(operation='status'):
                         if state.get('status') == 'failed' else
                         'Report the recorded maintenance state. Do not infer a pending or completed restart from another operation.'
                     )}
-        if operation not in {'check', 'update', 'restart', 'update_restart'}:
+        if operation not in {'check', 'update', 'restart', 'update_restart', 'install_dependencies', 'install_dependencies_restart'}:
             raise ValueError('Unknown server maintenance operation')
         previous = _read_state()
         if previous.get('status') in _ACTIVE:
             return {'ok': True, 'status': 'WAITING', 'verified': False, 'maintenance': previous,
-                    'message': 'A restart is already pending; do not schedule it again. If stuck, inspect runtime/maintenance.log.'}
+                    'message': 'Maintenance is already pending; do not schedule it again. If stuck, inspect runtime/maintenance.log.'}
+        if operation in {'install_dependencies', 'install_dependencies_restart'}:
+            return _schedule_dependencies(restart=operation.endswith('_restart'))
         if operation == 'restart':
+            if previous.get('dependencies_required'):
+                raise RuntimeError('Install required dependencies before restarting')
             return _schedule_restart()
         current, target, changed, dependencies = _candidate(require_clean=operation != 'check')
         result = {'ok': True, 'status': 'VERIFIED', 'verified': True, 'current_commit': current,
@@ -181,7 +244,7 @@ def maintain(operation='status'):
                      'message': 'Checkout state only; running process is not activated by a Git update.'})
         if dependencies:
             result.update(status='WAITING', verified=False, activation_required='install_dependencies_then_restart',
-                          message='Scripts updated. Dependency files changed; install dependencies before restarting. No packages were installed.')
+                          message='Scripts updated. Dependency files changed; use install_dependencies_restart with approval to install and restart. No packages were installed.')
             return result
         if operation == 'update_restart':
             result.update(_schedule_restart())
@@ -207,3 +270,6 @@ def _restart_helper():
 
 if __name__ == '__main__' and sys.argv[1:] == ['--restart-helper']:
     _restart_helper()
+
+if __name__ == '__main__' and sys.argv[1:] == ['--dependencies-helper']:
+    _dependencies_helper()

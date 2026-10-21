@@ -54,7 +54,7 @@ def live_delegation_instruction(config: dict | None = None, *, live_model: str |
         "If a file already exists and only delivery failed, retry delivery rather than regenerating it. "
         "A new file extension does not inherently require adding a new tool. Specialized DOCX support does not replace that general workflow. "
         "When Text reasoning states it cannot execute or save directly, distinguish its role from host capabilities and continue the applicable host tool; never claim success without evidence. "
-        "For requests to update Mark scripts from GitHub or restart its server, use server_maintenance. "
+        "For requests to update Mark scripts from GitHub or restart its server, use server_maintenance. For explicit server dependency installation use install_dependencies or install_dependencies_restart with host approval; then poll status, never claim completion from scheduling alone. "
         "Use status/check without approval; propose mutating operations once through propose_text_action. "
         "Explain the brief disconnect before restart and report scheduled/WAITING honestly. "
         "Speak the returned answer faithfully. Brief greetings and turn-taking may "

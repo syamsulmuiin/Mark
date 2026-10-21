@@ -21,8 +21,8 @@ def server_maintenance(parameters, **kwargs):
 
 TOOL = {
     'name': 'server_maintenance',
-    'description': 'Mark server maintenance menu: status, check GitHub main updates, update scripts, restart, or update_restart. Check/status are read-only. Other operations require one host approval through propose_text_action. Uses only the official Mark origin, refuses dirty/diverged checkouts. Restart is delayed and returns WAITING, never claim completion before checking status after reconnect. Dependency changes require manual installation; no APK update or package install is performed.',
+    'description': 'Mark server maintenance menu: status, check GitHub main updates, update scripts, restart, or update_restart. Check/status are read-only. Other operations require one host approval through propose_text_action. Uses only the official Mark origin, refuses dirty/diverged checkouts. Restart is delayed and returns WAITING, never claim completion before checking status after reconnect. For dependency installation use install_dependencies or install_dependencies_restart with one approval. Installs only repository requirements into the running server Python environment in a detached helper; poll status. No APK update is performed.',
     'parameters': {'type': 'OBJECT', 'properties': {'operation': {'type': 'STRING',
-        'enum': ['status', 'check', 'update', 'restart', 'update_restart']}}, 'required': ['operation']},
+        'enum': ['status', 'check', 'update', 'restart', 'update_restart', 'install_dependencies', 'install_dependencies_restart']}}, 'required': ['operation']},
     'handler': server_maintenance,
 }

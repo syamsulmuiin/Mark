@@ -57,7 +57,7 @@ def artifact_feedback(tool, result, args):
     """Carry bounded readback into the final answer, pinned to the actual output."""
     import hashlib
     data = payload(result)
-    if tool == 'code_helper' and args.get('action') == 'write' and data.get('verified') is True:
+    if tool in {'code_helper', 'file_processor'} and args.get('action') in {'write', 'analyze'} and data.get('verified') is True:
         source = data.get('file_path')
     elif tool == 'send_server_file' and data.get('attachment_id') and str(data.get('status')).lower() == 'notified':
         source = args.get('source')
@@ -125,8 +125,13 @@ def durable_artifacts(dashboard, owner, limit=8):
                     digest.update(chunk)
             if digest.hexdigest() != item.get('sha256'):
                 continue
-            recovered.append({'file_path': str(path), 'name': item.get('name'),
-                              'sha256': digest.hexdigest(), 'created_at': item.get('created_at')})
+            record = {'file_path': str(path), 'name': item.get('name'),
+                      'sha256': digest.hexdigest(), 'created_at': item.get('created_at')}
+            readback = artifact_feedback('code_helper', {'verified': True, 'file_path': str(path),
+                                         'sha256': digest.hexdigest()}, {'action': 'write'})
+            if readback:
+                record['source_content'] = readback['artifact_readback']['content']
+            recovered.append(record)
             seen.add(str(path))
         except (OSError, ValueError):
             continue

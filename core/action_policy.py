@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 from pathlib import Path
-from core.artifact_paths import ARTIFACT_ROOT
+from core.artifact_paths import ARTIFACT_ROOT, WORKSPACE_ROOT, SCRIPT_SUFFIXES
 
 # These tools retain their own host/user intent or native confirmation gate.
 NATIVE_GATES = {"test_flash_approval", "self_repair_apply"}
@@ -41,14 +41,19 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
                   ('jarvis_code.py' if str(args.get('language') or 'python').lower() in {'python', 'py'} else ''))
         if raw:
             target = Path(raw)
-            target = target if target.is_absolute() else ARTIFACT_ROOT / "code" / target
+            target = target if target.is_absolute() else (WORKSPACE_ROOT if target.suffix.lower() in SCRIPT_SUFFIXES else ARTIFACT_ROOT / "code") / target
             try:
                 target.resolve().relative_to(ARTIFACT_ROOT.resolve())
                 # Text artifacts never execute; the writer creates a unique file on collision.
                 if target.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".py"}:
                     return False
             except (ValueError, OSError):
-                pass
+                try:
+                    target.resolve().relative_to(WORKSPACE_ROOT.resolve())
+                    if target.suffix.lower() in SCRIPT_SUFFIXES:
+                        return False
+                except (ValueError, OSError):
+                    pass
     if tool == "file_processor" and str(args.get("action") or "").lower() == "list_directory":
         # The handler independently enforces storage scope, including after approval.
         return False

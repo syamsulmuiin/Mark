@@ -6,7 +6,7 @@ import time
 import hashlib
 import uuid
 from pathlib import Path
-from core.artifact_paths import ARTIFACT_ROOT
+from core.artifact_paths import ARTIFACT_ROOT, WORKSPACE_ROOT, SCRIPT_SUFFIXES, inside_workspace
 
 
 def get_base_dir():
@@ -65,9 +65,9 @@ def _resolve_save_path(output_path: str, language: str) -> Path:
     }
     if output_path:
         p = Path(output_path)
-        return p if p.is_absolute() else ARTIFACTS / p
+        return p if p.is_absolute() else (WORKSPACE_ROOT if p.suffix.lower() in SCRIPT_SUFFIXES else ARTIFACTS) / p
     ext = ext_map.get((language or "python").lower(), ".py")
-    return ARTIFACTS / f"jarvis_code{ext}"
+    return (WORKSPACE_ROOT if ext in SCRIPT_SUFFIXES else ARTIFACTS) / f"jarvis_code{ext}"
 
 
 def _read_file(file_path: str) -> tuple[str, str]:
@@ -196,6 +196,7 @@ Rules:
 - Add helpful inline comments.
 - Handle errors and edge cases properly.
 - Use modern best practices.
+- Keep source code separate from user outputs. Write final user files under {ARTIFACT_ROOT} only when this is the configured host path; prefer the explicit artifact directory in the task specification. Never deliver internal source as the requested document.
 
 Description: {description}
 
@@ -209,6 +210,7 @@ Code:"""
         inert = path.suffix.lower() in {'.py', '.txt', '.md', '.log', '.csv', '.json'}
     except (ValueError, OSError):
         inert = False
+    inert = inert or inside_workspace(path)
     if inert:
         path.parent.mkdir(parents=True, exist_ok=True)
         original = path
@@ -249,7 +251,7 @@ Fixed code:"""
     return _clean_code(response.text)
 
 
-def _run_file(path: Path, args: list, timeout: int, structured=False) -> str:
+def _run_file(path: Path, args: list, timeout: int, structured=False, working_dir=None) -> str:
     interpreters = {
         ".py":  [sys.executable],
         ".js":  ["node"],
@@ -264,11 +266,15 @@ def _run_file(path: Path, args: list, timeout: int, structured=False) -> str:
         return f"ERROR: No interpreter for {path.suffix}."
 
     try:
+        if working_dir is None and inside_workspace(path):
+            working_dir = ARTIFACT_ROOT / "generated"
+        cwd = Path(working_dir) if working_dir else path.parent
+        cwd.mkdir(parents=True, exist_ok=True)
         result = subprocess.run(
             interp + [str(path)] + (args or []),
             capture_output=True, text=True,
             encoding="utf-8", errors="replace",
-            timeout=timeout, cwd=str(path.parent)
+            timeout=timeout, cwd=str(cwd)
         )
         output = result.stdout.strip()
         error  = result.stderr.strip()
@@ -295,7 +301,7 @@ def _run_file(path: Path, args: list, timeout: int, structured=False) -> str:
         return f"ERROR: Execution error: {e}"
 
 
-def _build(description, language, output_path, args, timeout, speak=None, player=None, *, structured=False) -> str:
+def _build(description, language, output_path, args, timeout, speak=None, player=None, *, structured=False, working_dir=None) -> str:
     if not description:
         return "Please describe what you want me to build, sir."
 
@@ -317,7 +323,7 @@ def _build(description, language, output_path, args, timeout, speak=None, player
         if player:
             player.write_log(f"[Code] Attempt {attempt}...")
 
-        last_output = _run_file(path, args, timeout)
+        last_output = _run_file(path, args, timeout, False, working_dir)
         if last_output.startswith('WAITING:'):
             return json.dumps({'ok': True, 'status': 'WAITING', 'verified': False,
                 'file_path': str(path.resolve()), 'instruction': last_output})
@@ -360,6 +366,7 @@ def _write_action(description, language, output_path, player, literal_code="") -
             text_artifact = path.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".py"}
         except (ValueError, OSError):
             text_artifact = False
+        text_artifact = text_artifact or inside_workspace(path)
         if text_artifact:
             path.parent.mkdir(parents=True, exist_ok=True)
             original = path
@@ -385,7 +392,7 @@ def _write_action(description, language, output_path, player, literal_code="") -
         return json.dumps({"ok": True, "status": "SUCCESS", "verified": True,
                            "file_path": str(path.resolve()), "size": len(data),
                            "sha256": hashlib.sha256(data).hexdigest(),
-                           "instruction": "Use this exact file_path for send_server_file. Do not guess a storage path."})
+                           "instruction": "This is the actual saved path. For internal task scripts, run the script and deliver its user output, not the source. Send source only when requested."})
     if not description:
         return "Please describe what you want me to write, sir."
     if player:

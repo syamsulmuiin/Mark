@@ -13,7 +13,7 @@ def capability_instruction(names):
         notes.append('Mark can check GitHub script updates, update, restart, and update_restart through server_maintenance. '
                      'Mutations require the existing host approval flow; returning shell instructions alone does not execute them.')
     if 'file_processor' in tools:
-        notes.append('Find existing server files using file_processor action=list_directory file_path=storage, then browse returned directories with pagination. This reads actual storage independently of attachment history. Do not claim files are inaccessible before inspecting host results.')
+        notes.append('Find existing server files using file_processor action=list_directory file_path=storage, then browse returned directories with pagination. This reads actual storage independently of attachment history. For user documents start with storage/artifacts; autonomy directories contain internal code/state, not user deliverables. Do not claim files are inaccessible before inspecting host results.')
     if 'skill_manager' in tools:
         notes.append('Create missing reusable capabilities using skill_manager operation=ensure with name, kind, purpose and original inputs. Pure computations use kind=pure; general host scripts use kind=script with host approval. Then act on the tool result; do not stop at promising a skill or tell the user to implement it elsewhere.')
     generic = [name for name in ('code_helper', 'dev_agent') if name in tools]

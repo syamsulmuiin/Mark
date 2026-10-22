@@ -3,7 +3,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from core.artifact_paths import ARTIFACT_ROOT, BASE_DIR
+from core.artifact_paths import ARTIFACT_ROOT, BASE_DIR, inside_workspace
 
 
 def payload(result):
@@ -49,7 +49,8 @@ def observed_files(result):
             if path.is_file():
                 files.append(str(path.resolve()))
         except (ValueError, OSError):
-            continue
+            if inside_workspace(path) and path.is_file() and str(path.resolve()) not in files:
+                files.append(str(path.resolve()))
     return files
 
 

@@ -121,3 +121,11 @@ This allows sequential revisions to retain earlier changes instead of rebuilding
 unchanged values from memory. Readback verification proves file identity, not
 semantic correctness: compare requested changes and preserved values before
 claiming completion, especially after a user reports an incorrect revision.
+
+DOCX listing responses also expose the requesting device's recovered artifact
+references so non-DOCX outputs are discoverable without repeating DOCX lookups.
+Small CSV, TSV, TXT, Markdown and JSON sources support `file_processor inspect`
+for bounded exact text readback without an LLM analysis call. A DOCX inspection
+request naming one of these formats is routed through the same file inspection
+policy; authorization and export restrictions still apply. Oversized sources
+require bounded analysis rather than being reported missing.

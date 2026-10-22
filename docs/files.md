@@ -106,3 +106,10 @@ SHA-256. References are ordered newest first so revisions can preserve earlier
 changes. Other devices, deleted inbox entries, missing files, changed content and
 symlink paths are excluded. Recovery provides context; it never replays actions
 or approvals. The model must inspect the relevant file before revising it.
+
+Attachment metadata stores project-relative source paths. Recovery resolves these
+against Mark's installation directory, independently of the service working
+directory, and then applies the same artifact-root and hash checks. Memory recall,
+Text action proposals and Text reasoning receive the recovered references.
+`artifact_context_recovered` events record counts and consumers without file
+contents or paths, making empty recovery visible in runtime diagnostics.

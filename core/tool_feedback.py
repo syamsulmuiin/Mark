@@ -3,7 +3,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from core.artifact_paths import ARTIFACT_ROOT
+from core.artifact_paths import ARTIFACT_ROOT, BASE_DIR
 
 
 def payload(result):
@@ -110,8 +110,10 @@ def durable_artifacts(dashboard, owner, limit=8):
         if len(recovered) >= limit:
             break
         path = Path(item['source_path'])
+        if not path.is_absolute():
+            path = BASE_DIR / path
         try:
-            if not path.is_absolute() or path.resolve(strict=True) != path:
+            if path.resolve(strict=True) != path:
                 continue
             path.relative_to(ARTIFACT_ROOT.resolve())
             if str(path) in seen or not path.is_file():

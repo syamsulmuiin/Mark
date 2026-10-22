@@ -28,6 +28,20 @@ def _pid_alive(pid):
                 capture_output=True, text=True, timeout=5,
             )
             return r.returncode == 0 and r.stdout.strip() == str(int(pid))
+        # A terminated worker can remain in the process table until its parent
+        # reaps it. kill(pid, 0) succeeds for zombies, but they cannot serve the
+        # API or block replacement startup.
+        try:
+            import psutil
+            process = psutil.Process(int(pid))
+            return process.status() not in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}
+        except ImportError:
+            pass
+        except Exception as exc:
+            # Keep permission/inspection failures conservative. PID absence is
+            # conclusive; other failures fall back to the OS liveness probe.
+            if isinstance(exc, psutil.NoSuchProcess):
+                return False
         os.kill(pid, 0)
         return True
     except Exception:

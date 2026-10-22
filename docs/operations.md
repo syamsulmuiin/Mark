@@ -279,3 +279,12 @@ normal debounce window but requires 320 ms for low-energy VAD candidates, reduci
 brief ambient-noise activations while retaining buffered quiet speech. This is a
 noise filter, not a guarantee of transcription accuracy; ordinary words are not
 blacklisted.
+
+On Linux, stopped workers in zombie/dead process states do not count as running
+servers and cannot block a restart. Live workers and permission-denied liveness
+checks remain protected from duplicate replacement startup. If a companion cannot
+reach the server, use a host shell to run `.venv/bin/python main.py --start`.
+For startup exceptions, run `.venv/bin/python main.py --server-worker` in the
+foreground only after confirming no existing worker owns the port; inspect
+`runtime/error.log` and `runtime/maintenance.log` on that host. Companion
+unreachability alone does not identify whether the worker, API or tunnel failed.

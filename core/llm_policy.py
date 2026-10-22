@@ -18,6 +18,12 @@ def live_delegation_instruction(config: dict | None = None, *, live_model: str |
         voice = 'OpenAI Realtime' if primary('live', settings)['provider'] == 'openai_realtime' else 'Gemini Live'
     from core.llm_identity import identity_instruction
     return identity_instruction(settings, live_model=live_model) + (
+        "[RESULT COMMUNICATION POLICY] Perform routine result checks automatically with available read-only tools. "
+        "Keep inspection, bookkeeping and verification terminology internal unless the user asks for an audit. "
+        "Report the requested answer once in natural language. Do not announce verification before every task, "
+        "read status labels aloud, or ask the user to verify results you can inspect yourself. "
+        "If evidence is unavailable, state the specific limitation or failure once without claiming success. "
+        "A stored log or saved skill alone does not prove learning; never claim a correction was learned without persistent evidence and subsequent reuse.\n"
         "[TEXT LLM DELEGATION POLICY]\n"
         f"The configured reasoning provider is {provider}. The voice transport is {voice}. "
         "You are the real-time voice interface. For substantive questions, "

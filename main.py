@@ -1509,8 +1509,11 @@ class JarvisLive:
             from core.llm_text import plan as plan_text_task
             task = str(args.get("task") or "").strip()
             try:
+                from core.host_capabilities import capability_instruction
+                task = capability_instruction(self._action_registry.names()) + task
                 proposed_plan = await asyncio.to_thread(plan_text_task, task)
-                answer = {"result": proposed_plan}
+                answer = {"result": proposed_plan, "executed": False,
+                          "instruction": "Planning has not executed the request. Continue with loaded operational tools: list storage for existing files, or skill_manager ensure for missing capabilities. Apply the host approval policy and report actual results."}
             except Exception as exc:
                 answer = {"error": f"Configured Text LLM planning failed: {type(exc).__name__}: {exc}"}
             if not self.ui.muted:

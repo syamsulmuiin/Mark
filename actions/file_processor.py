@@ -809,6 +809,14 @@ def _process_pptx(path: Path, action: str, params: dict, speak=None) -> str:
     return f"Unknown PPTX action: '{action}'. Try: summarize, extract_text, analyze"
 
 def file_processor(parameters: dict, player=None, speak=None) -> str:
+    if str(parameters.get("action") or "").lower() == "list_directory":
+        from core.server_export_policy import list_server_directory
+        from core.artifact_paths import BASE_DIR
+        try:
+            return json.dumps(list_server_directory(parameters.get("file_path") or "storage", base_dir=BASE_DIR,
+                              offset=parameters.get("offset", 0), limit=parameters.get("limit", 100)))
+        except (OSError, ValueError, TypeError) as exc:
+            return json.dumps({"status": "FAILED", "verified": False, "reason": "directory_listing_failed", "error_type": type(exc).__name__})
     file_path_str = parameters.get("file_path", "").strip()
     if not file_path_str:
         return json.dumps({"ok": False, "status": "FAILED", "executed": False, "reason": "file_path_missing", "error": "No file path provided. List/inspect actual documents first."})
@@ -913,7 +921,7 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "file_processor",
-    "description": "Processes any file that the user has uploaded or dropped onto the interface. Use this when the user refers to an uploaded file and wants an action on it. Supports: images (describe/ocr/resize/compress/convert), PDFs (summarize/extract_text/to_word), Word docs & text files (summarize/extract; for DOCX revisions use document_editor list/inspect/revise), CSV/Excel (analyze/stats/filter/sort/convert; CSV inspect returns exact text without a model), JSON/XML (validate/format/analyze), code files (explain/review/fix/optimize/run/document/test), audio (transcribe/trim/convert/info), video (trim/extract_audio/extract_frame/compress/transcribe/info), archives (list/extract), presentations (summarize/extract_text). For partial DOCX edits use document_editor directly; for other uploaded-file operations use this tool. If the user's command is ambiguous, pick the most logical action for that file type.",
+    "description": "Lists server storage folders with action=list_directory and file_path=storage (or a returned directory path), with offset/limit pagination; use this to find existing reports of any format before claiming a file is missing. Processes any file that the user has uploaded or dropped onto the interface. Use this when the user refers to an uploaded file and wants an action on it. Supports: images (describe/ocr/resize/compress/convert), PDFs (summarize/extract_text/to_word), Word docs & text files (summarize/extract; for DOCX revisions use document_editor list/inspect/revise), CSV/Excel (analyze/stats/filter/sort/convert; CSV inspect returns exact text without a model), JSON/XML (validate/format/analyze), code files (explain/review/fix/optimize/run/document/test), audio (transcribe/trim/convert/info), video (trim/extract_audio/extract_frame/compress/transcribe/info), archives (list/extract), presentations (summarize/extract_text). For partial DOCX edits use document_editor directly; for other uploaded-file operations use this tool. If the user's command is ambiguous, pick the most logical action for that file type.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -923,8 +931,10 @@ TOOL = {
             },
             "action": {
                 "type": "STRING",
-                "description": "What to do with the file. Examples by type:\nimage: describe | ocr | resize | compress | convert | info\npdf: summarize | extract_text | to_word | info\ndocx: summarize | extract_text (for edits use document_editor)\ntxt: summarize | fix | reformat | translate_hint | word_count | to_bullet\ncsv/excel: analyze | stats | filter | sort | convert | info (CSV also supports inspect for exact source text)\njson: validate | format | analyze | to_csv\ncode: explain | review | fix | optimize | run | document | test\naudio: transcribe | trim | convert | info\nvideo: trim | extract_audio | extract_frame | compress | transcribe | info | convert\narchive: list | extract\npptx: summarize | extract_text | analyze"
+                "description": "Use list_directory for storage folder inventory. What to do with the file. Examples by type:\nimage: describe | ocr | resize | compress | convert | info\npdf: summarize | extract_text | to_word | info\ndocx: summarize | extract_text (for edits use document_editor)\ntxt: summarize | fix | reformat | translate_hint | word_count | to_bullet\ncsv/excel: analyze | stats | filter | sort | convert | info (CSV also supports inspect for exact source text)\njson: validate | format | analyze | to_csv\ncode: explain | review | fix | optimize | run | document | test\naudio: transcribe | trim | convert | info\nvideo: trim | extract_audio | extract_frame | compress | transcribe | info | convert\narchive: list | extract\npptx: summarize | extract_text | analyze"
             },
+            "offset": {"type": "INTEGER", "description": "Directory listing page offset; default 0"},
+            "limit": {"type": "INTEGER", "description": "Directory listing page size; default 100, maximum 200"},
             "instruction": {
                 "type": "STRING",
                 "description": "Free-form instruction if action doesn't cover it. E.g. 'translate this to Turkish', 'find all email addresses'"

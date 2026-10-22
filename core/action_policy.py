@@ -49,6 +49,9 @@ def requires_confirmation(tool: str, args: dict | None = None) -> bool:
                     return False
             except (ValueError, OSError):
                 pass
+    if tool == "file_processor" and str(args.get("action") or "").lower() == "list_directory":
+        # The handler independently enforces storage scope, including after approval.
+        return False
     if tool == 'file_processor' and str(args.get('action') or '').lower() in {'info', 'inspect', 'summarize', 'extract_text', 'analyze', 'stats', 'validate', 'word_count'}:
         try:
             path = Path(str(args.get('file_path') or ''))

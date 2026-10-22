@@ -113,3 +113,11 @@ directory, and then applies the same artifact-root and hash checks. Memory recal
 Text action proposals and Text reasoning receive the recovered references.
 `artifact_context_recovered` events record counts and consumers without file
 contents or paths, making empty recovery visible in runtime diagnostics.
+
+CSV/Excel analysis includes source rows, column names and a file hash alongside
+the model's analysis, and respects the supplied analysis instruction. Small text
+artifact references also include hash-matched source content during recovery.
+This allows sequential revisions to retain earlier changes instead of rebuilding
+unchanged values from memory. Readback verification proves file identity, not
+semantic correctness: compare requested changes and preserved values before
+claiming completion, especially after a user reports an incorrect revision.

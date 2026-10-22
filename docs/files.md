@@ -98,3 +98,11 @@ must match the returned SHA-256 and stay within the artifact directory. The fina
 answer should include the requested substantive results and revision changes,
 not just a delivery acknowledgement. File identity verification does not certify
 calculation correctness; requested calculations still require verification.
+
+After a server restart, action proposals and memory recall can recover output
+references from the requesting device's durable attachment inbox. Recovery checks
+that the original absolute artifact path still exists and matches its stored
+SHA-256. References are ordered newest first so revisions can preserve earlier
+changes. Other devices, deleted inbox entries, missing files, changed content and
+symlink paths are excluded. Recovery provides context; it never replays actions
+or approvals. The model must inspect the relevant file before revising it.

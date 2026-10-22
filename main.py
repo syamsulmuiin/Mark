@@ -2260,7 +2260,7 @@ class JarvisLive:
                       "response_instruction": (
                           "Bookkeeping only: do not repeat an already spoken result."
                           if name == "task_continuity" else
-                          "Continue intermediate inspection steps silently. Give one concise final result for the user request, including requested calculations, changed values and conclusions. File delivery alone does not replace the substantive answer, including after revisions. "
+                          "Continue intermediate inspection steps and routine verification silently using available read-only tools; do not ask the user to perform checks you can do. Do not read internal status labels or repeat generic verification warnings. Give one concise final result for the user request, including requested calculations, changed values and conclusions. File delivery alone does not replace the substantive answer, including after revisions. "
                           "If an error prevents completion, explain that specific error once; do not repeat progress promises or an earlier success."),
                       "completion_rule": "Only VERIFIED confirms the reported step. FAILED/WAITING/UNVERIFIED are not completed user goals. Inspect the actual state; never retry side effects blindly or invent file paths.", **(confirm_gate.response_metadata(str(result))
                       if name == "test_flash_approval" else {})},

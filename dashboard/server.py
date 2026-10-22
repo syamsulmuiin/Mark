@@ -557,14 +557,39 @@ class DashboardServer:
         return self.get_url()
 
     async def _start_remote_tunnel(self) -> None:
-        if not cloudflare_enabled():
-            return
+        """Supervise the optional connector without restarting Mark or its tasks."""
+        delay = 2
+        announced = False
         try:
-            self._public_url = await asyncio.to_thread(self._tunnel.start)
-            print(f"[Dashboard] Cloudflare remote access: {self._public_url}")
-        except Exception as e:
+            while cloudflare_enabled():
+                try:
+                    current = self._tunnel.process
+                    if current is None or current.poll() is not None:
+                        announced = False
+                    self._public_url = await asyncio.to_thread(self._tunnel.start)
+                    process = self._tunnel.process
+                    if process is None or process.poll() is not None:
+                        raise RuntimeError("connector_exited")
+                    if not announced:
+                        # Process liveness is not proof of public reachability.
+                        _interaction_event("remote_tunnel", status="process_running")
+                        print("[Dashboard] Cloudflare connector running; public reachability is not certified.")
+                        announced = True
+                    delay = 2
+                    await asyncio.sleep(5)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self._public_url = ""
+                    announced = False
+                    _interaction_event("remote_tunnel", status="retrying", delay_seconds=delay,
+                                       error_type=type(exc).__name__)
+                    print(f"[Dashboard] Cloudflare remote access unavailable; retrying in {delay}s ({type(exc).__name__}).")
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 60)
+        finally:
             self._public_url = ""
-            print(f"[Dashboard] Cloudflare remote access unavailable: {e}")
+            await asyncio.to_thread(self._tunnel.stop)
 
     def get_manual_url(self) -> str:
         """URL for manual browser entry. When HTTPS active, points to alias port (also HTTPS)."""
@@ -1812,7 +1837,7 @@ class DashboardServer:
 
         # Start the optional outbound-only Cloudflare tunnel. It exposes the same
         # dashboard/device WebSocket; JARVIS pairing still authenticates devices.
-        asyncio.create_task(self._start_remote_tunnel())
+        remote_task = asyncio.create_task(self._start_remote_tunnel())
         asyncio.create_task(self._attachment_gc_loop())
 
         # Firewall setup runs in a thread — uvicorn starts immediately,
@@ -1833,4 +1858,11 @@ class DashboardServer:
 
         print(f"[Dashboard] http://{self._ip}:{PORT}")
         print("[Dashboard] Press 'Remote Control' in JARVIS UI to get the QR code.")
-        await uvicorn.Server(cfg).serve()
+        try:
+            await uvicorn.Server(cfg).serve()
+        finally:
+            remote_task.cancel()
+            try:
+                await remote_task
+            except asyncio.CancelledError:
+                pass

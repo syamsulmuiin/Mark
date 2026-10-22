@@ -288,3 +288,11 @@ For startup exceptions, run `.venv/bin/python main.py --server-worker` in the
 foreground only after confirming no existing worker owns the port; inspect
 `runtime/error.log` and `runtime/maintenance.log` on that host. Companion
 unreachability alone does not identify whether the worker, API or tunnel failed.
+
+The optional Cloudflare connector is supervised independently of Live sessions.
+Startup failures are retried with a delay capped at 60 seconds, and an exited
+connector is started again without restarting Mark or replaying tasks. Runtime
+`remote_tunnel` events distinguish `retrying` from `process_running`; connector
+liveness does not certify public reachability. Server shutdown cancels supervision
+and stops its connector. Provider transport errors, including abnormal WebSocket
+closure (1006), reconnect the configured Live provider without switching models.

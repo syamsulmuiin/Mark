@@ -93,9 +93,10 @@ class NamedTunnel:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
         started=threading.Event(); failed=[]
+        process = self.process
         def read():
-            if not self.process or not self.process.stdout: return
-            for line in self.process.stdout:
+            if not process or not process.stdout: return
+            for line in process.stdout:
                 low=line.lower()
                 if "registered tunnel connection" in low or "connection" in low and "registered" in low:
                     started.set()

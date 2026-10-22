@@ -129,3 +129,5 @@ for bounded exact text readback without an LLM analysis call. A DOCX inspection
 request naming one of these formats is routed through the same file inspection
 policy; authorization and export restrictions still apply. Oversized sources
 require bounded analysis rather than being reported missing.
+
+Server storage discovery uses `file_processor` with `action=list_directory` and `file_path=storage`. Browse returned directory paths and use `offset`/`limit` for subsequent pages (maximum 200 entries). This read-only operation needs no approval, covers all file formats, excludes credential/key files and symlinks, and does not prove content correctness. Attachment history is not a complete storage inventory. Deleting a server attachment copy does not guarantee that an original artifact remains; inspect actual storage before reporting availability.

@@ -91,3 +91,41 @@ def artifact_feedback(tool, result, args):
             'or conditions using the available tools before claiming them verified.'
         ),
     }
+
+
+def durable_artifacts(dashboard, owner, limit=8):
+    """Recover exact output references from the owner's durable attachment inbox."""
+    import hashlib
+    inbox = getattr(dashboard, '_attachment_inbox', None)
+    items = getattr(inbox, 'items', {})
+    if owner == 'local' or not isinstance(items, dict):
+        return []
+    candidates = [item for item in list(items.values()) if isinstance(item, dict)
+                  and item.get('source_device') == 'server'
+                  and item.get('destination_device') == owner
+                  and isinstance(item.get('source_path'), str)]
+    candidates.sort(key=lambda item: float(item.get('created_at', 0)), reverse=True)
+    recovered, seen = [], set()
+    for item in candidates:
+        if len(recovered) >= limit:
+            break
+        path = Path(item['source_path'])
+        try:
+            if not path.is_absolute() or path.resolve(strict=True) != path:
+                continue
+            path.relative_to(ARTIFACT_ROOT.resolve())
+            if str(path) in seen or not path.is_file():
+                continue
+            # Stream hashing keeps restart recovery bounded in memory.
+            digest = hashlib.sha256()
+            with path.open('rb') as stream:
+                for chunk in iter(lambda: stream.read(65536), b''):
+                    digest.update(chunk)
+            if digest.hexdigest() != item.get('sha256'):
+                continue
+            recovered.append({'file_path': str(path), 'name': item.get('name'),
+                              'sha256': digest.hexdigest(), 'created_at': item.get('created_at')})
+            seen.add(str(path))
+        except (OSError, ValueError):
+            continue
+    return recovered

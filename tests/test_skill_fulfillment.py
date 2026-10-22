@@ -153,7 +153,8 @@ print(str(result.resolve()))
 '''
     monkeypatch.setattr(code_helper,'_get_gemini',lambda:SimpleNamespace(generate_content=lambda _:SimpleNamespace(text=source)))
     first=json.loads(manager.skill_manager(payload('script')))
-    root=Path(first['file_path']).parent
+    root=tmp_path/'storage/artifacts/skill_outputs'
+    assert Path(first['file_path']).parent == tmp_path/'storage/autonomy/skill_scripts'
     assert first['process_verified'] and not first['verified']
     assert (root/'counter.txt').read_text()=='1'
     assert json.loads((root/'result.json').read_text())=={'sum':5}

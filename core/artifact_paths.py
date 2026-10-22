@@ -10,6 +10,17 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ARTIFACT_ROOT = BASE_DIR / "storage" / "artifacts"
+WORKSPACE_ROOT = BASE_DIR / "storage" / "autonomy" / "workspaces"
+SCRIPT_SUFFIXES = {".py", ".js", ".ts", ".sh", ".ps1", ".rb", ".php", ".java", ".cpp", ".c", ".rs", ".go"}
+
+
+def inside_workspace(path):
+    try:
+        Path(path).resolve().relative_to(WORKSPACE_ROOT.resolve())
+        return Path(path).suffix.lower() in SCRIPT_SUFFIXES
+    except (ValueError, OSError):
+        return False
+
 
 
 def artifact_path(name: str, subdir: str = "") -> Path:

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from core.artifact_paths import ARTIFACT_ROOT
+from core.artifact_paths import ARTIFACT_ROOT, inside_workspace
 
 CALLS = {
     "print",
@@ -147,7 +147,11 @@ def _analyze_source(source):
 def source_assessment(path):
     try:
         path = Path(path)
-        path.resolve().relative_to(ARTIFACT_ROOT.resolve())
+        try:
+            path.resolve().relative_to(ARTIFACT_ROOT.resolve())
+        except ValueError:
+            if not inside_workspace(path):
+                path.resolve().relative_to((ARTIFACT_ROOT.parent / "autonomy" / "skill_scripts").resolve())
         if (
             path.suffix != ".py"
             or path.resolve() != path

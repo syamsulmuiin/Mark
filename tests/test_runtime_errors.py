@@ -37,3 +37,9 @@ def test_network_failure_does_not_trigger_model_failover():
     assert decision.action == ErrorAction.TRANSPORT_RECONNECT
     assert decision.action != ErrorAction.MODEL_FAILOVER
     assert decision.retryable is True
+
+
+def test_live_abnormal_closure_reconnects_same_provider():
+    decision = classify_error(Boundary.LIVE_SESSION, 'unhandled errors in a TaskGroup: 1006 None. abnormal closure [internal]')
+    assert decision.action == ErrorAction.TRANSPORT_RECONNECT
+    assert decision.retryable is True
